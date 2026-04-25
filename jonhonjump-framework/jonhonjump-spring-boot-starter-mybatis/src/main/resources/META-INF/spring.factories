@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+  cn.jonhon.jump.framework.mybatis.config.IdTypeEnvironmentPostProcessor

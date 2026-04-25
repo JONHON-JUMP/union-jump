@@ -1,0 +1,3 @@
+cn.jonhon.jump.framework.datasource.config.JonhonjumpDataSourceAutoConfiguration
+cn.jonhon.jump.framework.mybatis.config.JonhonjumpMybatisAutoConfiguration
+cn.jonhon.jump.framework.translate.config.JonhonjumpTranslateAutoConfiguration

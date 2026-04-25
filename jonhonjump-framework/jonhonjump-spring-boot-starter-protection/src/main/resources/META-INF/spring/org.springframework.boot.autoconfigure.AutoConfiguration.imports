@@ -1,0 +1,4 @@
+cn.jonhon.jump.framework.idempotent.config.JonhonjumpIdempotentConfiguration
+cn.jonhon.jump.framework.lock4j.config.JonhonjumpLock4jConfiguration
+cn.jonhon.jump.framework.ratelimiter.config.JonhonjumpRateLimiterConfiguration
+cn.jonhon.jump.framework.signature.config.JonhonjumpApiSignatureAutoConfiguration

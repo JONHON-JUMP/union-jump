@@ -1,0 +1,2 @@
+cn.jonhon.jump.framework.tracer.config.JonhonjumpTracerAutoConfiguration
+cn.jonhon.jump.framework.tracer.config.JonhonjumpMetricsAutoConfiguration
