@@ -392,18 +392,6 @@ public class GlobalExceptionHandler {
             return CommonResult.error(NOT_IMPLEMENTED.getCode(),
                     "[工作流模块 jonhonjump-module-bpm - 表结构未导入][参考 https://cloud.iocoder.cn/bpm/ 开启]");
         }
-        // 3. 微信公众号
-        if (message.contains("mp_")) {
-            log.error("[微信公众号 jonhonjump-module-mp - 表结构未导入][参考 https://cloud.iocoder.cn/mp/build/ 开启]");
-            return CommonResult.error(NOT_IMPLEMENTED.getCode(),
-                    "[微信公众号 jonhonjump-module-mp - 表结构未导入][参考 https://cloud.iocoder.cn/mp/build/ 开启]");
-        }
-        // 4. 商城系统
-        if (StrUtil.containsAny(message, "product_", "promotion_", "trade_")) {
-            log.error("[商城系统 jonhonjump-module-mall - 已禁用][参考 https://cloud.iocoder.cn/mall/build/ 开启]");
-            return CommonResult.error(NOT_IMPLEMENTED.getCode(),
-                    "[商城系统 jonhonjump-module-mall - 已禁用][参考 https://cloud.iocoder.cn/mall/build/ 开启]");
-        }
         // 5. ERP 系统
         if (message.contains("erp_")) {
             log.error("[ERP 系统 jonhonjump-module-erp - 表结构未导入][参考 https://cloud.iocoder.cn/erp/build/ 开启]");
@@ -415,12 +403,6 @@ public class GlobalExceptionHandler {
             log.error("[CRM 系统 jonhonjump-module-crm - 表结构未导入][参考 https://cloud.iocoder.cn/crm/build/ 开启]");
             return CommonResult.error(NOT_IMPLEMENTED.getCode(),
                     "[CRM 系统 jonhonjump-module-crm - 表结构未导入][参考 https://cloud.iocoder.cn/crm/build/ 开启]");
-        }
-        // 7. 支付平台
-        if (message.contains("pay_")) {
-            log.error("[支付模块 jonhonjump-module-pay - 表结构未导入][参考 https://cloud.iocoder.cn/pay/build/ 开启]");
-            return CommonResult.error(NOT_IMPLEMENTED.getCode(),
-                    "[支付模块 jonhonjump-module-pay - 表结构未导入][参考 https://cloud.iocoder.cn/pay/build/ 开启]");
         }
         // 8. AI 大模型
         if (message.contains("ai_")) {

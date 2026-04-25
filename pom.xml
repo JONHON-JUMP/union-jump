@@ -15,12 +15,8 @@
         <!-- 各种 module 拓展 -->
         <module>jonhonjump-module-system</module>
         <module>jonhonjump-module-infra</module>
-<!--        <module>jonhonjump-module-member</module>-->
 <!--        <module>jonhonjump-module-bpm</module>-->
 <!--        <module>jonhonjump-module-report</module>-->
-<!--        <module>jonhonjump-module-mp</module>-->
-<!--        <module>jonhonjump-module-pay</module>-->
-<!--        <module>jonhonjump-module-mall</module>-->
 <!--        <module>jonhonjump-module-crm</module>-->
 <!--        <module>jonhonjump-module-erp</module>-->
 <!--        <module>jonhonjump-module-iot</module>-->

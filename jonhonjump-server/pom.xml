@@ -32,13 +32,6 @@
             <version>${revision}</version>
         </dependency>
 
-        <!-- 会员中心。默认注释，保证编译速度 -->
-<!--        <dependency>-->
-<!--            <groupId>cn.jonhon.jump.boot</groupId>-->
-<!--            <artifactId>jonhonjump-module-member</artifactId>-->
-<!--            <version>${revision}</version>-->
-<!--        </dependency>-->
-
         <!-- 数据报表。默认注释，保证编译速度 -->
 <!--        <dependency>-->
 <!--            <groupId>cn.jonhon.jump.boot</groupId>-->
@@ -49,19 +42,6 @@
 <!--        <dependency>-->
 <!--            <groupId>cn.jonhon.jump.boot</groupId>-->
 <!--            <artifactId>jonhonjump-module-bpm</artifactId>-->
-<!--            <version>${revision}</version>-->
-<!--        </dependency>-->
-        <!-- 支付服务。默认注释，保证编译速度 -->
-<!--        <dependency>-->
-<!--            <groupId>cn.jonhon.jump.boot</groupId>-->
-<!--            <artifactId>jonhonjump-module-pay</artifactId>-->
-<!--            <version>${revision}</version>-->
-<!--        </dependency>-->
-
-        <!-- 微信公众号模块。默认注释，保证编译速度 -->
-<!--        <dependency>-->
-<!--            <groupId>cn.jonhon.jump.boot</groupId>-->
-<!--            <artifactId>jonhonjump-module-mp</artifactId>-->
 <!--            <version>${revision}</version>-->
 <!--        </dependency>-->
 

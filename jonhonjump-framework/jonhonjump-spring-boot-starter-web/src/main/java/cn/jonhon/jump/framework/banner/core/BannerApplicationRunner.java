@@ -38,10 +38,6 @@ public class BannerApplicationRunner implements ApplicationRunner {
             if (isNotPresent("cn.jonhon.jump.module.bpm.framework.flowable.config.BpmFlowableConfiguration")) {
                 System.out.println("[工作流模块 jonhonjump-module-bpm - 已禁用][参考 https://doc.iocoder.cn/bpm/ 开启]");
             }
-            // 商城系统
-            if (isNotPresent("cn.jonhon.jump.module.trade.framework.web.config.TradeWebConfiguration")) {
-                System.out.println("[商城系统 jonhonjump-module-mall - 已禁用][参考 https://doc.iocoder.cn/mall/build/ 开启]");
-            }
             // ERP 系统
             if (isNotPresent("cn.jonhon.jump.module.erp.framework.web.config.ErpWebConfiguration")) {
                 System.out.println("[ERP 系统 jonhonjump-module-erp - 已禁用][参考 https://doc.iocoder.cn/erp/build/ 开启]");
@@ -49,14 +45,6 @@ public class BannerApplicationRunner implements ApplicationRunner {
             // CRM 系统
             if (isNotPresent("cn.jonhon.jump.module.crm.framework.web.config.CrmWebConfiguration")) {
                 System.out.println("[CRM 系统 jonhonjump-module-crm - 已禁用][参考 https://doc.iocoder.cn/crm/build/ 开启]");
-            }
-            // 微信公众号
-            if (isNotPresent("cn.jonhon.jump.module.mp.framework.mp.config.MpConfiguration")) {
-                System.out.println("[微信公众号 jonhonjump-module-mp - 已禁用][参考 https://doc.iocoder.cn/mp/build/ 开启]");
-            }
-            // 支付平台
-            if (isNotPresent("cn.jonhon.jump.module.pay.framework.pay.config.PayConfiguration")) {
-                System.out.println("[支付系统 jonhonjump-module-pay - 已禁用][参考 https://doc.iocoder.cn/pay/build/ 开启]");
             }
             // AI 大模型
             if (isNotPresent("cn.jonhon.jump.module.ai.framework.web.config.AiWebConfiguration")) {
