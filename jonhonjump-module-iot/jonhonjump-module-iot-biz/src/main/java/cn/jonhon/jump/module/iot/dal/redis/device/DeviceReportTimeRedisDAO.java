@@ -14,7 +14,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
 /**
  * 设备的最后上报时间的 Redis DAO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Repository
 public class DeviceReportTimeRedisDAO {

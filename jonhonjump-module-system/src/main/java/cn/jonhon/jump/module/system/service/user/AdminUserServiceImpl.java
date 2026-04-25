@@ -54,7 +54,7 @@ import static cn.jonhon.jump.module.system.enums.LogRecordConstants.*;
 /**
  * 后台用户 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service("adminUserService")
 @Slf4j

@@ -8,7 +8,7 @@ import cn.jonhon.jump.module.mes.dal.dataobject.pro.workrecord.MesProWorkRecordL
 /**
  * MES 工作记录 Service 接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface MesProWorkRecordService {
 

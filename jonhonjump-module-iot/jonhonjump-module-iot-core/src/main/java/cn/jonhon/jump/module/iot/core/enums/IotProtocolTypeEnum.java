@@ -12,7 +12,7 @@ import java.util.Arrays;
  *
  * 用于定义传输层协议类型
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @RequiredArgsConstructor
 @Getter

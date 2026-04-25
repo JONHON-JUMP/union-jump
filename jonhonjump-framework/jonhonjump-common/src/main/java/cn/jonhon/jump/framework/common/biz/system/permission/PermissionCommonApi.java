@@ -5,7 +5,7 @@ import cn.jonhon.jump.framework.common.biz.system.permission.dto.DeptDataPermiss
 /**
  * 权限 API 接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface PermissionCommonApi {
 

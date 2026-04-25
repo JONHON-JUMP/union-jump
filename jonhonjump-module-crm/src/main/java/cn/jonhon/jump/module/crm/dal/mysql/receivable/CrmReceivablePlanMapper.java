@@ -18,7 +18,7 @@ import java.util.Objects;
 /**
  * 回款计划 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface CrmReceivablePlanMapper extends BaseMapperX<CrmReceivablePlanDO> {

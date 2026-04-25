@@ -25,7 +25,7 @@ import static cn.jonhon.jump.module.infra.enums.ErrorCodeConstants.API_ERROR_LOG
 /**
  * API 错误日志 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

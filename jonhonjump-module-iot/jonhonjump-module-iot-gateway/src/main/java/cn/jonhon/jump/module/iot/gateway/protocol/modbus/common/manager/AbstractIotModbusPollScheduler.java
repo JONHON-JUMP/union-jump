@@ -21,7 +21,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
  * 子类只需实现 {@link #pollPoint(Long, Long)} 定义具体的轮询动作。
  * <p>
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 public abstract class AbstractIotModbusPollScheduler {

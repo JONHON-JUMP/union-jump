@@ -16,7 +16,7 @@ import java.util.List;
 /**
  * 数据权限的自动配置类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @AutoConfiguration
 public class JonhonjumpDataPermissionAutoConfiguration {

@@ -10,7 +10,7 @@ import org.apache.ibatis.annotations.Mapper;
 /**
  * MES 退货检验单（RQC） Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface MesQcRqcMapper extends BaseMapperX<MesQcRqcDO> {

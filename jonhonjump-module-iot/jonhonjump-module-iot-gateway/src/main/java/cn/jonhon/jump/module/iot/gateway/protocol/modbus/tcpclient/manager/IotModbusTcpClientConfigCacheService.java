@@ -21,7 +21,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
 /**
  * IoT Modbus TCP Client 配置缓存服务
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @RequiredArgsConstructor
 @Slf4j

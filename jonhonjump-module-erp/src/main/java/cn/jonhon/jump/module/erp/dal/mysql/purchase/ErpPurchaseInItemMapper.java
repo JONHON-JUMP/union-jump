@@ -17,7 +17,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
 /**
  * ERP 采购入库项 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface ErpPurchaseInItemMapper extends BaseMapperX<ErpPurchaseInItemDO> {

@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * MES 物料产品分类 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface MesMdItemTypeMapper extends BaseMapperX<MesMdItemTypeDO> {

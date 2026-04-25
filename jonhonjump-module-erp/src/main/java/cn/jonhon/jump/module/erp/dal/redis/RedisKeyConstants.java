@@ -3,7 +3,7 @@ package cn.jonhon.jump.module.erp.dal.redis;
 /**
  * ERP Redis Key 枚举类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface RedisKeyConstants {
 

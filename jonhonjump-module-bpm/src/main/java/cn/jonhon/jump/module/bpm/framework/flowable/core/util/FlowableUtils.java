@@ -37,7 +37,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
 /**
  * Flowable 相关的工具方法
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class FlowableUtils {
 

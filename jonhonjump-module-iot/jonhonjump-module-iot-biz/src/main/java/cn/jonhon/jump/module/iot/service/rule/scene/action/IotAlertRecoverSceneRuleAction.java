@@ -17,7 +17,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
 /**
  * IoT 告警恢复的 {@link IotSceneRuleAction} 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Component
 public class IotAlertRecoverSceneRuleAction implements IotSceneRuleAction {

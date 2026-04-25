@@ -5,7 +5,7 @@ import cn.jonhon.jump.module.bpm.enums.definition.BpmModelTypeEnum;
 /**
  * BPMN XML 常量信息
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface BpmnModelConstants {
 

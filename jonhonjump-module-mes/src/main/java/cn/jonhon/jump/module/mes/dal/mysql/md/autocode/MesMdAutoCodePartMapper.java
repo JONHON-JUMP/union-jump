@@ -10,7 +10,7 @@ import java.util.List;
 /**
  * MES 编码规则组成 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface MesMdAutoCodePartMapper extends BaseMapperX<MesMdAutoCodePartDO> {

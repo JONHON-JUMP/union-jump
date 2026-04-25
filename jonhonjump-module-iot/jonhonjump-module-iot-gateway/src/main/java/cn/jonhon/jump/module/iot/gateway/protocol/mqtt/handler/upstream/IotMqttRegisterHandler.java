@@ -19,7 +19,7 @@ import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeCon
 /**
  * IoT 网关 MQTT 设备注册处理器：处理设备动态注册消息（一型一密）
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 public class IotMqttRegisterHandler extends IotMqttAbstractHandler {

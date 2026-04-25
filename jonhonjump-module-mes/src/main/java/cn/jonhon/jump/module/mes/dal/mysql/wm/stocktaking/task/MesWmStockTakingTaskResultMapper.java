@@ -10,7 +10,7 @@ import org.apache.ibatis.annotations.Mapper;
 /**
  * MES 盘点结果 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface MesWmStockTakingTaskResultMapper extends BaseMapperX<MesWmStockTakingTaskResultDO> {

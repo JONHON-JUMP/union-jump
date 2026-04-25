@@ -39,7 +39,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
  * 1. 提供 HTTP Hook 服务（/mqtt/auth、/mqtt/acl、/mqtt/event）给 EMQX 调用
  * 2. 通过 MQTT Client 订阅设备上行消息，并发布下行消息到 Broker
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 public class IotEmqxProtocol implements IotProtocol {

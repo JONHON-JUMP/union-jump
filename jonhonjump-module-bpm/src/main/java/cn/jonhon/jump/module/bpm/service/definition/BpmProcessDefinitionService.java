@@ -22,7 +22,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
  *
  * @author yunlong.li
  * @author ZJQ
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface BpmProcessDefinitionService {
 

@@ -74,7 +74,7 @@ import static cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmnModelUt
 /**
  * 流程任务实例 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  * @author jason
  */
 @Slf4j

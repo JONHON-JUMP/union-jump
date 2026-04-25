@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@link IotLocalMessageBus} 集成测试
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @SpringBootTest(classes = LocalIotMessageBusIntegrationTest.class)
 @Import(IotMessageBusAutoConfiguration.class)

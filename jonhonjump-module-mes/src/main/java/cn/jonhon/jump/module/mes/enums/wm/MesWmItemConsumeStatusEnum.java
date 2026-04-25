@@ -10,7 +10,7 @@ import java.util.Arrays;
 /**
  * MES 物料消耗记录状态枚举
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Getter
 @AllArgsConstructor

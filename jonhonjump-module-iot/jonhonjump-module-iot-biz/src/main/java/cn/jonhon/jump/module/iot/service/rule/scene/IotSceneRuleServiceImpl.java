@@ -42,7 +42,7 @@ import static cn.jonhon.jump.module.iot.enums.ErrorCodeConstants.RULE_SCENE_NOT_
 /**
  * IoT 规则场景 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

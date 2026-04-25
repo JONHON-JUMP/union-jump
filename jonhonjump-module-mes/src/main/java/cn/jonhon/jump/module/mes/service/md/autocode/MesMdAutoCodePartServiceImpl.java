@@ -19,7 +19,7 @@ import static cn.jonhon.jump.module.mes.enums.ErrorCodeConstants.AUTO_CODE_PART_
 /**
  * MES 编码规则组成 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

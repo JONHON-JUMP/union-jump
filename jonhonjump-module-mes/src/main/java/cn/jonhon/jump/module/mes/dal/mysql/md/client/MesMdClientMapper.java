@@ -13,7 +13,7 @@ import org.apache.ibatis.annotations.Mapper;
 /**
  * MES 客户 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface MesMdClientMapper extends BaseMapperX<MesMdClientDO> {

@@ -9,7 +9,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * IoT 网关配置类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Configuration
 @EnableConfigurationProperties(IotGatewayProperties.class)

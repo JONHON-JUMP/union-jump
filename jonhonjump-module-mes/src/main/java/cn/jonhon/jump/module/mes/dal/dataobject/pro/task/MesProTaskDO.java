@@ -20,7 +20,7 @@ import cn.jonhon.jump.module.mes.enums.DictTypeConstants;
 /**
  * MES 生产任务 DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("mes_pro_task")
 @KeySequence("mes_pro_task_seq")

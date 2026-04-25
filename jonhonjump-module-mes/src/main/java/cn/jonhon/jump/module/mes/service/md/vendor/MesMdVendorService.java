@@ -17,7 +17,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
 /**
  * MES 供应商 Service 接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface MesMdVendorService {
 

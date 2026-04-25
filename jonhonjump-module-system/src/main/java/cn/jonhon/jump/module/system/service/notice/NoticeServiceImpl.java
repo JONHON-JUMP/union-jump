@@ -18,7 +18,7 @@ import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.NOTICE_NOT_F
 /**
  * 通知公告 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 public class NoticeServiceImpl implements NoticeService {

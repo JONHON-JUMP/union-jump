@@ -18,7 +18,7 @@ import java.util.List;
 /**
  * {@link MiniMaxChatModel} 的集成测试
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class MiniMaxChatModelTests {
 

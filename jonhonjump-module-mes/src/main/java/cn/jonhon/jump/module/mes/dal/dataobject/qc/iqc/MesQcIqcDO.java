@@ -21,7 +21,7 @@ import cn.jonhon.jump.module.mes.enums.DictTypeConstants;
 /**
  * MES 来料检验单（IQC, Incoming Quality Control） DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("mes_qc_iqc")
 @KeySequence("mes_qc_iqc_seq")

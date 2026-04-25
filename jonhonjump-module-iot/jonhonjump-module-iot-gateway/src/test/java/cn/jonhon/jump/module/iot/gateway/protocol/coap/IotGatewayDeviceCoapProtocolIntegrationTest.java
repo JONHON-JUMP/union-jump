@@ -51,7 +51,7 @@ import static cn.jonhon.jump.module.iot.gateway.protocol.coap.handler.upstream.I
  *     </li>
  * </ol>
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 @Disabled

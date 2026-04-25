@@ -13,7 +13,7 @@ import java.util.List;
 /**
  * CRM 回款计划 Service 接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface CrmReceivablePlanService {
 

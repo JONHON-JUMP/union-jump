@@ -25,7 +25,7 @@ import static cn.jonhon.jump.module.bpm.enums.ErrorCodeConstants.OA_LEAVE_NOT_EX
  * OA 请假申请 Service 实现类
  *
  * @author jason
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

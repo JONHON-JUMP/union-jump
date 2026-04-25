@@ -22,7 +22,7 @@ import static cn.jonhon.jump.module.iot.gateway.protocol.modbus.common.utils.Iot
  * 2. 通过 {@link IotModbusTcpClientConnectionManager.ModbusConnection} 执行事务
  * 3. 从响应中提取原始值
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @UtilityClass
 @Slf4j

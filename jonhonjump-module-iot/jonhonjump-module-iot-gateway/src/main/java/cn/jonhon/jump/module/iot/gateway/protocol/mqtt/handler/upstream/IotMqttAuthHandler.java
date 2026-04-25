@@ -24,7 +24,7 @@ import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUti
  * <p>
  * 处理 MQTT CONNECT 事件，完成设备认证、连接注册、上线通知
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 public class IotMqttAuthHandler extends IotMqttAbstractHandler {

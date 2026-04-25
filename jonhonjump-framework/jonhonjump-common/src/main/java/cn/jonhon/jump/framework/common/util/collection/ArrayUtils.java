@@ -13,7 +13,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
 /**
  * Array 工具类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class ArrayUtils {
 

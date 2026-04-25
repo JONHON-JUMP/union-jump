@@ -6,7 +6,7 @@ import lombok.Getter;
 /**
  * 短信模板的审核状态枚举
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @AllArgsConstructor
 @Getter

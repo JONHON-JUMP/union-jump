@@ -11,7 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 /**
  * IoT 网关 UDP 下行消息处理器
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 @RequiredArgsConstructor

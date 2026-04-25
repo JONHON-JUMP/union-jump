@@ -19,7 +19,7 @@ import static cn.jonhon.jump.module.mes.enums.ErrorCodeConstants.QC_TEMPLATE_IND
 /**
  * MES 质检方案-检测指标项 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

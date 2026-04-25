@@ -22,7 +22,7 @@ import static cn.jonhon.jump.module.infra.dal.dataobject.logger.ApiAccessLogDO.R
 /**
  * API 访问日志 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 @Service

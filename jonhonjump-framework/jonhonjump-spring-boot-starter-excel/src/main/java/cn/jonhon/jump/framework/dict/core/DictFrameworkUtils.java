@@ -18,7 +18,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
 /**
  * 字典工具类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 public class DictFrameworkUtils {

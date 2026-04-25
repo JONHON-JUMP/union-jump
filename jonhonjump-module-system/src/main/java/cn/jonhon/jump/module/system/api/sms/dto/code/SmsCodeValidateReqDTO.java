@@ -11,7 +11,7 @@ import javax.validation.constraints.NotNull;
 /**
  * 短信验证码的校验 Request DTO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Data
 public class SmsCodeValidateReqDTO {

@@ -17,7 +17,7 @@ import java.util.List;
 /**
  * CRM 联系人 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface CrmContactMapper extends BaseMapperX<CrmContactDO> {

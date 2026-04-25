@@ -10,7 +10,7 @@ import java.util.List;
 /**
  * 社交应用的 API 接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface SocialClientApi {
 

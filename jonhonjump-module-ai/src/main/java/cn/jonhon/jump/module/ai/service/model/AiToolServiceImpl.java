@@ -22,7 +22,7 @@ import static cn.jonhon.jump.module.ai.enums.ErrorCodeConstants.TOOL_NOT_EXISTS;
 /**
  * AI 工具 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

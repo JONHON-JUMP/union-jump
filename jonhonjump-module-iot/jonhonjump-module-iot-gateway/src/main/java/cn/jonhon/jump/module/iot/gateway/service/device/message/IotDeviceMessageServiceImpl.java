@@ -22,7 +22,7 @@ import static cn.jonhon.jump.module.iot.gateway.enums.ErrorCodeConstants.DEVICE_
 /**
  * IoT 设备消息 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Slf4j

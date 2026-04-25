@@ -10,7 +10,7 @@ import java.util.Arrays;
 /**
  * IoT 场景触发条件的操作符枚举
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @RequiredArgsConstructor
 @Getter

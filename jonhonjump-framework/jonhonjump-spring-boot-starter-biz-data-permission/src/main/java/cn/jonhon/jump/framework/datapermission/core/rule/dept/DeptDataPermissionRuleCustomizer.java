@@ -3,7 +3,7 @@ package cn.jonhon.jump.framework.datapermission.core.rule.dept;
 /**
  * {@link DeptDataPermissionRule} 的自定义配置接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @FunctionalInterface
 public interface DeptDataPermissionRuleCustomizer {

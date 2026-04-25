@@ -51,7 +51,7 @@ import static cn.jonhon.jump.module.iot.enums.ErrorCodeConstants.DEVICE_DOWNSTRE
 /**
  * IoT 设备消息 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

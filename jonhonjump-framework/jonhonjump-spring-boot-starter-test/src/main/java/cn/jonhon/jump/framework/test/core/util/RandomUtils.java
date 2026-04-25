@@ -25,7 +25,7 @@ import java.util.stream.Stream;
 /**
  * 随机工具类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class RandomUtils {
 

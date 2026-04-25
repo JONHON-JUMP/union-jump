@@ -8,7 +8,7 @@ import cn.jonhon.jump.module.iot.core.mq.message.IotDeviceMessage;
  *
  * 用于序列化和反序列化设备消息
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface IotMessageSerializer {
 

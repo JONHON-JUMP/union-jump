@@ -5,7 +5,7 @@ import cn.jonhon.jump.module.iot.core.biz.dto.IotDeviceRespDTO;
 /**
  * IoT 设备信息 Service 接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface IotDeviceService {
 

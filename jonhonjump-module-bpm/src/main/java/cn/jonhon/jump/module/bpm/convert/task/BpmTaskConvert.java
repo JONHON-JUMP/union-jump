@@ -34,7 +34,7 @@ import static cn.jonhon.jump.framework.common.util.collection.MapUtils.findAndTh
 /**
  * Bpm 任务 Convert
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface BpmTaskConvert {

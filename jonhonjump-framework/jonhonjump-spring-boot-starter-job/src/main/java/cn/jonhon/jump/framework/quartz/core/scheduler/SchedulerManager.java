@@ -16,7 +16,7 @@ import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUti
  *
  * 另外，jobHandlerName 对应到 Spring Bean 的名字，直接调用
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class SchedulerManager {
 

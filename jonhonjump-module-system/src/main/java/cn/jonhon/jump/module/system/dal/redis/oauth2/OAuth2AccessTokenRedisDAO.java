@@ -19,7 +19,7 @@ import static cn.jonhon.jump.module.system.dal.redis.RedisKeyConstants.OAUTH2_AC
 /**
  * {@link OAuth2AccessTokenDO} 的 RedisDAO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Repository
 public class OAuth2AccessTokenRedisDAO {

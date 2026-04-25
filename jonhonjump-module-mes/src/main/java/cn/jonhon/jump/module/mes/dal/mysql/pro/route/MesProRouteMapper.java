@@ -12,7 +12,7 @@ import java.util.List;
 /**
  * MES 工艺路线 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface MesProRouteMapper extends BaseMapperX<MesProRouteDO> {

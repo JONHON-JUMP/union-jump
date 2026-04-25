@@ -15,7 +15,7 @@ import java.math.BigDecimal;
 /**
  * MES 调拨明细 DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("mes_wm_transfer_detail")
 @KeySequence("mes_wm_transfer_detail_seq")

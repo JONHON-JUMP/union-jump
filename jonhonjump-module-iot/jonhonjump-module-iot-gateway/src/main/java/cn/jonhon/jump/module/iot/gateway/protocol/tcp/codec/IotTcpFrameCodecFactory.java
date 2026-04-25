@@ -7,7 +7,7 @@ import cn.jonhon.jump.module.iot.gateway.protocol.tcp.IotTcpConfig;
 /**
  * IoT TCP 帧编解码器工厂
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class IotTcpFrameCodecFactory {
 

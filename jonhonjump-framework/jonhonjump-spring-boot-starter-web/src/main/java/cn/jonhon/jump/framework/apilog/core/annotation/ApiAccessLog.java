@@ -10,7 +10,7 @@ import java.lang.annotation.Target;
 /**
  * 访问日志注解
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Target({ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)

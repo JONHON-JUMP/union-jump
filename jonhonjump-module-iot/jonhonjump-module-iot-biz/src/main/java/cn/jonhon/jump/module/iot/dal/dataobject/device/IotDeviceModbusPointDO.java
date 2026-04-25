@@ -14,7 +14,7 @@ import java.math.BigDecimal;
 /**
  * IoT 设备 Modbus 点位配置 DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("iot_device_modbus_point")
 @KeySequence("iot_device_modbus_point_seq")

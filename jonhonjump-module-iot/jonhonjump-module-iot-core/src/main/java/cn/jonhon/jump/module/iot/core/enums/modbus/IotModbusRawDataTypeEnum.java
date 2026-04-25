@@ -9,7 +9,7 @@ import java.util.Arrays;
 /**
  * IoT Modbus 原始数据类型枚举
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Getter
 @RequiredArgsConstructor

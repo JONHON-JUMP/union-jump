@@ -41,7 +41,7 @@ import static cn.jonhon.jump.framework.common.util.collection.MapUtils.getBigDec
 /**
  * IoT 设备【属性】数据 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Slf4j

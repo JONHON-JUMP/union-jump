@@ -23,7 +23,7 @@ import java.util.List;
  * {@link cn.jonhon.jump.module.bpm.dal.dataobject.definition.BpmProcessDefinitionInfoDO}
  * 是一致的
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Data
 public class BpmModelMetaInfoVO {

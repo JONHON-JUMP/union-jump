@@ -6,7 +6,7 @@ package cn.jonhon.jump.module.mes.enums;
  * 集中管理各模块单据状态的编号，作为状态值的中央注册中心。
  * 各枚举类引用此处常量，避免硬编码数字。
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public final class MesOrderStatusConstants {
 

@@ -12,7 +12,7 @@ import java.util.List;
 /**
  * MES 生产工单 BOM Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface MesProWorkOrderBomMapper extends BaseMapperX<MesProWorkOrderBomDO> {

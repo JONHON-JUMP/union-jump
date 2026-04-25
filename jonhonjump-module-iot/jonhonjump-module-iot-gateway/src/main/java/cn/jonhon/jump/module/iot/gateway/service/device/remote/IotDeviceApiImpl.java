@@ -26,7 +26,7 @@ import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeCon
 /**
  * Iot 设备信息 Service 实现类：调用远程的 device http 接口，进行设备认证、设备获取等
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Slf4j

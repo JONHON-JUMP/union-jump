@@ -11,7 +11,7 @@ import org.springframework.context.annotation.Configuration;
 /**
  * bpm 模块的 web 组件的 Configuration
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Configuration(proxyBeanMethods = false)
 public class BpmWebConfiguration {

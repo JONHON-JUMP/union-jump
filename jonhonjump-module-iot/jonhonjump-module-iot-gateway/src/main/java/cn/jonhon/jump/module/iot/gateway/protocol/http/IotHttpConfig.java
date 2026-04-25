@@ -5,7 +5,7 @@ import lombok.Data;
 /**
  * IoT HTTP 协议配置
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Data
 public class IotHttpConfig {

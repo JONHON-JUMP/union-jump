@@ -31,7 +31,7 @@ import static org.mockito.Mockito.*;
 /**
  * {@link MesWmItemReceiptServiceImpl} 的单元测试
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Import(MesWmItemReceiptServiceImpl.class)
 public class MesWmItemReceiptServiceImplTest extends BaseDbUnitTest {

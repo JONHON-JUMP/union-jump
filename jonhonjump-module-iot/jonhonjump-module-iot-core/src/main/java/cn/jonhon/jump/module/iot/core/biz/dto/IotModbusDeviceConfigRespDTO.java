@@ -7,7 +7,7 @@ import java.util.List;
 /**
  * IoT Modbus 设备配置 Response DTO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Data
 public class IotModbusDeviceConfigRespDTO {

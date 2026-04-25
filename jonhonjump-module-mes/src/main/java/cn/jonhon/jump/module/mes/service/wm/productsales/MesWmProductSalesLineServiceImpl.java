@@ -34,7 +34,7 @@ import static cn.jonhon.jump.module.mes.enums.ErrorCodeConstants.*;
 /**
  * MES 销售出库单行 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

@@ -31,7 +31,7 @@ import java.nio.ByteOrder;
  *   <li>点位查找（{@link #findPoint}）</li>
  * </ul>
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @UtilityClass
 @Slf4j

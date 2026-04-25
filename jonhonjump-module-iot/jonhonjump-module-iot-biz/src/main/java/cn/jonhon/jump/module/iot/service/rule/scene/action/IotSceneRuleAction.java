@@ -9,7 +9,7 @@ import javax.annotation.Nullable;
 /**
  * IoT 场景联动的执行器接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface IotSceneRuleAction {
 

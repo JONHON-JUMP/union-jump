@@ -21,7 +21,7 @@ import static cn.jonhon.jump.module.erp.enums.ErrorCodeConstants.SUPPLIER_NOT_EX
 /**
  * ERP 供应商 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

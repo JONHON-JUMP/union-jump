@@ -17,7 +17,7 @@ import static cn.jonhon.jump.module.mes.enums.ErrorCodeConstants.MD_ITEM_NOT_EXI
 /**
  * MES 物料批次属性配置 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

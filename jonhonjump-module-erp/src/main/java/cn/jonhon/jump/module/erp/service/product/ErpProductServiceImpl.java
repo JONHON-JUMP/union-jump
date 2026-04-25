@@ -30,7 +30,7 @@ import static cn.jonhon.jump.module.erp.enums.ErrorCodeConstants.PRODUCT_NOT_EXI
 /**
  * ERP 产品 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

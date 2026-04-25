@@ -9,7 +9,7 @@ import lombok.*;
 /**
  * MES 计划班次 DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("mes_cal_plan_shift")
 @KeySequence("mes_cal_plan_shift_seq")

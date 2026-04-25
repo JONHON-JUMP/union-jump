@@ -17,7 +17,7 @@ import java.util.Objects;
 /**
  * ERP 销售出库 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface ErpSaleOutMapper extends BaseMapperX<ErpSaleOutDO> {

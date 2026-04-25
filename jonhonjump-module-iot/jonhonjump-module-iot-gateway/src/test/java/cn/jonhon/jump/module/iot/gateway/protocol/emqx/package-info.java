@@ -13,6 +13,6 @@
  * +--------+                 +-------------+                   +---------+
  * </pre>
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 package cn.jonhon.jump.module.iot.gateway.protocol.emqx;

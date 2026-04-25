@@ -10,7 +10,7 @@ import cn.jonhon.jump.module.mes.enums.DictTypeConstants;
 /**
  * MES 编码规则 DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("mes_md_auto_code_rule")
 @KeySequence("mes_md_auto_code_rule_seq")

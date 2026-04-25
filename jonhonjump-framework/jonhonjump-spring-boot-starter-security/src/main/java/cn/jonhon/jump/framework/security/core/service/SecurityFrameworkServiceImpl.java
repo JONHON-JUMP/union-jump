@@ -14,7 +14,7 @@ import static cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils
 /**
  * 默认的 {@link SecurityFrameworkService} 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @AllArgsConstructor
 public class SecurityFrameworkServiceImpl implements SecurityFrameworkService {

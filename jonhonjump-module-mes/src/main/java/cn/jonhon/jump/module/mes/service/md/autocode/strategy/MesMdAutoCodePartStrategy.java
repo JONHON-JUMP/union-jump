@@ -5,7 +5,7 @@ import cn.jonhon.jump.module.mes.dal.dataobject.md.autocode.MesMdAutoCodePartDO;
 /**
  * MES 编码规则分段策略接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface MesMdAutoCodePartStrategy {
 

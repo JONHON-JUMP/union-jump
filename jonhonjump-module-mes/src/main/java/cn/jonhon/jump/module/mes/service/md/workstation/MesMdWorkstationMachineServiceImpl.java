@@ -20,7 +20,7 @@ import static cn.jonhon.jump.module.mes.enums.ErrorCodeConstants.MD_WORKSTATION_
 /**
  * MES 设备资源 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

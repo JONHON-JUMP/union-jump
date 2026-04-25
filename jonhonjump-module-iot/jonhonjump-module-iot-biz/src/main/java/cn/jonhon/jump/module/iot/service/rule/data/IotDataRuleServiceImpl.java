@@ -38,7 +38,7 @@ import static cn.jonhon.jump.module.iot.enums.ErrorCodeConstants.DATA_RULE_NOT_E
 /**
  * IoT 数据流转规则 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

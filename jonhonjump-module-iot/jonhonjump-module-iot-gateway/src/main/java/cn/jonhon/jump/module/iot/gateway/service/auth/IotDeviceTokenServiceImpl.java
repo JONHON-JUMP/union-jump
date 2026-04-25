@@ -24,7 +24,7 @@ import static cn.jonhon.jump.module.iot.gateway.enums.ErrorCodeConstants.DEVICE_
  *
  * 注意：目前仅 HTTP 协议使用
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Slf4j

@@ -1,4 +1,4 @@
-芋道源码 http://www.iocoder.cn
+中航光电
 Application Version: ${jonhonjump.info.version}
 Spring Boot Version: ${spring-boot.version}
 

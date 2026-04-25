@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 /**
  * {@link MesProTaskMapper#selectPage(MesProTaskPageReqVO)} 的单元测试
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class MesProTaskMapperTest extends BaseDbUnitTest {
 

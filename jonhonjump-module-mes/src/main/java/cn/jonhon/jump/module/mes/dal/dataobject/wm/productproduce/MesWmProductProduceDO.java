@@ -18,7 +18,7 @@ import cn.jonhon.jump.module.mes.enums.DictTypeConstants;
 /**
  * MES 生产入库单 DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("mes_wm_product_produce")
 @KeySequence("mes_wm_product_produce_seq")

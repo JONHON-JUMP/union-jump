@@ -10,7 +10,7 @@ import static cn.jonhon.jump.framework.web.core.util.WebFrameworkUtils.HEADER_TE
 /**
  * 多租户 Util
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class TenantUtils {
 

@@ -9,7 +9,7 @@ import javax.validation.constraints.NotNull;
 /**
  * IoT 消息总线配置属性
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @ConfigurationProperties("jonhonjump.iot.message-bus")
 @Data

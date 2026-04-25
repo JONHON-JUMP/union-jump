@@ -41,7 +41,7 @@ import static org.mockito.Mockito.*;
 /**
  * {@link BpmTaskCandidateInvoker} 的单元测试
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class BpmTaskCandidateInvokerTest extends BaseMockitoUnitTest {
 

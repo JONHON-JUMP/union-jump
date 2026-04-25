@@ -14,7 +14,7 @@ import java.util.List;
 /**
  * MES 装箱单 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface MesWmPackageMapper extends BaseMapperX<MesWmPackageDO> {

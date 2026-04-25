@@ -49,7 +49,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
 /**
  * 流程实例 Convert
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface BpmProcessInstanceConvert {

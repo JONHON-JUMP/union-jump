@@ -5,7 +5,7 @@ import lombok.Data;
 /**
  * AI 知识库段落搜索 Response BO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Data
 public class AiKnowledgeSegmentSearchRespBO {

@@ -12,7 +12,7 @@ import cn.jonhon.jump.module.mes.enums.DictTypeConstants;
 /**
  * MES 上下工记录流水 DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("mes_pro_work_record_log")
 @KeySequence("mes_pro_work_record_log_seq")

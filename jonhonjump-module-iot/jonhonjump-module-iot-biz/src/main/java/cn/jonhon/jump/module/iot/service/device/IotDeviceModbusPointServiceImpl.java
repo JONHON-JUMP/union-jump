@@ -27,7 +27,7 @@ import static cn.jonhon.jump.module.iot.enums.ErrorCodeConstants.*;
 /**
  * IoT 设备 Modbus 点位配置 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

@@ -31,7 +31,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
 /**
  * IoT 消息总线自动配置
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @AutoConfiguration
 @EnableConfigurationProperties(IotMessageBusProperties.class)

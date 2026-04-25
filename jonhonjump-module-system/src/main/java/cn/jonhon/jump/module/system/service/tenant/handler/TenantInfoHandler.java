@@ -6,7 +6,7 @@ import cn.jonhon.jump.module.system.dal.dataobject.tenant.TenantDO;
  * 租户信息处理
  * 目的：尽量减少租户逻辑耦合到系统中
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface TenantInfoHandler {
 

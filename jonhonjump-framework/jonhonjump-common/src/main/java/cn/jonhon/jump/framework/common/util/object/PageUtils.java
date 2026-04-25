@@ -14,7 +14,7 @@ import static java.util.Collections.singletonList;
 /**
  * {@link cn.jonhon.jump.framework.common.pojo.PageParam} 工具类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class PageUtils {
 

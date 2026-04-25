@@ -23,7 +23,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.fi
 /**
  * 区域工具类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 @UtilityClass

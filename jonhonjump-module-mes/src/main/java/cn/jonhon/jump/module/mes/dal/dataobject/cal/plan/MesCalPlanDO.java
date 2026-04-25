@@ -15,7 +15,7 @@ import cn.jonhon.jump.module.mes.enums.DictTypeConstants;
 /**
  * MES 排班计划 DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("mes_cal_plan")
 @KeySequence("mes_cal_plan_seq")

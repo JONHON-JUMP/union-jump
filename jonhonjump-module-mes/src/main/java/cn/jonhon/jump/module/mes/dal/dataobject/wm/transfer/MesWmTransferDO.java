@@ -14,7 +14,7 @@ import cn.jonhon.jump.module.mes.enums.DictTypeConstants;
 /**
  * MES 转移单 DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("mes_wm_transfer")
 @KeySequence("mes_wm_transfer_seq")

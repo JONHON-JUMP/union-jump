@@ -29,7 +29,7 @@ import static cn.jonhon.jump.framework.common.pojo.CommonResult.success;
 /**
  * MES 杂项入库单 Controller
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Tag(name = "管理后台 - MES 杂项入库单")
 @RestController

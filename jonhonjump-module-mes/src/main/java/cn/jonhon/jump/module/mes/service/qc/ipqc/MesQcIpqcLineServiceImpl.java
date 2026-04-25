@@ -30,7 +30,7 @@ import static cn.jonhon.jump.module.mes.enums.ErrorCodeConstants.QC_IPQC_LINE_NO
 /**
  * MES 过程检验单行 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

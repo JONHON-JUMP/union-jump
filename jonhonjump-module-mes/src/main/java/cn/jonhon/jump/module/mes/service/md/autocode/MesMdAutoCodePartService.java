@@ -9,7 +9,7 @@ import java.util.List;
 /**
  * MES 编码规则组成 Service 接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface MesMdAutoCodePartService {
 

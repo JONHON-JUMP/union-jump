@@ -30,7 +30,7 @@ import static cn.jonhon.jump.module.mes.enums.ErrorCodeConstants.QC_OQC_LINE_NOT
 /**
  * MES 出货检验单行 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

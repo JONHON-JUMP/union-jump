@@ -21,7 +21,7 @@ import static org.springframework.ai.model.azure.openai.autoconfigure.AzureOpenA
 /**
  * {@link AzureOpenAiChatModel} 集成测试
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class AzureOpenAIChatModelTests {
 

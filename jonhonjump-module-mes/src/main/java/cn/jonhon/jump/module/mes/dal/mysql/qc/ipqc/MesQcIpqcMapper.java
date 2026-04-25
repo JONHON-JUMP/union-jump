@@ -10,7 +10,7 @@ import org.apache.ibatis.annotations.Mapper;
 /**
  * MES 过程检验单（IPQC） Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface MesQcIpqcMapper extends BaseMapperX<MesQcIpqcDO> {

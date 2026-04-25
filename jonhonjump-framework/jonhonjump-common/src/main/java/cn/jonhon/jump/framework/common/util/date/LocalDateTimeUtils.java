@@ -22,7 +22,7 @@ import static cn.hutool.core.date.DatePattern.*;
 /**
  * 时间工具类，用于 {@link LocalDateTime}
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class LocalDateTimeUtils {
 

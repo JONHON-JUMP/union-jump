@@ -10,7 +10,7 @@ import cn.jonhon.jump.module.mes.enums.DictTypeConstants;
 /**
  * MES 条码配置 DO
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @TableName("mes_wm_barcode_config")
 @KeySequence("mes_wm_barcode_config_seq")

@@ -31,7 +31,7 @@ import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.SOCIAL_USER_
 /**
  * 社交用户 Service 实现类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Service
 @Validated

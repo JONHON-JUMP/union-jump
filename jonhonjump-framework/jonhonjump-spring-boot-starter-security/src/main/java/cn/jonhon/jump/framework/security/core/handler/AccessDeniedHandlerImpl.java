@@ -24,7 +24,7 @@ import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeCon
  *
  * 补充：Spring Security 通过 {@link ExceptionTranslationFilter#handleAccessDeniedException(HttpServletRequest, HttpServletResponse, FilterChain, AccessDeniedException)} 方法，调用当前类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 @SuppressWarnings("JavadocReference")

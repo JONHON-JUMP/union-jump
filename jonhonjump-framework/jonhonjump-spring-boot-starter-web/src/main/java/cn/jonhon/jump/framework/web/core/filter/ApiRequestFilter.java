@@ -10,7 +10,7 @@ import javax.servlet.http.HttpServletRequest;
 /**
  * 过滤 /admin-api、/app-api 等 API 请求的过滤器
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @RequiredArgsConstructor
 public abstract class ApiRequestFilter extends OncePerRequestFilter {

@@ -13,7 +13,7 @@ import java.util.List;
 /**
  * MES 质检方案 Mapper
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Mapper
 public interface MesQcTemplateMapper extends BaseMapperX<MesQcTemplateDO> {

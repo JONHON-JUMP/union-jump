@@ -46,7 +46,7 @@ import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUti
  * 1. 自定义 FC 认证
  * 2. 轮询响应 → 点位翻译 → thing.property.post
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @Slf4j
 public class IotModbusTcpServerUpstreamHandler {

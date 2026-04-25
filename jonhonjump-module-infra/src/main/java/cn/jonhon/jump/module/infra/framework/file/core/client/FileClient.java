@@ -3,7 +3,7 @@ package cn.jonhon.jump.module.infra.framework.file.core.client;
 /**
  * 文件客户端
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface FileClient {
 

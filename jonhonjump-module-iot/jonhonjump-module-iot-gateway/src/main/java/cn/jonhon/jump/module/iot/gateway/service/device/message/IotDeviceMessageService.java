@@ -6,7 +6,7 @@ import cn.jonhon.jump.module.iot.core.mq.message.IotDeviceMessage;
 /**
  * IoT 设备消息 Service 接口
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public interface IotDeviceMessageService {
 

@@ -9,7 +9,7 @@ import java.util.Arrays;
 /**
  * IoT OTA 升级任务的状态
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 @RequiredArgsConstructor
 @Getter

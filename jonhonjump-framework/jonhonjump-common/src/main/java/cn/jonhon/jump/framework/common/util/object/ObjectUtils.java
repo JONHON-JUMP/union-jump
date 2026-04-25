@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 /**
  * Object 工具类
  *
- * @author 芋道源码
+ * @author 中航光电
  */
 public class ObjectUtils {
 
