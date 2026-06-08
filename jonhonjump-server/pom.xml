@@ -32,6 +32,54 @@
             <version>${revision}</version>
         </dependency>
 
+        <dependency>
+            <groupId>cn.jonhon.jump.boot</groupId>
+            <artifactId>jonhonjump-module-om</artifactId>
+            <version>${revision}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.jonhon.jump.boot</groupId>
+            <artifactId>jonhonjump-module-eam</artifactId>
+            <version>${revision}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.jonhon.jump.boot</groupId>
+            <artifactId>jonhonjump-module-lm</artifactId>
+            <version>${revision}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.jonhon.jump.boot</groupId>
+            <artifactId>jonhonjump-module-qm</artifactId>
+            <version>${revision}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.jonhon.jump.boot</groupId>
+            <artifactId>jonhonjump-module-rm</artifactId>
+            <version>${revision}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.jonhon.jump.boot</groupId>
+            <artifactId>jonhonjump-module-sfc</artifactId>
+            <version>${revision}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.jonhon.jump.boot</groupId>
+            <artifactId>jonhonjump-module-tm</artifactId>
+            <version>${revision}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>cn.jonhon.jump.boot</groupId>
+            <artifactId>jonhonjump-module-ad</artifactId>
+            <version>${revision}</version>
+        </dependency>
+
         <!-- 数据报表。默认注释，保证编译速度 -->
 <!--        <dependency>-->
 <!--            <groupId>cn.jonhon.jump.boot</groupId>-->
@@ -113,6 +161,18 @@
         <dependency>
             <groupId>cn.jonhon.jump.boot</groupId>
             <artifactId>jonhonjump-spring-boot-starter-protection</artifactId>
+        </dependency>
+
+        <!-- 1. Spring Boot Actuator，提供监控端点 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- 2. Micrometer对Prometheus的支持，将Actuator的metrics数据转为Prometheus格式 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
     </dependencies>
