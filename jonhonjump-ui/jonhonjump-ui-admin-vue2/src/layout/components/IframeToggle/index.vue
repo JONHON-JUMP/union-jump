@@ -1,5 +1,5 @@
 <template>
-  <transition-group name="fade-transform" mode="out-in">
+  <transition-group class="iframe-toggle" name="fade-transform" mode="out-in" tag="div">
     <inner-link
         v-for="(item, index) in iframeViews"
         :key="item.path"
@@ -22,3 +22,10 @@ export default {
   }
 }
 </script>
+
+<style lang="scss" scoped>
+.iframe-toggle {
+  height: 100%;
+  min-height: 0;
+}
+</style>

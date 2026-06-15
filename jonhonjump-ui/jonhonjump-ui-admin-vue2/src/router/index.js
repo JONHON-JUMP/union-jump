@@ -72,7 +72,7 @@ export const constantRoutes = [
         path: 'index',
         component: (resolve) => require(['@/views/index'], resolve),
         name: '首页',
-        meta: {title: '首页', icon: 'dashboard', affix: true}
+        meta: {title: '首页', icon: 'dashboard', affix: true, portal: true}
       }
     ]
   },

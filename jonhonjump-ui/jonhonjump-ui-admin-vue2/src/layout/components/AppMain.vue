@@ -1,5 +1,11 @@
 <template>
-  <section class="app-main">
+  <section
+    :class="{
+      'portal-embedded': $route.path !== '/index',
+      'portal-iframe': Boolean($route.meta && $route.meta.link)
+    }"
+    class="app-main"
+  >
     <transition name="fade-transform" mode="out-in">
       <keep-alive :include="cachedViews">
         <router-view v-if="!$route.meta.link" :key="key" />
@@ -48,6 +54,17 @@ export default {
   .fixed-header + .app-main {
     padding-top: 84px;
   }
+}
+
+.app-main.portal-embedded {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.app-main.portal-embedded.portal-iframe {
+  height: 100%;
+  overflow: hidden;
 }
 </style>
 

@@ -1,7 +1,8 @@
 const state = {
   visitedViews: [],
   cachedViews: [],
-  iframeViews: []
+  iframeViews: [],
+  recentViewPaths: []
 }
 
 const mutations = {
@@ -21,6 +22,10 @@ const mutations = {
       })
     )
   },
+  TOUCH_VISITED_VIEW: (state, view) => {
+    state.recentViewPaths = state.recentViewPaths.filter(path => path !== view.path)
+    state.recentViewPaths.push(view.path)
+  },
   ADD_CACHED_VIEW: (state, view) => {
     if (state.cachedViews.includes(view.name)) return
     if (view.meta && !view.meta.noCache) {
@@ -35,6 +40,7 @@ const mutations = {
       }
     }
     state.iframeViews = state.iframeViews.filter(item => item.path !== view.path)
+    state.recentViewPaths = state.recentViewPaths.filter(path => path !== view.path)
   },
   DEL_IFRAME_VIEW: (state, view) => {
     state.iframeViews = state.iframeViews.filter(item => item.path !== view.path)
@@ -49,6 +55,7 @@ const mutations = {
       return v.meta.affix || v.path === view.path
     })
     state.iframeViews = state.iframeViews.filter(item => item.path === view.path)
+    state.recentViewPaths = state.recentViewPaths.filter(path => path === view.path)
   },
   DEL_OTHERS_CACHED_VIEWS: (state, view) => {
     const index = state.cachedViews.indexOf(view.name)
@@ -63,6 +70,7 @@ const mutations = {
     const affixTags = state.visitedViews.filter(tag => tag.meta.affix)
     state.visitedViews = affixTags
     state.iframeViews = []
+    state.recentViewPaths = []
   },
   DEL_ALL_CACHED_VIEWS: state => {
     state.cachedViews = []
@@ -127,6 +135,9 @@ const actions = {
   },
   addVisitedView({ commit }, view) {
     commit('ADD_VISITED_VIEW', view)
+  },
+  touchVisitedView({ commit }, view) {
+    commit('TOUCH_VISITED_VIEW', view)
   },
   addCachedView({ commit }, view) {
     commit('ADD_CACHED_VIEW', view)
