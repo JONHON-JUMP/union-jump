@@ -1,16 +1,19 @@
 <template>
-  <el-form ref="form" :model="user" :rules="rules" label-width="80px">
-    <el-form-item label="用户昵称" prop="nickName">
-      <el-input v-model="user.nickname" />
+  <el-form ref="form" :model="form" :rules="rules" label-width="80px">
+    <el-form-item label="用户昵称" prop="nickname">
+      <el-input v-model="form.nickname" />
     </el-form-item>
-    <el-form-item label="手机号码" prop="mobile">
-      <el-input v-model="user.mobile" maxlength="11" />
+    <el-form-item label="域账号">
+      <el-input :value="user.domainNo || '-'" disabled />
     </el-form-item>
-    <el-form-item label="邮箱" prop="email">
-      <el-input v-model="user.email" maxlength="50" />
+    <el-form-item label="工号">
+      <el-input :value="user.employeeNo || '-'" disabled />
+    </el-form-item>
+    <el-form-item label="刷卡卡号">
+      <el-input :value="user.cardNo || '-'" disabled />
     </el-form-item>
     <el-form-item label="性别">
-      <el-radio-group v-model="user.sex">
+      <el-radio-group v-model="form.sex">
         <el-radio :label="1">男</el-radio>
         <el-radio :label="2">女</el-radio>
       </el-radio-group>
@@ -23,53 +26,55 @@
 </template>
 
 <script>
-import { updateUserProfile } from "@/api/system/user";
+import { updateUserProfile } from '@/api/system/user'
 
 export default {
   props: {
     user: {
-      type: Object
+      type: Object,
+      default: () => ({})
     }
   },
   data() {
     return {
-      // 表单校验
+      form: {
+        nickname: '',
+        sex: undefined
+      },
       rules: {
         nickname: [
-          { required: true, message: "用户昵称不能为空", trigger: "blur" }
-        ],
-        email: [
-          { required: true, message: "邮箱地址不能为空", trigger: "blur" },
-          {
-            type: "email",
-            message: "请输入正确的邮箱地址",
-            trigger: ["blur", "change"]
-          }
-        ],
-        mobile: [
-          { required: true, message: "手机号码不能为空", trigger: "blur" },
-          {
-            pattern: /^1[3|456789][0-9]\d{8}$/,
-            message: "请输入正确的手机号码",
-            trigger: "blur"
-          }
+          { required: true, message: '用户昵称不能为空', trigger: 'blur' }
         ]
       }
-    };
+    }
+  },
+  watch: {
+    user: {
+      immediate: true,
+      deep: true,
+      handler(value) {
+        this.form.nickname = value.nickname || ''
+        this.form.sex = value.sex
+      }
+    }
   },
   methods: {
     submit() {
-      this.$refs["form"].validate(valid => {
-        if (valid) {
-          updateUserProfile(this.user).then(response => {
-            this.$modal.msgSuccess("修改成功");
-          });
-        }
-      });
+      this.$refs.form.validate(valid => {
+        if (!valid) return
+        updateUserProfile({
+          nickname: this.form.nickname,
+          sex: this.form.sex
+        }).then(() => {
+          this.$modal.msgSuccess('修改成功')
+          this.user.nickname = this.form.nickname
+          this.user.sex = this.form.sex
+        })
+      })
     },
     close() {
-      this.$tab.closePage();
+      this.$tab.closePage()
     }
   }
-};
+}
 </script>

@@ -46,6 +46,32 @@ public interface ErrorCodeConstants {
     ErrorCode USER_IMPORT_INIT_PASSWORD = new ErrorCode(1_002_003_009, "初始密码不能为空");
     ErrorCode USER_MOBILE_NOT_EXISTS = new ErrorCode(1_002_003_010, "该手机号尚未注册");
     ErrorCode USER_REGISTER_DISABLED = new ErrorCode(1_002_003_011, "注册功能已关闭");
+    ErrorCode SUB_SYSTEM_USER_NOT_EXISTS = new ErrorCode(1_002_003_012, "外部系统用户不存在");
+    ErrorCode SUB_SYSTEM_USER_EXISTS = new ErrorCode(1_002_003_013, "该用户已关联此外部系统");
+    ErrorCode SUB_SYSTEM_NOT_EXISTS = new ErrorCode(1_002_003_014, "外部系统不存在");
+    ErrorCode SUB_SYSTEM_ROLE_NOT_EXISTS = new ErrorCode(1_002_003_015, "外部系统角色不存在");
+    ErrorCode SUB_SYSTEM_ROLE_NAME_DUPLICATE = new ErrorCode(1_002_003_016, "已经存在名为【{}】的外部系统角色");
+    ErrorCode SUB_SYSTEM_ROLE_CODE_DUPLICATE = new ErrorCode(1_002_003_017, "已经存在标识为【{}】的外部系统角色");
+    ErrorCode SUB_SYSTEM_ROLE_HAS_USERS = new ErrorCode(1_002_003_018, "外部系统角色已分配用户，无法删除");
+    ErrorCode SUB_SYSTEM_MENU_NOT_EXISTS = new ErrorCode(1_002_003_019, "外部系统菜单不存在");
+    ErrorCode SUB_SYSTEM_MENU_EXISTS_CHILDREN = new ErrorCode(1_002_003_020, "存在子菜单，无法删除");
+    ErrorCode SUB_SYSTEM_MENU_HAS_ROLES = new ErrorCode(1_002_003_021, "外部系统菜单已分配角色，无法删除");
+    ErrorCode SUB_SYSTEM_MENU_NAME_DUPLICATE = new ErrorCode(1_002_003_022, "已经存在该名字的菜单");
+    ErrorCode SUB_SYSTEM_MENU_PARENT_NOT_EXISTS = new ErrorCode(1_002_003_023, "父菜单不存在");
+    ErrorCode SUB_SYSTEM_MENU_PARENT_ERROR = new ErrorCode(1_002_003_024, "不能设置自己为父菜单");
+    ErrorCode SUB_SYSTEM_POST_NOT_EXISTS = new ErrorCode(1_002_003_025, "外部系统岗位不存在");
+    ErrorCode SUB_SYSTEM_POST_NAME_DUPLICATE = new ErrorCode(1_002_003_026, "已经存在名为【{}】的外部系统岗位");
+    ErrorCode SUB_SYSTEM_POST_CODE_DUPLICATE = new ErrorCode(1_002_003_027, "已经存在编码为【{}】的外部系统岗位");
+    ErrorCode SUB_SYSTEM_POST_HAS_USERS = new ErrorCode(1_002_003_028, "外部系统岗位已分配用户，无法删除");
+    ErrorCode SUB_SYSTEM_USER_HOME_MENU_INVALID = new ErrorCode(1_002_003_029, "主页面必须是当前外部系统下的菜单页面");
+    ErrorCode SUB_SYSTEM_TEAM_NOT_EXISTS = new ErrorCode(1_002_003_030, "外部系统班组不存在");
+    ErrorCode SUB_SYSTEM_TEAM_NAME_DUPLICATE = new ErrorCode(1_002_003_031, "已经存在名为【{}】的外部系统班组");
+    ErrorCode SUB_SYSTEM_TEAM_CODE_DUPLICATE = new ErrorCode(1_002_003_032, "已经存在编码为【{}】的外部系统班组");
+    ErrorCode SUB_SYSTEM_TEAM_HAS_USERS = new ErrorCode(1_002_003_033, "外部系统班组已分配用户，无法删除");
+    ErrorCode SUB_SYSTEM_TEAM_LEADER_INVALID = new ErrorCode(1_002_003_034, "班组长必须是当前外部系统下的用户");
+    ErrorCode SUB_SYSTEM_OAUTH2_CLIENT_NOT_EXISTS = new ErrorCode(1_002_003_035, "OAuth2 客户端不存在，请先在 OAuth2 客户端管理中创建");
+    ErrorCode SUB_SYSTEM_CLIENT_ID_DUPLICATE = new ErrorCode(1_002_003_036, "OAuth2 客户端【{}】已关联其他外部系统");
+    ErrorCode SUB_SYSTEM_HAS_RELATED_DATA = new ErrorCode(1_002_003_037, "外部系统已存在业务数据，无法删除");
 
     // ========== 部门模块 1-002-004-000 ==========
     ErrorCode DEPT_NAME_DUPLICATE = new ErrorCode(1_002_004_000, "已经存在该名字的部门");

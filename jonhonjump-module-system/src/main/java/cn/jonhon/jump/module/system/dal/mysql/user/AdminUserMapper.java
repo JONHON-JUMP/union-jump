@@ -25,6 +25,14 @@ public interface AdminUserMapper extends BaseMapperX<AdminUserDO> {
         return selectOne(AdminUserDO::getMobile, mobile);
     }
 
+    default AdminUserDO selectByEmployeeNo(String employeeNo) {
+        return selectOne(AdminUserDO::getEmployeeNo, employeeNo);
+    }
+
+    default AdminUserDO selectByDomainNo(String domainNo) {
+        return selectOne(AdminUserDO::getDomainNo, domainNo);
+    }
+
     default PageResult<AdminUserDO> selectPage(UserPageReqVO reqVO, Collection<Long> deptIds, Collection<Long> userIds) {
         return selectPage(reqVO, new LambdaQueryWrapperX<AdminUserDO>()
                 .likeIfPresent(AdminUserDO::getUsername, reqVO.getUsername())
@@ -38,6 +46,13 @@ public interface AdminUserMapper extends BaseMapperX<AdminUserDO> {
 
     default List<AdminUserDO> selectListByNickname(String nickname) {
         return selectList(new LambdaQueryWrapperX<AdminUserDO>().like(AdminUserDO::getNickname, nickname));
+    }
+
+    default List<AdminUserDO> selectListByMainUserSearch(String nickname, String employeeNo, String domainNo) {
+        return selectList(new LambdaQueryWrapperX<AdminUserDO>()
+                .likeIfPresent(AdminUserDO::getNickname, nickname)
+                .likeIfPresent(AdminUserDO::getEmployeeNo, employeeNo)
+                .likeIfPresent(AdminUserDO::getDomainNo, domainNo));
     }
 
     default List<AdminUserDO> selectListByStatus(Integer status) {

@@ -124,7 +124,7 @@ public class BpmFormServiceTest extends BaseDbUnitTest {
         formMapper.insert(cloneIgnoreId(dbForm, o -> o.setName("源码")));
         // 准备参数
         BpmFormPageReqVO reqVO = new BpmFormPageReqVO();
-        reqVO.setName("芋道");
+        reqVO.setName("中航");
 
         // 调用
         PageResult<BpmFormDO> pageResult = formService.getFormPage(reqVO);

@@ -73,7 +73,17 @@
         <el-table v-loading="loading" :data="userList" @selection-change="handleRowCheckboxChange">
           <el-table-column type="selection" width="55"/>
           <el-table-column label="用户编号" align="center" key="id" prop="id" v-if="columns[0].visible" />
-          <el-table-column label="用户名称" align="center" key="username" prop="username" v-if="columns[1].visible" :show-overflow-tooltip="true" />
+          <el-table-column label="用户名称" align="center" key="username" prop="username" v-if="columns[1].visible" :show-overflow-tooltip="true">
+            <template v-slot="scope">
+              <el-link
+                v-if="scope.row.subSystemCount > 0"
+                type="primary"
+                :underline="false"
+                @click="handleViewSubSystem(scope.row)"
+              >{{ scope.row.username }}</el-link>
+              <span v-else>{{ scope.row.username }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="用户昵称" align="center" key="nickname" prop="nickname" v-if="columns[2].visible" :show-overflow-tooltip="true" />
           <el-table-column label="部门" align="center" key="deptName" prop="dept.name" v-if="columns[3].visible" :show-overflow-tooltip="true" />
           <el-table-column label="手机号码" align="center" key="mobile" prop="mobile" v-if="columns[4].visible" width="120" />
@@ -87,10 +97,17 @@
               <span>{{ parseTime(scope.row.createTime) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" align="center" width="160" class-name="small-padding fixed-width">
+          <el-table-column label="操作" align="center" width="200" class-name="small-padding fixed-width">
             <template v-slot="scope">
               <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
                          v-hasPermi="['system:user:update']">修改</el-button>
+              <el-button
+                v-if="scope.row.subSystemCount > 0"
+                size="mini"
+                type="text"
+                icon="el-icon-connection"
+                @click="handleViewSubSystem(scope.row)"
+              >子系统</el-button>
               <el-dropdown  @command="(command) => handleCommand(command, scope.$index, scope.row)"
                             v-hasPermi="['system:user:delete', 'system:user:update-password', 'system:permission:assign-user-role']">
                 <el-button size="mini" type="text" icon="el-icon-d-arrow-right">更多</el-button>
@@ -208,6 +225,32 @@
       </div>
     </el-dialog>
 
+    <!-- 子系统用户信息 -->
+    <el-dialog :title="'子系统信息 - ' + (subSystemUser.username || '')" :visible.sync="openSubSystem" width="800px" append-to-body>
+      <el-table v-loading="subSystemLoading" :data="subSystemList" border>
+        <el-table-column label="外部系统" prop="clientName" min-width="120" />
+        <el-table-column label="子系统名称" prop="clientName" min-width="140" :show-overflow-tooltip="true" />
+        <el-table-column label="车间编号" prop="workshopId" min-width="100" />
+        <el-table-column label="班组编号" prop="teamId" min-width="100" />
+        <el-table-column label="状态" prop="status" width="80" align="center">
+          <template v-slot="scope">
+            <el-tag :type="scope.row.status === '1' ? 'danger' : 'success'" size="mini">
+              {{ scope.row.status === '1' ? '禁用' : '正常' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="备注" prop="remark" min-width="120" :show-overflow-tooltip="true" />
+        <el-table-column label="创建时间" prop="createTime" width="160" align="center">
+          <template v-slot="scope">
+            <span>{{ parseTime(scope.row.createTime) }}</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div slot="footer" class="dialog-footer">
+        <el-button @click="openSubSystem = false">关 闭</el-button>
+      </div>
+    </el-dialog>
+
     <!-- 分配角色 -->
     <el-dialog title="分配角色" :visible.sync="openRole" width="500px" append-to-body>
       <el-form :model="form" label-width="80px">
@@ -250,6 +293,8 @@ import {
   updateUser,
   delUserList
 } from "@/api/system/user";
+
+import {getSubSystemUsersByMainUserId} from "@/api/system/subSystemUsers";
 import Treeselect from "@riophae/vue-treeselect";
 import "@riophae/vue-treeselect/dist/vue-treeselect.css";
 
@@ -362,6 +407,10 @@ export default {
       },
       // 是否显示弹出层（角色权限）
       openRole: false,
+      openSubSystem: false,
+      subSystemLoading: false,
+      subSystemList: [],
+      subSystemUser: {},
 
       // 枚举
       SysCommonStatusEnum: CommonStatusEnum,
@@ -519,6 +568,18 @@ export default {
             this.$modal.msgSuccess("修改成功，新密码是：" + value);
           });
         }).catch(() => {});
+    },
+    /** 查看子系统用户信息 */
+    handleViewSubSystem(row) {
+      this.subSystemUser = row
+      this.openSubSystem = true
+      this.subSystemLoading = true
+      this.subSystemList = []
+      getSubSystemUsersByMainUserId(row.id).then(response => {
+        this.subSystemList = response.data || []
+      }).finally(() => {
+        this.subSystemLoading = false
+      })
     },
     /** 分配用户角色操作 */
     handleRole(row) {

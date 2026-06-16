@@ -28,6 +28,7 @@ export function removeToken() {
 const UsernameKey = 'USERNAME'
 const PasswordKey = 'PASSWORD'
 const RememberMeKey = 'REMEMBER_ME'
+const LoginTypeKey = 'LOGIN_TYPE'
 
 export function getUsername() {
   return localStorage.getItem(UsernameKey)
@@ -64,6 +65,18 @@ export function setRememberMe(rememberMe) {
 
 export function removeRememberMe() {
   localStorage.removeItem(RememberMeKey)
+}
+
+export function getLoginType() {
+  return localStorage.getItem(LoginTypeKey)
+}
+
+export function setLoginType(loginType) {
+  localStorage.setItem(LoginTypeKey, loginType)
+}
+
+export function removeLoginType() {
+  localStorage.removeItem(LoginTypeKey)
 }
 
 // ========== 租户相关 ==========

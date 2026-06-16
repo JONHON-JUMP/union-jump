@@ -33,6 +33,24 @@ public class DeptRespVO {
     @Schema(description = "状态,见 CommonStatusEnum 枚举", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
     private Integer status;
 
+    @Schema(description = "组织编码", example = "GS-1")
+    private String organizationCode;
+
+    @Schema(description = "英文组织名称", example = "JONHON")
+    private String engName;
+
+    @Schema(description = "描述说明")
+    private String description;
+
+    @Schema(description = "地址")
+    private String address;
+
+    @Schema(description = "ERP 系统中的编码")
+    private String erpCode;
+
+    @Schema(description = "PDM 系统中的编码")
+    private String pdmCode;
+
     @Schema(description = "创建时间", requiredMode = Schema.RequiredMode.REQUIRED, example = "时间戳格式")
     private LocalDateTime createTime;
 

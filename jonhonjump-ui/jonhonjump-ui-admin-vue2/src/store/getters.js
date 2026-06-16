@@ -17,6 +17,8 @@ const getters = {
   topbarRouters:state => state.permission.topbarRouters,
   defaultRoutes:state => state.permission.defaultRoutes,
   sidebarRouters:state => state.permission.sidebarRouters,
+  currentSystem: state => state.portal.currentSystem,
+  portalSystemList: state => state.portal.systemList,
   // 数据字典
   dict_datas: state => state.dict.dictDatas
 }

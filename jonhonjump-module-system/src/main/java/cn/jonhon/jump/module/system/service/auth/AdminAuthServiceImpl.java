@@ -17,6 +17,7 @@ import cn.jonhon.jump.module.system.controller.admin.auth.vo.*;
 import cn.jonhon.jump.module.system.convert.auth.AuthConvert;
 import cn.jonhon.jump.module.system.dal.dataobject.oauth2.OAuth2AccessTokenDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
+import cn.jonhon.jump.module.system.enums.auth.LoginIdentityTypeEnum;
 import cn.jonhon.jump.module.system.enums.logger.LoginLogTypeEnum;
 import cn.jonhon.jump.module.system.enums.logger.LoginResultEnum;
 import cn.jonhon.jump.module.system.enums.oauth2.OAuth2ClientConstants;
@@ -79,23 +80,84 @@ public class AdminAuthServiceImpl implements AdminAuthService {
 
     @Override
     public AdminUserDO authenticate(String username, String password) {
-        final LoginLogTypeEnum logTypeEnum = LoginLogTypeEnum.LOGIN_USERNAME;
-        // 校验账号是否存在
-        AdminUserDO user = userService.getUserByUsername(username);
+        return authenticate(LoginIdentityTypeEnum.USERNAME, username, password);
+    }
+
+    private AdminUserDO authenticate(LoginIdentityTypeEnum identityType, String account, String password) {
+        LoginIdentityTypeEnum resolvedType = identityType;
+        AdminUserDO user;
+        if (identityType == LoginIdentityTypeEnum.AUTO) {
+            user = resolveUserByAccount(account);
+            resolvedType = resolveLoginTypeByAccount(account, user);
+        } else {
+            user = getUserByIdentity(identityType, account);
+        }
+        final LoginLogTypeEnum logTypeEnum = resolveLoginLogType(resolvedType);
         if (user == null) {
-            createLoginLog(null, username, logTypeEnum, LoginResultEnum.BAD_CREDENTIALS);
+            createLoginLog(null, account, logTypeEnum, LoginResultEnum.BAD_CREDENTIALS);
             throw exception(AUTH_LOGIN_BAD_CREDENTIALS);
         }
         if (!userService.isPasswordMatch(password, user.getPassword())) {
-            createLoginLog(user.getId(), username, logTypeEnum, LoginResultEnum.BAD_CREDENTIALS);
+            createLoginLog(user.getId(), account, logTypeEnum, LoginResultEnum.BAD_CREDENTIALS);
             throw exception(AUTH_LOGIN_BAD_CREDENTIALS);
         }
-        // 校验是否禁用
         if (CommonStatusEnum.isDisable(user.getStatus())) {
-            createLoginLog(user.getId(), username, logTypeEnum, LoginResultEnum.USER_DISABLED);
+            createLoginLog(user.getId(), account, logTypeEnum, LoginResultEnum.USER_DISABLED);
             throw exception(AUTH_LOGIN_USER_DISABLED);
         }
         return user;
+    }
+
+    private AdminUserDO resolveUserByAccount(String account) {
+        AdminUserDO user = userService.getUserByUsername(account);
+        if (user != null) {
+            return user;
+        }
+        user = userService.getUserByEmployeeNo(account);
+        if (user != null) {
+            return user;
+        }
+        return userService.getUserByDomainNo(account);
+    }
+
+    private LoginIdentityTypeEnum resolveLoginTypeByAccount(String account, AdminUserDO user) {
+        if (user == null) {
+            return LoginIdentityTypeEnum.USERNAME;
+        }
+        if (account.equals(user.getUsername())) {
+            return LoginIdentityTypeEnum.USERNAME;
+        }
+        if (account.equals(user.getEmployeeNo())) {
+            return LoginIdentityTypeEnum.EMPLOYEE;
+        }
+        if (account.equals(user.getDomainNo())) {
+            return LoginIdentityTypeEnum.DOMAIN;
+        }
+        return LoginIdentityTypeEnum.USERNAME;
+    }
+
+    private AdminUserDO getUserByIdentity(LoginIdentityTypeEnum identityType, String account) {
+        switch (identityType) {
+            case EMPLOYEE:
+                return userService.getUserByEmployeeNo(account);
+            case DOMAIN:
+                return userService.getUserByDomainNo(account);
+            case USERNAME:
+            default:
+                return userService.getUserByUsername(account);
+        }
+    }
+
+    private LoginLogTypeEnum resolveLoginLogType(LoginIdentityTypeEnum identityType) {
+        switch (identityType) {
+            case EMPLOYEE:
+                return LoginLogTypeEnum.LOGIN_EMPLOYEE;
+            case DOMAIN:
+                return LoginLogTypeEnum.LOGIN_DOMAIN;
+            case USERNAME:
+            default:
+                return LoginLogTypeEnum.LOGIN_USERNAME;
+        }
     }
 
     @Override
@@ -105,7 +167,10 @@ public class AdminAuthServiceImpl implements AdminAuthService {
         validateCaptcha(reqVO);
 
         // 使用账号密码，进行登录
-        AdminUserDO user = authenticate(reqVO.getUsername(), reqVO.getPassword());
+        LoginIdentityTypeEnum identityType = LoginIdentityTypeEnum.of(reqVO.getLoginType());
+        AdminUserDO user = authenticate(identityType, reqVO.getUsername(), reqVO.getPassword());
+        LoginIdentityTypeEnum logIdentityType = identityType == LoginIdentityTypeEnum.AUTO
+                ? resolveLoginTypeByAccount(reqVO.getUsername(), user) : identityType;
 
         // 如果 socialType 非空，说明需要绑定社交用户
         if (reqVO.getSocialType() != null) {
@@ -113,7 +178,7 @@ public class AdminAuthServiceImpl implements AdminAuthService {
                     reqVO.getSocialType(), reqVO.getSocialCode(), reqVO.getSocialState()));
         }
         // 创建 Token 令牌，记录登录日志
-        return createTokenAfterLoginSuccess(user.getId(), reqVO.getUsername(), LoginLogTypeEnum.LOGIN_USERNAME);
+        return createTokenAfterLoginSuccess(user.getId(), reqVO.getUsername(), resolveLoginLogType(logIdentityType));
     }
 
     @Override

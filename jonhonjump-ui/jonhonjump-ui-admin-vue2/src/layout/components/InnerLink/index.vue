@@ -1,5 +1,5 @@
 <template>
-  <div :style="'height:' + height" v-loading="loading" element-loading-text="正在加载页面，请稍候！">
+  <div class="inner-link" v-loading="loading" element-loading-text="正在加载页面，请稍候！">
     <iframe
         :id="iframeId"
         style="width: 100%; height: 100%"
@@ -22,8 +22,7 @@ export default {
   },
   data() {
     return {
-      loading: false,
-      height: document.documentElement.clientHeight - 94.5 + "px;"
+      loading: false
     };
   },
   mounted() {
@@ -45,3 +44,10 @@ export default {
   }
 };
 </script>
+
+<style lang="scss" scoped>
+.inner-link {
+  height: 100%;
+  min-height: 0;
+}
+</style>

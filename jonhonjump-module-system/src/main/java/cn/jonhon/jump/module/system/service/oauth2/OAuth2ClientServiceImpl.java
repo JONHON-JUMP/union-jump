@@ -144,9 +144,23 @@ public class OAuth2ClientServiceImpl implements OAuth2ClientService {
         }
         // 校验回调地址
         if (StrUtil.isNotEmpty(redirectUri) && !StrUtils.startWithAny(redirectUri, client.getRedirectUris())) {
-            throw exception(OAUTH2_CLIENT_REDIRECT_URI_NOT_MATCH, redirectUri);
+            // SQL 直改数据库时 Redis 缓存可能仍是旧 redirect_uris，回源 DB 校验并刷新缓存
+            OAuth2ClientDO dbClient = oauth2ClientMapper.selectByClientId(clientId);
+            if (dbClient != null && StrUtils.startWithAny(redirectUri, dbClient.getRedirectUris())) {
+                log.warn("[OAuth2] redirect_uri 与缓存不一致，已回源 DB 并刷新缓存, clientId={}, redirectUri={}",
+                        clientId, redirectUri);
+                getSelf().evictOAuth2ClientCache(clientId);
+                client = dbClient;
+            } else {
+                throw exception(OAUTH2_CLIENT_REDIRECT_URI_NOT_MATCH, redirectUri);
+            }
         }
         return client;
+    }
+
+    @CacheEvict(cacheNames = RedisKeyConstants.OAUTH_CLIENT, key = "#clientId")
+    public void evictOAuth2ClientCache(String clientId) {
+        // 清理指定 OAuth2 客户端缓存
     }
 
     /**

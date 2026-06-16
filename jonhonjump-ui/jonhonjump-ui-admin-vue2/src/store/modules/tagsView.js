@@ -1,25 +1,34 @@
+import { isPortalSubSystemHomePath } from '@/utils/portalRoute'
+
 const state = {
   visitedViews: [],
   cachedViews: [],
-  iframeViews: []
+  iframeViews: [],
+  recentViewPaths: []
 }
 
 const mutations = {
   ADD_IFRAME_VIEW: (state, view) => {
-    if (state.iframeViews.some(v => v.path === view.path)) return
-    state.iframeViews.push(
-      Object.assign({}, view, {
-        title: view.meta.title || 'no-name'
-      })
-    )
+    const title = resolveViewTitle(view)
+    const index = state.iframeViews.findIndex(v => v.path === view.path)
+    if (index > -1) {
+      state.iframeViews.splice(index, 1, Object.assign({}, state.iframeViews[index], view, { title }))
+      return
+    }
+    state.iframeViews.push(Object.assign({}, view, { title }))
   },
   ADD_VISITED_VIEW: (state, view) => {
-    if (state.visitedViews.some(v => v.path === view.path)) return
-    state.visitedViews.push(
-      Object.assign({}, view, {
-        title: view.meta.title || 'no-name'
-      })
-    )
+    const title = resolveViewTitle(view)
+    const index = state.visitedViews.findIndex(v => v.path === view.path)
+    if (index > -1) {
+      state.visitedViews.splice(index, 1, Object.assign({}, state.visitedViews[index], view, { title }))
+      return
+    }
+    state.visitedViews.push(Object.assign({}, view, { title }))
+  },
+  TOUCH_VISITED_VIEW: (state, view) => {
+    state.recentViewPaths = state.recentViewPaths.filter(path => path !== view.path)
+    state.recentViewPaths.push(view.path)
   },
   ADD_CACHED_VIEW: (state, view) => {
     if (state.cachedViews.includes(view.name)) return
@@ -35,6 +44,7 @@ const mutations = {
       }
     }
     state.iframeViews = state.iframeViews.filter(item => item.path !== view.path)
+    state.recentViewPaths = state.recentViewPaths.filter(path => path !== view.path)
   },
   DEL_IFRAME_VIEW: (state, view) => {
     state.iframeViews = state.iframeViews.filter(item => item.path !== view.path)
@@ -49,6 +59,7 @@ const mutations = {
       return v.meta.affix || v.path === view.path
     })
     state.iframeViews = state.iframeViews.filter(item => item.path === view.path)
+    state.recentViewPaths = state.recentViewPaths.filter(path => path === view.path)
   },
   DEL_OTHERS_CACHED_VIEWS: (state, view) => {
     const index = state.cachedViews.indexOf(view.name)
@@ -63,16 +74,21 @@ const mutations = {
     const affixTags = state.visitedViews.filter(tag => tag.meta.affix)
     state.visitedViews = affixTags
     state.iframeViews = []
+    state.recentViewPaths = []
   },
   DEL_ALL_CACHED_VIEWS: state => {
     state.cachedViews = []
   },
   UPDATE_VISITED_VIEW: (state, view) => {
-    for (let v of state.visitedViews) {
-      if (v.path === view.path) {
-        v = Object.assign(v, view)
-        break
-      }
+    const index = state.visitedViews.findIndex(v => v.path === view.path)
+    if (index === -1) {
+      return
+    }
+    const title = resolveViewTitle(view)
+    state.visitedViews.splice(index, 1, Object.assign({}, state.visitedViews[index], view, { title }))
+    const iframeIndex = state.iframeViews.findIndex(v => v.path === view.path)
+    if (iframeIndex > -1) {
+      state.iframeViews.splice(iframeIndex, 1, Object.assign({}, state.iframeViews[iframeIndex], view, { title }))
     }
   },
   DEL_RIGHT_VIEWS: (state, view) => {
@@ -114,6 +130,20 @@ const mutations = {
       }
       return false
     })
+  },
+  PRUNE_VIEWS: (state, keepFn) => {
+    const removed = state.visitedViews.filter(view => !keepFn(view))
+    state.visitedViews = state.visitedViews.filter(keepFn)
+    removed.forEach(view => {
+      state.iframeViews = state.iframeViews.filter(item => item.path !== view.path)
+      state.recentViewPaths = state.recentViewPaths.filter(path => path !== view.path)
+      if (view.name) {
+        const index = state.cachedViews.indexOf(view.name)
+        if (index > -1) {
+          state.cachedViews.splice(index, 1)
+        }
+      }
+    })
   }
 }
 
@@ -127,6 +157,9 @@ const actions = {
   },
   addVisitedView({ commit }, view) {
     commit('ADD_VISITED_VIEW', view)
+  },
+  touchVisitedView({ commit }, view) {
+    commit('TOUCH_VISITED_VIEW', view)
   },
   addCachedView({ commit }, view) {
     commit('ADD_CACHED_VIEW', view)
@@ -218,6 +251,62 @@ const actions = {
       resolve([...state.visitedViews])
     })
   },
+  keepPortalViews({ commit, state }, clientId) {
+    const prefix = `/portal/${clientId}`
+    commit('PRUNE_VIEWS', view => view.path === prefix || view.path.startsWith(`${prefix}/`))
+    return Promise.resolve([...state.visitedViews])
+  },
+  keepMainViews({ commit, state }) {
+    commit('PRUNE_VIEWS', view => !/^\/portal\/[^/]+(?:\/|$)/.test(view.path))
+    if (!state.visitedViews.some(view => view.path === '/index')) {
+      commit('ADD_VISITED_VIEW', {
+        path: '/index',
+        fullPath: '/index',
+        name: '首页',
+        meta: { title: '首页', affix: true }
+      })
+    }
+    return Promise.resolve([...state.visitedViews])
+  },
+  prunePortalHomeViews({ commit, state }) {
+    commit('PRUNE_VIEWS', view => {
+      if (view.meta && view.meta.affix) return true
+      if (isPortalSubSystemHomePath(view.path)) return false
+      if (view.meta && view.meta.portalHome) return false
+      return true
+    })
+    return Promise.resolve([...state.visitedViews])
+  },
+  /** 门户回首页 / 切换系统：dock 仅保留首页，清空全部业务页签 */
+  clearDockBusinessTabs({ commit, state }) {
+    commit('PRUNE_VIEWS', view => {
+      if (view.path === '/index' || view.path === '/') {
+        return true
+      }
+      if (view.meta && view.meta.affix) {
+        return true
+      }
+      return false
+    })
+    return Promise.resolve([...state.visitedViews])
+  },
+  /** @deprecated 使用 clearDockBusinessTabs */
+  clearPortalDockTabs({ dispatch }) {
+    return dispatch('clearDockBusinessTabs')
+  },
+}
+
+function resolveViewTitle(view) {
+  if (!view) {
+    return 'no-name'
+  }
+  if (view.meta && view.meta.title) {
+    return view.meta.title
+  }
+  if (view.title) {
+    return view.title
+  }
+  return 'no-name'
 }
 
 export default {
