@@ -62,5 +62,29 @@ public class DeptDO extends TenantBaseDO {
      * 枚举 {@link CommonStatusEnum}
      */
     private Integer status;
+    /**
+     * 组织编码（层级字母+流水号，如 GS-1）
+     */
+    private String organizationCode;
+    /**
+     * 英文组织名称
+     */
+    private String engName;
+    /**
+     * 描述说明
+     */
+    private String description;
+    /**
+     * 地址
+     */
+    private String address;
+    /**
+     * ERP 系统中的编码
+     */
+    private String erpCode;
+    /**
+     * PDM 系统中的编码
+     */
+    private String pdmCode;
 
 }

@@ -197,7 +197,7 @@ export function getCaptchaEnable() {
   if (process.env.VUE_APP_CAPTCHA_ENABLE === "false") {
     return false;
   }
-  return process.env.VUE_APP_CAPTCHA_ENABLE || true;
+  return process.env.VUE_APP_CAPTCHA_ENABLE || false;
 }
 
 /**

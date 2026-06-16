@@ -14,6 +14,7 @@ import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 import cn.jonhon.jump.module.system.enums.common.SexEnum;
 import cn.jonhon.jump.module.system.service.dept.DeptService;
 import cn.jonhon.jump.module.system.service.user.AdminUserService;
+import cn.jonhon.jump.module.system.service.user.SubSystemUsersService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -45,6 +46,8 @@ public class UserController {
     private AdminUserService userService;
     @Resource
     private DeptService deptService;
+    @Resource
+    private SubSystemUsersService subSystemUsersService;
 
     @PostMapping("/create")
     @Operation(summary = "新增用户")
@@ -108,8 +111,11 @@ public class UserController {
         // 拼接数据
         Map<Long, DeptDO> deptMap = deptService.getDeptMap(
                 convertList(pageResult.getList(), AdminUserDO::getDeptId));
-        return success(new PageResult<>(UserConvert.INSTANCE.convertList(pageResult.getList(), deptMap),
-                pageResult.getTotal()));
+        Map<Long, Long> subSystemCountMap = subSystemUsersService.getCountMapByMainUserIds(
+                convertList(pageResult.getList(), AdminUserDO::getId));
+        List<UserRespVO> list = UserConvert.INSTANCE.convertList(pageResult.getList(), deptMap);
+        list.forEach(user -> user.setSubSystemCount(subSystemCountMap.getOrDefault(user.getId(), 0L)));
+        return success(new PageResult<>(list, pageResult.getTotal()));
     }
 
     @GetMapping({"/list-all-simple", "/simple-list"})

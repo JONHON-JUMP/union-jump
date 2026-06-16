@@ -266,6 +266,8 @@ jonhonjump:
       url: http://dashboard.jonhonjump.iocoder.cn # Admin 管理后台 UI 的地址
   xss:
     enable: false
+  captcha:
+    enable: false # 关闭登录滑动拼图验证码
     exclude-urls: # 如下两个 url，仅仅是为了演示，去掉配置也没关系
       - ${spring.boot.admin.context-path}/** # 不处理 Spring Boot Admin 的请求
       - ${management.endpoints.web.base-path}/** # 不处理 Actuator 的请求
@@ -311,6 +313,7 @@ jonhonjump:
     enable: true
     ignore-urls:
       - /jmreport/* # 积木报表，无法携带租户编号
+      - /admin-api/system/auth/** # 登录、登出、刷新令牌等，无法保证携带租户编号
     ignore-visit-urls:
       - /admin-api/system/user/profile/**
       - /admin-api/system/auth/**

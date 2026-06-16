@@ -92,5 +92,38 @@ public class AdminUserDO extends TenantBaseDO {
      * 最后登录时间
      */
     private LocalDateTime loginDate;
+    /**
+     * 工号（人力部分配的唯一工号）
+     */
+    private String employeeNo;
+    /**
+     * 刷卡卡号
+     */
+    private String cardNo;
+    /**
+     * 人员分类（01 正式员工，02 外包派遣）
+     */
+    private String personClass;
+    /**
+     * 人员转正状态（01 试用期，02 转正）
+     */
+    private String regularizationStatus;
+    /**
+     * 在职状态（01 在职，02 停职，03 退二线，04 已退休）
+     */
+    private String employmentStatus;
+    /**
+     * 在岗状态（01 在岗，02 离岗，03 请假，04 出差）
+     */
+    private String dutyStatus;
+    /**
+     * ERP 账号数组
+     */
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private Set<String> erpNos;
+    /**
+     * 域账号（OA 系统账号）
+     */
+    private String domainNo;
 
 }

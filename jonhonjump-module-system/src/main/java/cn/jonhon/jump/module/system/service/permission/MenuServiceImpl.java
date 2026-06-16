@@ -12,6 +12,7 @@ import cn.jonhon.jump.module.system.dal.mysql.permission.MenuMapper;
 import cn.jonhon.jump.module.system.dal.redis.RedisKeyConstants;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
 import cn.jonhon.jump.module.system.service.tenant.TenantService;
+import cn.jonhon.jump.module.system.service.user.UserQuickNavService;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +44,9 @@ public class MenuServiceImpl implements MenuService {
     private MenuMapper menuMapper;
     @Resource
     private PermissionService permissionService;
+    @Resource
+    @Lazy
+    private UserQuickNavService userQuickNavService;
     @Resource
     @Lazy // 延迟，避免循环依赖报错
     private TenantService tenantService;
@@ -102,6 +106,8 @@ public class MenuServiceImpl implements MenuService {
         menuMapper.deleteById(id);
         // 删除授予给角色的权限
         permissionService.processMenuDeleted(id);
+        // 删除用户快捷导航配置
+        userQuickNavService.deleteByMenuId(id);
     }
 
     @Override
@@ -120,6 +126,8 @@ public class MenuServiceImpl implements MenuService {
         menuMapper.deleteByIds(ids);
         // 删除授予给角色的权限
         ids.forEach(id -> permissionService.processMenuDeleted(id));
+        // 删除用户快捷导航配置
+        userQuickNavService.deleteByMenuIds(ids);
     }
 
     @Override

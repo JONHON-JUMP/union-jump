@@ -192,8 +192,24 @@ public class AdminUserServiceImpl implements AdminUserService {
         validateUserExists(id);
         validateEmailUnique(id, reqVO.getEmail());
         validateMobileUnique(id, reqVO.getMobile());
-        // 执行更新
-        userMapper.updateById(BeanUtils.toBean(reqVO, AdminUserDO.class).setId(id));
+        // 执行更新（仅更新个人中心允许修改的字段，避免空值覆盖邮箱/手机）
+        AdminUserDO updateObj = new AdminUserDO().setId(id);
+        if (reqVO.getNickname() != null) {
+            updateObj.setNickname(reqVO.getNickname());
+        }
+        if (reqVO.getSex() != null) {
+            updateObj.setSex(reqVO.getSex());
+        }
+        if (reqVO.getAvatar() != null) {
+            updateObj.setAvatar(reqVO.getAvatar());
+        }
+        if (StrUtil.isNotBlank(reqVO.getEmail())) {
+            updateObj.setEmail(reqVO.getEmail());
+        }
+        if (StrUtil.isNotBlank(reqVO.getMobile())) {
+            updateObj.setMobile(reqVO.getMobile());
+        }
+        userMapper.updateById(updateObj);
     }
 
     @Override
@@ -280,6 +296,16 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     public AdminUserDO getUserByMobile(String mobile) {
         return userMapper.selectByMobile(mobile);
+    }
+
+    @Override
+    public AdminUserDO getUserByEmployeeNo(String employeeNo) {
+        return userMapper.selectByEmployeeNo(employeeNo);
+    }
+
+    @Override
+    public AdminUserDO getUserByDomainNo(String domainNo) {
+        return userMapper.selectByDomainNo(domainNo);
     }
 
     @Override

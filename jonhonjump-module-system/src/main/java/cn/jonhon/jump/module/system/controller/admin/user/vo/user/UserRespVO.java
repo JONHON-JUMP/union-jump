@@ -69,7 +69,35 @@ public class UserRespVO{
     @ExcelProperty("最后登录时间")
     private LocalDateTime loginDate;
 
+    @Schema(description = "工号", example = "E001234")
+    @ExcelProperty("工号")
+    private String employeeNo;
+
+    @Schema(description = "刷卡卡号", example = "1234567890")
+    private String cardNo;
+
+    @Schema(description = "人员分类（01正式员工 02外包派遣）", example = "01")
+    private String personClass;
+
+    @Schema(description = "人员转正状态（01试用期 02转正）", example = "02")
+    private String regularizationStatus;
+
+    @Schema(description = "在职状态（01在职 02停职 03退二线 04已退休）", example = "01")
+    private String employmentStatus;
+
+    @Schema(description = "在岗状态（01在岗 02离岗 03请假 04出差）", example = "01")
+    private String dutyStatus;
+
+    @Schema(description = "ERP 账号数组")
+    private Set<String> erpNos;
+
+    @Schema(description = "域账号", example = "zhangsan")
+    private String domainNo;
+
     @Schema(description = "创建时间", requiredMode = Schema.RequiredMode.REQUIRED, example = "时间戳格式")
     private LocalDateTime createTime;
+
+    @Schema(description = "子系统关系数量", example = "2")
+    private Long subSystemCount;
 
 }

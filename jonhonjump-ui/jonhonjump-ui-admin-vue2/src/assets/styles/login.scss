@@ -9,8 +9,10 @@ $rowH: 56;
 $buttonH: 50;
 
 // container
-$containerBgColor: #e6ebf2;
+$containerBgColor: #eaf4fc;
 $containerBgImage: '../assets/images/bg.png';
+$portalPrimary: #087ce5;
+$portalPrimaryDark: #0e88e9;
 // container-logo
 $logoWidth: 417px;
 $logoHeight: 64px;
@@ -128,11 +130,12 @@ $buttonHeight: $buttonH * 1px;
         }
         :deep(.el-tabs__item.is-active) {
           font-weight: bold;
-          color: #2F53EB;
+          color: $portalPrimary;
         }
         :deep(.el-tabs__active-bar) {
           height: 3px;
           border-radius: 2px;
+          background-color: $portalPrimary;
         }
         // - - - input
         :deep(.el-input__inner) {
@@ -185,7 +188,7 @@ $buttonHeight: $buttonH * 1px;
             font-size: 14px;
             font-family: PingFang SC;
             font-weight: 400;
-            color: #2F53EB;
+            color: $portalPrimary;
             span {
               padding-left: 15px;
               border-left: 2px solid #D9D9D9;
@@ -208,8 +211,8 @@ $buttonHeight: $buttonH * 1px;
           color: #FFFFFF;
         }
         .button-active {
-          background: #2F53EB;
-          box-shadow: 0px 2px 8px rgba(0, 80, 184, 0.2);
+          background: linear-gradient(135deg, $portalPrimaryDark, #08a7bd);
+          box-shadow: 0px 2px 8px rgba(8, 124, 229, 0.24);
         }
       }
     }
@@ -229,6 +232,31 @@ $buttonHeight: $buttonH * 1px;
       color: inherit;
       text-decoration: none;
     }
+  }
+}
+
+.jump-login-tone {
+  background-color: $containerBgColor;
+  background-image:
+    radial-gradient(circle at 2% 2%, rgba(67, 183, 239, .18), transparent 30%),
+    radial-gradient(circle at 98% 18%, rgba(42, 195, 172, .14), transparent 28%),
+    radial-gradient(circle at 58% 100%, rgba(255, 192, 75, .11), transparent 24%),
+    url($containerBgImage);
+
+  .title {
+    color: #10233e;
+    font-weight: 600;
+  }
+
+  :deep(.el-button--primary) {
+    border: 0;
+    background: linear-gradient(135deg, $portalPrimaryDark, #08a7bd);
+    box-shadow: 0 8px 18px rgba(8, 124, 229, .22);
+  }
+
+  :deep(.el-button--primary:hover),
+  :deep(.el-button--primary:focus) {
+    background: linear-gradient(135deg, lighten($portalPrimaryDark, 3%), lighten(#08a7bd, 3%));
   }
 }
 

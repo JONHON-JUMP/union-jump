@@ -18,7 +18,7 @@
         <module>jonhonjump-module-biz</module>
         <module>jonhonjump-module-api</module>
         <module>jonhonjump-module-board</module>
-        <!--        <module>jonhonjump-module-bpm</module>-->
+        <module>jonhonjump-module-bpm</module>
 <!--        <module>jonhonjump-module-report</module>-->
 <!--        <module>jonhonjump-module-crm</module>-->
 <!--        <module>jonhonjump-module-erp</module>-->

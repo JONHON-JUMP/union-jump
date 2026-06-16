@@ -64,6 +64,45 @@ public class UserSaveReqVO {
     @DiffLogField(name = "用户头像")
     private String avatar;
 
+    @Schema(description = "工号", example = "E001234")
+    @Size(max = 20, message = "工号长度不能超过 20 个字符")
+    @DiffLogField(name = "工号")
+    private String employeeNo;
+
+    @Schema(description = "刷卡卡号", example = "1234567890")
+    @Size(max = 20, message = "刷卡卡号长度不能超过 20 个字符")
+    @DiffLogField(name = "刷卡卡号")
+    private String cardNo;
+
+    @Schema(description = "人员分类（01正式员工 02外包派遣）", example = "01")
+    @Size(max = 10, message = "人员分类长度不能超过 10 个字符")
+    @DiffLogField(name = "人员分类")
+    private String personClass;
+
+    @Schema(description = "人员转正状态（01试用期 02转正）", example = "02")
+    @Size(max = 20, message = "转正状态长度不能超过 20 个字符")
+    @DiffLogField(name = "转正状态")
+    private String regularizationStatus;
+
+    @Schema(description = "在职状态（01在职 02停职 03退二线 04已退休）", example = "01")
+    @Size(max = 20, message = "在职状态长度不能超过 20 个字符")
+    @DiffLogField(name = "在职状态")
+    private String employmentStatus;
+
+    @Schema(description = "在岗状态（01在岗 02离岗 03请假 04出差）", example = "01")
+    @Size(max = 20, message = "在岗状态长度不能超过 20 个字符")
+    @DiffLogField(name = "在岗状态")
+    private String dutyStatus;
+
+    @Schema(description = "ERP 账号数组", example = "[\"erp001\",\"erp002\"]")
+    @DiffLogField(name = "ERP账号")
+    private Set<String> erpNos;
+
+    @Schema(description = "域账号", example = "zhangsan")
+    @Size(max = 32, message = "域账号长度不能超过 32 个字符")
+    @DiffLogField(name = "域账号")
+    private String domainNo;
+
     // ========== 仅【创建】时，需要传递的字段 ==========
 
     @Schema(description = "密码", requiredMode = Schema.RequiredMode.REQUIRED, example = "123456")

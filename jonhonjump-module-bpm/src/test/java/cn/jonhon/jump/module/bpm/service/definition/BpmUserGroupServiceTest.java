@@ -115,7 +115,7 @@ public class BpmUserGroupServiceTest extends BaseDbUnitTest {
        userGroupMapper.insert(cloneIgnoreId(dbUserGroup, o -> o.setCreateTime(buildTime(2021, 12, 12))));
        // 准备参数
        BpmUserGroupPageReqVO reqVO = new BpmUserGroupPageReqVO();
-       reqVO.setName("源码");
+       reqVO.setName("中航");
        reqVO.setStatus(CommonStatusEnum.ENABLE.getStatus());
        reqVO.setCreateTime((new LocalDateTime[]{buildTime(2021, 11, 10),buildTime(2021, 11, 12)}));
 

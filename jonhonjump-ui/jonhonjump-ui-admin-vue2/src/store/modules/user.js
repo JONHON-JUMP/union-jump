@@ -40,8 +40,9 @@ const user = {
       const socialCode = userInfo.socialCode
       const socialState = userInfo.socialState
       const socialType = userInfo.socialType
+      const loginType = userInfo.loginType || 'auto'
       return new Promise((resolve, reject) => {
-        login(username, password, captchaVerification, socialType, socialCode, socialState).then(res => {
+        login(username, password, captchaVerification, socialType, socialCode, socialState, loginType).then(res => {
           res = res.data;
           // 设置 token
           setToken(res)
@@ -129,6 +130,7 @@ const user = {
         logout(state.token).then(() => {
           commit('SET_ROLES', [])
           commit('SET_PERMISSIONS', [])
+          commit('portal/RESET_PORTAL', null, { root: true })
           removeToken()
           resolve()
         }).catch(error => {

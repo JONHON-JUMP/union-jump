@@ -4,6 +4,7 @@ import app from './modules/app'
 import user from './modules/user'
 import tagsView from './modules/tagsView'
 import permission from './modules/permission'
+import portal from './modules/portal'
 import settings from './modules/settings'
 import dict from './modules/dict'
 import getters from './getters'
@@ -16,6 +17,7 @@ const store = new Vuex.Store({
     user,
     tagsView,
     permission,
+    portal,
     settings,
     dict
   },

@@ -16,12 +16,16 @@
                 <div class="pull-right">{{ user.username }}</div>
               </li>
               <li class="list-group-item">
-                <svg-icon icon-class="phone" />手机号码
-                <div class="pull-right">{{ user.mobile }}</div>
+                <svg-icon icon-class="peoples" />域账号
+                <div class="pull-right">{{ user.domainNo || '-' }}</div>
               </li>
               <li class="list-group-item">
-                <svg-icon icon-class="email" />用户邮箱
-                <div class="pull-right">{{ user.email }}</div>
+                <svg-icon icon-class="post" />工号
+                <div class="pull-right">{{ user.employeeNo || '-' }}</div>
+              </li>
+              <li class="list-group-item">
+                <svg-icon icon-class="validCode" />刷卡卡号
+                <div class="pull-right">{{ user.cardNo || '-' }}</div>
               </li>
               <li class="list-group-item">
                 <svg-icon icon-class="tree" />所属部门
@@ -55,9 +59,6 @@
             <el-tab-pane label="修改密码" name="resetPwd">
               <resetPwd :user="user" />
             </el-tab-pane>
-            <el-tab-pane label="社交信息" name="userSocial">
-              <userSocial :user="user" :getUser="getUser" :setActiveTab="setActiveTab" />
-            </el-tab-pane>
           </el-tabs>
         </el-card>
       </el-col>
@@ -69,12 +70,11 @@
 import userAvatar from "./userAvatar";
 import userInfo from "./userInfo";
 import resetPwd from "./resetPwd";
-import userSocial from "./userSocial";
 import { getUserProfile } from "@/api/system/user";
 
 export default {
   name: "Profile",
-  components: { userAvatar, userInfo, resetPwd, userSocial },
+  components: { userAvatar, userInfo, resetPwd },
   data() {
     return {
       user: {},
@@ -91,9 +91,6 @@ export default {
       getUserProfile().then(response => {
         this.user = response.data;
       });
-    },
-    setActiveTab(activeTab) {
-      this.activeTab = activeTab
     }
   }
 };

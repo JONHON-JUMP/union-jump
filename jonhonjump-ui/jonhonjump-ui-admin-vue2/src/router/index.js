@@ -236,13 +236,55 @@ export const constantRoutes = [
       },
       component: (resolve) => require(['@/views/pay/cashier'], resolve)
     }]
+  },
+  // 外部系统门户：client_id 段对应 sub_system.client_id（如 scada）
+  {
+    path: '/portal/:clientId([a-zA-Z][a-zA-Z0-9_-]*)/:menuPath(.*)',
+    component: Layout,
+    hidden: true,
+    children: [{
+      path: '',
+      component: (resolve) => require(['@/views/system/subSystem/portal/PortalFrame'], resolve),
+      name: 'PortalFrame',
+      meta: { title: '外部系统' }
+    }]
+  },
+  {
+    path: '/portal/:clientId([a-zA-Z][a-zA-Z0-9_-]*)',
+    redirect: to => ({
+      path: '/index',
+      query: { ...to.query, portal: to.params.clientId }
+    })
+  },
+  // 兼容旧链接 /portal/1/...（由 permission.js 重定向到 client_id）
+  {
+    path: '/portal/:legacyId(\\d+)/:menuPath(.*)',
+    component: Layout,
+    hidden: true,
+    children: [{
+      path: '',
+      component: (resolve) => require(['@/views/system/subSystem/portal/PortalFrame'], resolve),
+      name: 'PortalFrameLegacy',
+      meta: { title: '外部系统', legacy: true }
+    }]
+  },
+  {
+    path: '/portal/:legacyId(\\d+)',
+    redirect: to => ({
+      path: '/index',
+      query: { ...to.query, portalLegacy: to.params.legacyId }
+    })
   }
 ]
 
 // 防止连续点击多次路由报错
-let routerPush = Router.prototype.push;
+let routerPush = Router.prototype.push
+let routerReplace = Router.prototype.replace
 Router.prototype.push = function push(location) {
   return routerPush.call(this, location).catch(err => err)
+}
+Router.prototype.replace = function replace(location) {
+  return routerReplace.call(this, location).catch(err => err)
 }
 
 export default new Router({
