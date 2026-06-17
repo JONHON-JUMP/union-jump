@@ -54,7 +54,7 @@
 
         <div class="system-chip">
           <span class="status-dot" />
-          <span>当前子系统：</span>
+          <span>当前系统：</span>
           <strong>{{ currentSubsystem }}</strong>
           <el-dropdown trigger="click" placement="bottom-end" @command="handleSubsystemChange">
             <button class="system-switch" type="button">
@@ -66,7 +66,7 @@
                 v-for="system in subsystemOptions"
                 :key="system.value"
                 :command="system.value"
-                :class="{ 'is-current': currentSubsystem === system.value }"
+                :class="{ 'is-current': currentSystem === system.value }"
               >
                 <span class="system-option">
                   <i :class="system.icon" />
@@ -74,7 +74,7 @@
                     <strong>{{ system.label }}</strong>
                     <small>{{ system.description }}</small>
                   </span>
-                  <i v-if="currentSubsystem === system.value" class="el-icon-check" />
+                  <i v-if="currentSystem === system.value" class="el-icon-check" />
                 </span>
               </el-dropdown-item>
             </el-dropdown-menu>
@@ -100,7 +100,7 @@
       </div>
     </header>
 
-    <main class="portal-workspace">
+    <main class="portal-workspace" :class="{ 'is-iframe-host': isPortalIframeRoute }">
       <div class="workspace-content">
         <slot />
       </div>
@@ -116,7 +116,7 @@
     <all-apps-drawer
       ref="allAppsDrawer"
       :visible.sync="drawerVisible"
-      :routes="permission_routes || []"
+      :routes="sidebarRouters || []"
       @open="openApp"
     />
   </div>
@@ -126,6 +126,8 @@
 import { mapGetters } from 'vuex'
 import { getPath } from '@/utils/ruoyi'
 import { isExternal } from '@/utils/validate'
+import { buildSubsystemOptions, resolveCurrentSubsystemLabel } from '@/utils/portalSubsystem'
+import { parsePortalClientId, resolvePortalFrameRoute, isMainBusinessPath } from '@/utils/portalRoute'
 import AllAppsDrawer from '@/views/components/AllAppsDrawer.vue'
 import PortalDock from './PortalDock.vue'
 
@@ -141,19 +143,17 @@ export default {
       searchKeyword: '',
       searchFocused: false,
       drawerVisible: false,
-      dockExpanded: false,
-      currentSubsystem: 'C5 立库 MES',
-      subsystemOptions: [
-        { value: 'C5 立库 MES', label: 'C5 立库 MES', description: '立体库制造执行', icon: 'el-icon-box' },
-        { value: 'C6 新能源 MES', label: 'C6 新能源 MES', description: '新能源产线执行', icon: 'el-icon-cpu' },
-        { value: 'A7 库房 WMS', label: 'A7 库房 WMS', description: '仓储与配送管理', icon: 'el-icon-house' },
-        { value: '质量管理平台', label: '质量管理平台', description: '检验与质量处置', icon: 'el-icon-circle-check' },
-        { value: '设备管理系统', label: '设备管理系统', description: '点检、维保与台账', icon: 'el-icon-setting' }
-      ]
+      dockExpanded: false
     }
   },
   computed: {
-    ...mapGetters(['avatar', 'nickname', 'name', 'permission_routes']),
+    ...mapGetters(['avatar', 'nickname', 'name', 'sidebarRouters', 'currentSystem', 'portalSystemList']),
+    subsystemOptions() {
+      return buildSubsystemOptions(this.portalSystemList)
+    },
+    currentSubsystem() {
+      return resolveCurrentSubsystemLabel(this.currentSystem, this.portalSystemList)
+    },
     displayName() {
       return this.nickname || this.name || '制造同仁'
     },
@@ -161,7 +161,7 @@ export default {
       return this.displayName.slice(0, 1)
     },
     authorizedApps() {
-      return this.flattenRoutes(this.permission_routes || [])
+      return this.flattenRoutes(this.sidebarRouters || [])
     },
     filteredApps() {
       const keyword = this.searchKeyword.toLowerCase()
@@ -170,12 +170,19 @@ export default {
     },
     showSearchPanel() {
       return this.searchFocused && Boolean(this.searchKeyword)
+    },
+    isPortalIframeRoute() {
+      const route = resolvePortalFrameRoute(this.$route, this.$store.state.portal.pathLinkMap)
+      return Boolean(route.meta && route.meta.link)
     }
   },
   watch: {
     '$route.path'() {
       this.dockExpanded = false
     }
+  },
+  created() {
+    this.$store.dispatch('portal/loadSystemList')
   },
   methods: {
     handleShellClick() {
@@ -186,9 +193,17 @@ export default {
       this.dockExpanded = true
     },
     handleSubsystemChange(value) {
-      if (value === this.currentSubsystem) return
-      this.currentSubsystem = value
-      this.$message.success(`已切换至 ${value}`)
+      if (value === this.currentSystem) return
+      const loading = this.$loading({
+        lock: true,
+        text: '正在切换系统...',
+        spinner: 'el-icon-loading'
+      })
+      this.$store.dispatch('portal/switchSystem', value).catch(err => {
+        this.$message.error(typeof err === 'string' ? err : (err.message || '切换系统失败'))
+      }).finally(() => {
+        loading.close()
+      })
     },
     flattenRoutes(routes, basePath = '', group = '') {
       const result = []
@@ -196,7 +211,8 @@ export default {
         if (!route || route.hidden || route.path === '*' || route.path === '/404') return
         const title = route.meta && route.meta.title
         const path = this.resolveRoutePath(basePath, route.path)
-        if (title && path !== '/index' && route.redirect !== 'noRedirect') {
+        const hasChildren = route.children && route.children.length > 0
+        if (title && path !== '/index' && route.redirect !== 'noRedirect' && !hasChildren) {
           result.push({
             name: title,
             group: group || '授权菜单',
@@ -218,6 +234,10 @@ export default {
       this.searchFocused = false
       this.drawerVisible = false
       if (!app || !app.path) return
+      if (this.currentSystem !== 'main' && isMainBusinessPath(app.path)) {
+        this.$message.warning('当前为子系统模式，请从门户首页选择应用进入')
+        return
+      }
       if (isExternal(app.path)) {
         if (/^https?:/.test(app.path)) {
           const openedWindow = window.open(app.path, '_blank', 'noopener,noreferrer')
@@ -225,7 +245,23 @@ export default {
         } else {
           window.location.href = app.path
         }
-      } else if (this.$route.path !== app.path) {
+        return
+      }
+      const clientId = parsePortalClientId(app.path)
+      if (clientId) {
+        if (this.$route.path === app.path) {
+          return
+        }
+        const loading = this.$loading({ lock: true, text: '正在进入子系统...', spinner: 'el-icon-loading' })
+        this.$store.dispatch('portal/enterSubSystem', { clientId, navigate: false })
+          .then(() => this.$router.push(app.path))
+          .catch(err => {
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
+          })
+          .finally(() => loading.close())
+        return
+      }
+      if (this.$route.path !== app.path) {
         this.$router.push(app.path)
       }
     },
@@ -245,7 +281,8 @@ export default {
       this.searchFocused = false
     },
     goHome() {
-      if (this.$route.path !== '/index') this.$router.push('/index')
+      if (this.$route.path === '/index' || this.$route.path === '/') return
+      this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
     },
     goTodo() {
       this.$router.push({ path: '/index', query: { workbench: 'todo' } })
@@ -430,7 +467,19 @@ button { color: inherit; }
   flex: 1 1 auto;
   flex-direction: column;
 }
-.workspace-content { min-height: 0; overflow: auto; flex: 1 1 auto; }
+.portal-workspace.is-iframe-host {
+  min-height: 0;
+}
+.workspace-content {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: auto;
+}
+.portal-workspace.is-iframe-host .workspace-content {
+  overflow: hidden;
+}
 
 @media (max-width: 1280px) {
   .portal-header { min-height: 76px; }

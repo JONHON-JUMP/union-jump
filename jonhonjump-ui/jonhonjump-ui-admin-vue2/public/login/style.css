@@ -1,0 +1,882 @@
+/* ==========================================
+   JUMP 登录页面 — 中航光电统一制造平台
+   深空蓝黑科技风格 · 连接器元素动效
+   ========================================== */
+
+/* ---- CSS 变量定义 ---- */
+:root {
+    /* 主色系 */
+    --bg-primary: #0a0e27;
+    --bg-secondary: #0f1535;
+    --bg-card: rgba(15, 21, 53, 0.85);
+    --bg-input: rgba(10, 14, 39, 0.6);
+
+    /* 强调色 */
+    --accent: #3b82f6;
+    --accent-light: #60a5fa;
+    --accent-glow: rgba(59, 130, 246, 0.4);
+    --accent-subtle: rgba(59, 130, 246, 0.1);
+    --accent-border: rgba(59, 130, 246, 0.2);
+
+    /* 文字色 */
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-muted: #64748b;
+
+    /* 特效 */
+    --glow-sm: 0 0 10px rgba(59, 130, 246, 0.3);
+    --glow-md: 0 0 20px rgba(59, 130, 246, 0.3), 0 0 40px rgba(59, 130, 246, 0.1);
+    --glow-lg: 0 0 30px rgba(59, 130, 246, 0.4), 0 0 60px rgba(59, 130, 246, 0.2);
+
+    /* 过渡 */
+    --transition-fast: 0.2s ease;
+    --transition-normal: 0.3s ease;
+    --transition-slow: 0.5s ease;
+
+    /* 圆角 */
+    --radius-sm: 6px;
+    --radius-md: 10px;
+    --radius-lg: 16px;
+
+    /* 字体 */
+    --font-brand: 'Orbitron', monospace;
+    --font-body: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* ---- 重置与基础 ---- */
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    font-family: var(--font-body);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    overflow: hidden;
+}
+
+/* ---- 主容器 ---- */
+.login-container {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+}
+
+/* ============================================
+   左侧品牌视觉区
+   ============================================ */
+.brand-section {
+    position: relative;
+    flex: 0 0 55%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(10, 14, 39, 0.75) 0%, rgba(13, 20, 64, 0.7) 50%, rgba(10, 18, 48, 0.65) 100%),
+                url('bg.png') center / cover no-repeat;
+    overflow: hidden;
+}
+
+/* 左侧右边缘渐变融合 */
+.brand-section::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 0;
+    width: 120px;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(12, 17, 42, 0.9));
+    z-index: 3;
+    pointer-events: none;
+}
+
+/* Canvas 粒子画布 */
+#particle-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+}
+
+/* 品牌信息覆盖层 */
+.brand-overlay {
+    position: relative;
+    z-index: 2;
+    text-align: center;
+    padding: 40px;
+    opacity: 0;
+    animation: fadeInUp 1s ease 0.3s forwards;
+}
+
+/* 装饰线条 */
+.brand-decorator {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-bottom: 30px;
+}
+
+.decorator-line {
+    display: block;
+    width: 60px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+}
+
+.decorator-dot {
+    display: block;
+    width: 8px;
+    height: 8px;
+    background: var(--accent);
+    border-radius: 50%;
+    box-shadow: var(--glow-sm);
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+/* JONHON 品牌名 */
+.brand-logo {
+    font-family: var(--font-brand);
+    font-size: 3.8rem;
+    font-weight: 800;
+    letter-spacing: 14px;
+    color: var(--text-primary);
+    text-shadow: 0 0 40px rgba(59, 130, 246, 0.3),
+                 0 0 80px rgba(59, 130, 246, 0.1);
+    margin-bottom: 8px;
+    background: linear-gradient(180deg, #ffffff 0%, #c8d6e5 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.brand-sub {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    letter-spacing: 6px;
+    margin-bottom: 50px;
+    font-weight: 300;
+}
+
+/* JUMP 系统标识 */
+.system-badge {
+    position: relative;
+    display: inline-block;
+    padding: 40px 65px;
+    border: 1.5px solid rgba(59, 130, 246, 0.35);
+    border-radius: var(--radius-lg);
+    background: rgba(10, 14, 39, 0.7);
+    backdrop-filter: blur(20px);
+    margin-bottom: 40px;
+    box-shadow: 0 0 40px rgba(59, 130, 246, 0.12),
+                inset 0 0 30px rgba(59, 130, 246, 0.05);
+}
+
+.badge-glow {
+    position: absolute;
+    top: -2px;
+    left: -2px;
+    right: -2px;
+    bottom: -2px;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.35), transparent 40%, transparent 60%, rgba(96, 165, 250, 0.35));
+    opacity: 0;
+    animation: badge-pulse 3s ease-in-out infinite;
+    pointer-events: none;
+}
+
+.system-name {
+    font-family: var(--font-brand);
+    font-size: 4.2rem;
+    font-weight: 900;
+    letter-spacing: 16px;
+    color: #fff;
+    text-shadow: 0 0 30px rgba(59, 130, 246, 0.6),
+                 0 0 60px rgba(59, 130, 246, 0.3),
+                 0 0 100px rgba(59, 130, 246, 0.15);
+    margin-bottom: 16px;
+    background: linear-gradient(180deg, #ffffff 30%, var(--accent-light) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.system-fullname {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    letter-spacing: 3px;
+    margin-bottom: 10px;
+    font-weight: 400;
+    opacity: 0.9;
+}
+
+.system-cn {
+    font-size: 1.05rem;
+    color: var(--accent-light);
+    letter-spacing: 6px;
+    font-weight: 500;
+    text-shadow: 0 0 12px rgba(96, 165, 250, 0.3);
+}
+
+/* Slogan */
+.slogan {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-bottom: 50px;
+}
+
+.slogan-icon {
+    font-size: 1.2rem;
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.slogan-text {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    letter-spacing: 8px;
+    font-weight: 300;
+}
+
+/* 底部统计数据 */
+.brand-stats {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 30px;
+}
+
+.stat-item {
+    text-align: center;
+}
+
+.stat-value {
+    display: block;
+    font-family: var(--font-brand);
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: var(--accent-light);
+    text-shadow: var(--glow-sm);
+    margin-bottom: 4px;
+}
+
+.stat-label {
+    display: block;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    letter-spacing: 2px;
+}
+
+.stat-divider {
+    width: 1px;
+    height: 36px;
+    background: linear-gradient(180deg, transparent, var(--accent-border), transparent);
+}
+
+/* ============================================
+   右侧登录表单区
+   ============================================ */
+.form-section {
+    flex: 0 0 45%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, #0c112a 0%, var(--bg-secondary) 40%, #0f1535 100%);
+    position: relative;
+    padding: 40px;
+}
+
+/* 左侧装饰边线（柔化） */
+.form-section::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 15%;
+    height: 70%;
+    width: 1px;
+    background: linear-gradient(180deg, transparent, rgba(59, 130, 246, 0.1), rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.1), transparent);
+}
+
+/* 左上角微妙光晕，融合过渡 */
+.form-section::after {
+    content: '';
+    position: absolute;
+    left: -20px;
+    top: 30%;
+    width: 200px;
+    height: 40%;
+    background: radial-gradient(ellipse at left center, rgba(59, 130, 246, 0.04), transparent 70%);
+    pointer-events: none;
+}
+
+.form-wrapper {
+    width: 100%;
+    max-width: 400px;
+    opacity: 0;
+    animation: fadeInRight 0.8s ease 0.5s forwards;
+}
+
+/* 表单头部 */
+.form-header {
+    text-align: center;
+    margin-bottom: 40px;
+}
+
+.form-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 24px;
+}
+
+.logo-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: linear-gradient(135deg, var(--accent), #2563eb);
+    border-radius: var(--radius-md);
+    font-family: var(--font-brand);
+    font-size: 1.2rem;
+    font-weight: 800;
+    color: #fff;
+    box-shadow: var(--glow-sm);
+}
+
+.logo-text {
+    font-family: var(--font-brand);
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 4px;
+    color: var(--text-primary);
+}
+
+.form-welcome {
+    font-size: 1.6rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.login-error {
+    margin-bottom: 16px;
+    padding: 10px 12px;
+    border-radius: var(--radius-md);
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.25);
+    color: #fca5a5;
+    font-size: 0.85rem;
+    line-height: 1.5;
+}
+
+.form-desc {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    letter-spacing: 1px;
+}
+
+/* ---- 输入框组 ---- */
+.input-group {
+    position: relative;
+    margin-bottom: 22px;
+}
+
+.input-icon {
+    position: absolute;
+    left: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    color: var(--text-muted);
+    z-index: 2;
+    transition: color var(--transition-normal);
+    pointer-events: none;
+}
+
+.input-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.input-group input {
+    width: 100%;
+    padding: 16px 48px 16px 46px;
+    background: var(--bg-input);
+    border: 1px solid var(--accent-border);
+    border-radius: var(--radius-md);
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-family: var(--font-body);
+    outline: none;
+    transition: all var(--transition-normal);
+}
+
+.input-group input::placeholder {
+    color: transparent;
+}
+
+.input-group label {
+    position: absolute;
+    left: 46px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    pointer-events: none;
+    transition: all var(--transition-normal);
+    background: transparent;
+    padding: 0 4px;
+}
+
+/* Label 上浮动画 */
+.input-group input:focus ~ label,
+.input-group input:not(:placeholder-shown) ~ label {
+    top: 0;
+    left: 12px;
+    font-size: 0.72rem;
+    color: var(--accent-light);
+    background: var(--bg-secondary);
+    letter-spacing: 1px;
+}
+
+/* 输入框 focus 效果 */
+.input-group input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1), var(--glow-sm);
+    background: rgba(10, 14, 39, 0.8);
+}
+
+.input-group input:focus ~ .input-icon {
+    color: var(--accent-light);
+}
+
+/* 输入框底部高亮线 */
+.input-highlight {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-light));
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    transition: all var(--transition-normal);
+    transform: translateX(-50%);
+}
+
+.input-group input:focus ~ .input-highlight {
+    width: 100%;
+}
+
+/* 密码显示/隐藏按钮 */
+.toggle-password {
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    width: 24px;
+    height: 24px;
+    transition: color var(--transition-fast);
+    z-index: 2;
+}
+
+.toggle-password:hover {
+    color: var(--accent-light);
+}
+
+.toggle-password svg {
+    width: 100%;
+    height: 100%;
+}
+
+/* ---- 记住我 ---- */
+.form-options {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 28px;
+}
+
+.remember-me {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.remember-me input {
+    display: none;
+}
+
+.checkmark {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    border: 1.5px solid var(--accent-border);
+    border-radius: 4px;
+    transition: all var(--transition-fast);
+    background: var(--bg-input);
+}
+
+.remember-me input:checked ~ .checkmark {
+    background: var(--accent);
+    border-color: var(--accent);
+    box-shadow: var(--glow-sm);
+}
+
+.checkmark::after {
+    content: '';
+    position: absolute;
+    left: 5.5px;
+    top: 2px;
+    width: 5px;
+    height: 9px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+    opacity: 0;
+    transition: opacity var(--transition-fast);
+}
+
+.remember-me input:checked ~ .checkmark::after {
+    opacity: 1;
+}
+
+.remember-text {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+/* ---- 登录按钮 ---- */
+.login-btn {
+    position: relative;
+    width: 100%;
+    padding: 16px;
+    background: linear-gradient(135deg, var(--accent), #2563eb);
+    border: none;
+    border-radius: var(--radius-md);
+    color: #fff;
+    font-size: 1rem;
+    font-weight: 600;
+    font-family: var(--font-body);
+    letter-spacing: 6px;
+    cursor: pointer;
+    overflow: hidden;
+    transition: all var(--transition-normal);
+}
+
+.login-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(59, 130, 246, 0.4), var(--glow-md);
+}
+
+.login-btn:active {
+    transform: translateY(0);
+}
+
+.btn-glow {
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+    transition: left 0.6s ease;
+}
+
+.login-btn:hover .btn-glow {
+    left: 100%;
+}
+
+/* 按钮 loading 状态 */
+.login-btn.loading {
+    pointer-events: none;
+    opacity: 0.85;
+}
+
+.btn-loader {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.loader-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    background: #fff;
+    border-radius: 50%;
+    animation: loader-bounce 1.4s ease-in-out infinite;
+}
+
+.loader-dot:nth-child(2) {
+    animation-delay: 0.16s;
+}
+
+.loader-dot:nth-child(3) {
+    animation-delay: 0.32s;
+}
+
+/* ---- 底部版权 ---- */
+.form-footer {
+    text-align: center;
+    margin-top: 40px;
+    padding-top: 24px;
+    border-top: 1px solid rgba(59, 130, 246, 0.08);
+}
+
+.copyright {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+    letter-spacing: 1px;
+}
+
+.version {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    opacity: 0.6;
+    font-family: var(--font-brand);
+    letter-spacing: 2px;
+}
+
+/* ============================================
+   动画关键帧
+   ============================================ */
+
+/* 淡入上浮 */
+@keyframes fadeInUp {
+    from {
+        opacity: 0;
+        transform: translateY(30px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 淡入右滑 */
+@keyframes fadeInRight {
+    from {
+        opacity: 0;
+        transform: translateX(40px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+/* 装饰点脉冲 */
+@keyframes pulse-dot {
+    0%, 100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.5;
+        transform: scale(0.85);
+    }
+}
+
+/* 系统标识光晕 */
+@keyframes badge-pulse {
+    0%, 100% {
+        opacity: 0;
+    }
+    50% {
+        opacity: 1;
+    }
+}
+
+/* Loading 动画 */
+@keyframes loader-bounce {
+    0%, 80%, 100% {
+        transform: scale(0.4);
+        opacity: 0.4;
+    }
+    40% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* ============================================
+   输入框 shake 动画（验证失败）
+   ============================================ */
+.input-group.shake {
+    animation: shake 0.4s ease;
+}
+
+.input-group.shake input {
+    border-color: #ef4444 !important;
+    box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1) !important;
+}
+
+@keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-8px); }
+    40% { transform: translateX(8px); }
+    60% { transform: translateX(-4px); }
+    80% { transform: translateX(4px); }
+}
+
+/* ============================================
+   响应式适配
+   ============================================ */
+
+/* 平板 */
+@media (max-width: 1024px) {
+    .brand-logo {
+        font-size: 2.8rem;
+        letter-spacing: 10px;
+    }
+
+    .system-name {
+        font-size: 2rem;
+        letter-spacing: 8px;
+    }
+
+    .brand-section {
+        flex: 0 0 50%;
+    }
+
+    .form-section {
+        flex: 0 0 50%;
+    }
+}
+
+/* 手机 */
+@media (max-width: 768px) {
+    body {
+        overflow: auto;
+    }
+
+    .login-container {
+        flex-direction: column;
+        min-height: 100vh;
+    }
+
+    .brand-section {
+        flex: none;
+        min-height: 40vh;
+        padding: 40px 20px;
+    }
+
+    .brand-overlay {
+        animation-delay: 0.1s;
+    }
+
+    .brand-logo {
+        font-size: 2.2rem;
+        letter-spacing: 8px;
+    }
+
+    .brand-sub {
+        font-size: 0.75rem;
+        letter-spacing: 4px;
+        margin-bottom: 30px;
+    }
+
+    .system-badge {
+        padding: 20px 30px;
+        margin-bottom: 24px;
+    }
+
+    .system-name {
+        font-size: 1.6rem;
+        letter-spacing: 6px;
+    }
+
+    .system-fullname {
+        font-size: 0.7rem;
+    }
+
+    .slogan {
+        margin-bottom: 30px;
+    }
+
+    .slogan-text {
+        font-size: 0.85rem;
+        letter-spacing: 4px;
+    }
+
+    .brand-stats {
+        gap: 20px;
+    }
+
+    .stat-value {
+        font-size: 1.1rem;
+    }
+
+    .stat-label {
+        font-size: 0.65rem;
+    }
+
+    .form-section {
+        flex: 1;
+        padding: 30px 24px 40px;
+    }
+
+    .form-section::before {
+        display: none;
+    }
+
+    .form-wrapper {
+        max-width: 100%;
+        animation-delay: 0.3s;
+    }
+
+    .form-header {
+        margin-bottom: 30px;
+    }
+
+    .form-welcome {
+        font-size: 1.3rem;
+    }
+}
+
+/* 小手机 */
+@media (max-width: 400px) {
+    .brand-section {
+        min-height: 35vh;
+    }
+
+    .brand-logo {
+        font-size: 1.8rem;
+        letter-spacing: 6px;
+    }
+
+    .system-name {
+        font-size: 1.3rem;
+    }
+
+    .brand-stats {
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .stat-divider {
+        display: none;
+    }
+}

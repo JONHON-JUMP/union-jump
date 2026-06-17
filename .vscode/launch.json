@@ -1,0 +1,14 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "JonhonjumpServerApplication",
+      "request": "launch",
+      "mainClass": "cn.jonhon.jump.server.JonhonjumpServerApplication",
+      "projectName": "jonhonjump-server",
+      "shortenCommandLine": "jarmanifest",
+      "vmArgs": "-Dspring.profiles.active=local"
+    }
+  ]
+}

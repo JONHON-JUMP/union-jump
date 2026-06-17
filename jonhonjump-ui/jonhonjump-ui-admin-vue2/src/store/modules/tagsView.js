@@ -30,10 +30,6 @@ const mutations = {
     state.recentViewPaths = state.recentViewPaths.filter(path => path !== view.path)
     state.recentViewPaths.push(view.path)
   },
-  TOUCH_VISITED_VIEW: (state, view) => {
-    state.recentViewPaths = state.recentViewPaths.filter(path => path !== view.path)
-    state.recentViewPaths.push(view.path)
-  },
   ADD_CACHED_VIEW: (state, view) => {
     if (state.cachedViews.includes(view.name)) return
     if (view.meta && !view.meta.noCache) {

@@ -64,6 +64,9 @@
 </template>
 
 <script>
+import { resolvePortalFrameRoute, isPortalSubSystemHomePath } from '@/utils/portalRoute'
+import { syncPortalIframeView } from '@/utils/portalIframe'
+
 export default {
   name: 'PortalDock',
   props: {
@@ -85,7 +88,12 @@ export default {
     },
     businessTabs() {
       return this.visitedViews.filter(view => {
-        return view.path !== '/index' && view.path !== '/' && view.title && view.name
+        if (view.path === '/index' || view.path === '/') return false
+        if (!view.title || !view.name) return false
+        if (view.title === '外部系统') return false
+        if (view.meta && view.meta.portalHome) return false
+        if (isPortalSubSystemHomePath(view.path)) return false
+        return true
       })
     },
     isHome() {
@@ -109,14 +117,12 @@ export default {
   },
   methods: {
     registerCurrentRoute() {
+      if (this.$store.state.portal.iframeSyncSuspended) return
       const route = this.$route
       if (!route.name || this.isHome) return
-      this.$store.dispatch('tagsView/addView', route)
-      this.$store.dispatch('tagsView/updateVisitedView', route)
+      if (isPortalSubSystemHomePath(route.path)) return
+      syncPortalIframeView(this.$store, route)
       this.$store.dispatch('tagsView/touchVisitedView', route)
-      if (route.meta && route.meta.link) {
-        this.$store.dispatch('tagsView/addIframeView', route)
-      }
     },
     isActive(tab) {
       return tab.path === this.$route.path
@@ -130,16 +136,16 @@ export default {
       }
     },
     closeTab(tab) {
-      const closingActiveTab = this.isActive(tab)
-      this.$store.dispatch('tagsView/delView', tab).then(() => {
-        if (!closingActiveTab) return
-        const previousPath = this.recentViewPaths[this.recentViewPaths.length - 1]
-        const fallback = this.businessTabs[this.businessTabs.length - 1]
-        this.$router.push(previousPath || (fallback && (fallback.fullPath || fallback.path)) || '/index')
-      })
+      this.$store.dispatch('portal/closePortalTab', {
+        tab,
+        active: this.isActive(tab)
+      }).catch(() => {})
     },
     goHome() {
-      if (!this.isHome) this.$router.push('/index')
+      if (this.isHome) return
+      this.$store.dispatch('portal/navigateToPortalHome').catch(err => {
+        this.$message.error(typeof err === 'string' ? err : (err.message || '返回首页失败'))
+      })
     },
     scrollActiveTabIntoView() {
       const scroller = this.$refs.tabScroller
