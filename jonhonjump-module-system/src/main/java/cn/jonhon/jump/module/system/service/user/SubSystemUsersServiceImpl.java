@@ -1,234 +1,130 @@
 package cn.jonhon.jump.module.system.service.user;
-
-
-
 import cn.hutool.core.collection.CollUtil;
-
 import cn.hutool.core.util.StrUtil;
-
 import cn.hutool.core.util.URLUtil;
-
 import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
-
 import cn.jonhon.jump.framework.common.pojo.PageResult;
-
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
-
+import cn.jonhon.jump.framework.tenant.core.context.TenantContextHolder;
+import cn.jonhon.jump.framework.tenant.core.util.TenantUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
-
+import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSystemCardLoginRespVO;
+import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSystemUserPermissionRespVO;
+import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.PortalPermContextRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.oauth2.OAuth2ClientDO;
-
 import cn.jonhon.jump.module.system.dal.dataobject.user.*;
-
 import cn.jonhon.jump.module.system.dal.mysql.oauth2.OAuth2ClientMapper;
-
 import cn.jonhon.jump.module.system.dal.mysql.user.*;
-
+import cn.jonhon.jump.module.system.service.oauth2.OAuth2ClientService;
+import cn.jonhon.jump.module.system.util.MenuStyleHelper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-
 import org.springframework.transaction.annotation.Transactional;
-
 import org.springframework.validation.annotation.Validated;
-
-
-
 import javax.annotation.Resource;
-
 import java.util.*;
-
 import java.util.stream.Collectors;
-
-
-
+import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeConstants.BAD_REQUEST;
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
-
+import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception0;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertList;
-
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertMap;
-
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertSet;
-
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.*;
-
-
-
 @Service
-
 @Validated
-
+@Slf4j
 public class SubSystemUsersServiceImpl implements SubSystemUsersService {
-
-
-
     @Resource
-
     private SubSystemUsersMapper subSystemUsersMapper;
-
     @Resource
-
     private SubSystemMapper subSystemMapper;
-
     @Resource
-
     private SubSystemRoleMapper subSystemRoleMapper;
-
     @Resource
-
     private SubSystemMenuMapper subSystemMenuMapper;
-
     @Resource
-
     private SubSystemPostMapper subSystemPostMapper;
-
     @Resource
-
     private SubSystemTeamMapper subSystemTeamMapper;
-
     @Resource
-
     private SubSystemUserRoleMapper subSystemUserRoleMapper;
-
     @Resource
-
     private SubSystemUserPostMapper subSystemUserPostMapper;
-
     @Resource
-
     private SubSystemRoleMenuMapper subSystemRoleMenuMapper;
-
     @Resource
-
+    private OAuth2ClientService oauth2ClientService;
+    @Resource
     private SubSystemHomePageMapper subSystemHomePageMapper;
-
     @Resource
-
     private AdminUserMapper adminUserMapper;
-
     @Resource
-
     private OAuth2ClientMapper oauth2ClientMapper;
-
-
-
+    @Resource
+    private cn.jonhon.jump.module.system.service.permission.MenuColorService menuColorService;
+    @Resource
+    private SubSystemPermissionContextService subSystemPermissionContextService;
+    @Resource
+    private cn.jonhon.jump.module.system.dal.redis.user.PortalMyMenusRedisDAO portalMyMenusRedisDAO;
     @Override
-
     public List<SubSystemUsersRespVO> getListByMainUserId(Long mainUserId) {
-
         List<SubSystemUsersDO> list = subSystemUsersMapper.selectListByMainUserId(mainUserId);
-
         if (CollUtil.isEmpty(list)) {
-
             return Collections.emptyList();
-
         }
-
         return buildRespList(list);
-
     }
-
-
-
     @Override
-
     public Map<Long, Long> getCountMapByMainUserIds(Collection<Long> mainUserIds) {
-
         if (CollUtil.isEmpty(mainUserIds)) {
-
             return Collections.emptyMap();
-
         }
-
         List<SubSystemUsersDO> list = subSystemUsersMapper.selectListByMainUserIds(mainUserIds);
-
         return list.stream().collect(Collectors.groupingBy(SubSystemUsersDO::getMainUserId, Collectors.counting()));
-
     }
-
-
-
     @Override
-
     public List<UserExternalSystemRespVO> getMyExternalSystemList(Long userId) {
-
         List<SubSystemUsersDO> list = subSystemUsersMapper.selectListByMainUserId(userId);
-
         if (CollUtil.isEmpty(list)) {
-
             return Collections.emptyList();
-
         }
-
         return list.stream()
-
                 .filter(item -> !"1".equals(item.getStatus()))
-
                 .map(this::convertExternal)
-
                 .filter(Objects::nonNull)
-
                 .collect(Collectors.toList());
-
     }
-
-
-
     @Override
-
     public List<SubSystemClientSimpleRespVO> getClientSimpleList() {
-
-        List<SubSystemDO> subSystems = subSystemMapper.selectListOrderByClientId();
-
+        List<SubSystemDO> subSystems = subSystemMapper.selectListOrderByOauth2ClientId();
         if (CollUtil.isEmpty(subSystems)) {
-
             return Collections.emptyList();
-
         }
-
         return subSystems.stream().map(subSystem -> {
-
             SubSystemClientSimpleRespVO vo = new SubSystemClientSimpleRespVO();
-
             vo.setId(subSystem.getId());
-
-            vo.setClientId(subSystem.getClientId());
-
+            OAuth2ClientDO oauth2Client = getOAuth2Client(subSystem);
+            vo.setClientId(oauth2Client != null ? oauth2Client.getClientId() : null);
             vo.setName(subSystem.getSystemName());
-
             if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
                 vo.setLogo(subSystem.getSystemIcon());
-            } else {
-                OAuth2ClientDO client = oauth2ClientMapper.selectByClientId(subSystem.getClientId());
-                if (client != null) {
-                    vo.setLogo(client.getLogo());
-                }
+            } else if (oauth2Client != null) {
+                vo.setLogo(oauth2Client.getLogo());
             }
-
             vo.setUserCount(subSystemUsersMapper.selectCountBySubSystemId(subSystem.getId()));
-
             vo.setRoleCount(subSystemRoleMapper.selectCountBySubSystemId(subSystem.getId()));
-
             vo.setMenuCount(subSystemMenuMapper.selectCountBySubSystemId(subSystem.getId()));
-
             vo.setPostCount(subSystemPostMapper.selectCountBySubSystemId(subSystem.getId()));
-
             vo.setTeamCount(subSystemTeamMapper.selectCountBySubSystemId(subSystem.getId()));
-
             return vo;
-
         }).collect(Collectors.toList());
-
     }
-
-
-
     @Override
-
     public PageResult<SubSystemUsersRespVO> getSubSystemUserPage(SubSystemUsersPageReqVO pageReqVO) {
-
         if (pageReqVO.getSubSystemId() != null) {
             validateSubSystemExists(pageReqVO.getSubSystemId());
         }
-
         Collection<String> teamCodes = null;
         if (StrUtil.isNotBlank(pageReqVO.getTeamName())) {
             List<SubSystemTeamDO> teams = pageReqVO.getSubSystemId() != null
@@ -240,206 +136,139 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 return new PageResult<>(Collections.emptyList(), 0L);
             }
         }
-
-        Collection<Long> mainUserIds = null;
-        if (StrUtil.isNotBlank(pageReqVO.getNickname())
-                || StrUtil.isNotBlank(pageReqVO.getEmployeeNo())
-                || StrUtil.isNotBlank(pageReqVO.getDomainNo())) {
-            mainUserIds = convertList(adminUserMapper.selectListByMainUserSearch(
-                    pageReqVO.getNickname(), pageReqVO.getEmployeeNo(), pageReqVO.getDomainNo()), AdminUserDO::getId);
-            if (CollUtil.isEmpty(mainUserIds)) {
-                return new PageResult<>(Collections.emptyList(), 0L);
-            }
-        }
-
-        PageResult<SubSystemUsersDO> pageResult = subSystemUsersMapper.selectPage(pageReqVO, teamCodes, mainUserIds);
-
+        PageResult<SubSystemUsersDO> pageResult = subSystemUsersMapper.selectPage(pageReqVO, teamCodes);
         return new PageResult<>(buildRespList(pageResult.getList()), pageResult.getTotal());
-
     }
-
-
-
     @Override
-
     public SubSystemUsersRespVO getSubSystemUser(Long id) {
-
         SubSystemUsersDO user = validateSubSystemUserExists(id);
-
         SubSystemUsersRespVO vo = buildRespList(Collections.singletonList(user)).get(0);
-
         vo.setRoleIds(getSubSystemUserRoleIds(id));
-
         vo.setPostIds(getSubSystemUserPostIds(id));
-
         return vo;
-
     }
-
-
-
     @Override
-
     @Transactional(rollbackFor = Exception.class)
-
     public Long createSubSystemUser(SubSystemUsersSaveReqVO createReqVO) {
-
         validateSubSystemExists(createReqVO.getSubSystemId());
-
-        validateMainUserExists(createReqVO.getMainUserId());
-
-        validateSubSystemUserNotExists(createReqVO.getSubSystemId(), createReqVO.getMainUserId());
-
+        validateUsernameUnique(createReqVO.getSubSystemId(), createReqVO.getUsername(), null);
+        if (createReqVO.getMainUserId() != null) {
+            validateMainUserExists(createReqVO.getMainUserId());
+            validateSubSystemUserNotExists(createReqVO.getSubSystemId(), createReqVO.getMainUserId());
+        }
         validateHomeMenu(createReqVO.getSubSystemId(), createReqVO.getHomeMenuId(), createReqVO.getRoleIds());
-
         SubSystemUsersDO user = BeanUtils.toBean(createReqVO, SubSystemUsersDO.class);
-
         if (StrUtil.isEmpty(user.getStatus())) {
-
             user.setStatus("0");
-
         }
-
         subSystemUsersMapper.insert(user);
-
         assignUserRoles(user.getId(), createReqVO.getSubSystemId(), createReqVO.getRoleIds());
-
         assignUserPosts(user.getId(), createReqVO.getSubSystemId(), createReqVO.getPostIds());
-
+        subSystemPermissionContextService.evictBySubSystemUserId(user.getId());
         return user.getId();
-
     }
 
-
+    @Override
+    public SubSystemUsersRespVO getBySubSystemIdAndUsername(Long subSystemId, String username) {
+        validateSubSystemExists(subSystemId);
+        if (StrUtil.isBlank(username)) {
+            return null;
+        }
+        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, username.trim());
+        if (user == null) {
+            return null;
+        }
+        return buildRespList(Collections.singletonList(user)).get(0);
+    }
 
     @Override
-
     @Transactional(rollbackFor = Exception.class)
-
-    public void updateSubSystemUser(SubSystemUsersSaveReqVO updateReqVO) {
-
-        SubSystemUsersDO existUser = validateSubSystemUserExists(updateReqVO.getId());
-
-        validateSubSystemExists(updateReqVO.getSubSystemId());
-
-        if (!Objects.equals(existUser.getSubSystemId(), updateReqVO.getSubSystemId())
-
-                || !Objects.equals(existUser.getMainUserId(), updateReqVO.getMainUserId())) {
-
-            validateSubSystemUserNotExists(updateReqVO.getSubSystemId(), updateReqVO.getMainUserId());
-
+    public Long bindMainUser(Long subSystemId, Long mainUserId) {
+        validateSubSystemExists(subSystemId);
+        AdminUserDO mainUser = validateMainUserExists(mainUserId);
+        SubSystemUsersDO existByMain = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, mainUserId);
+        if (existByMain != null) {
+            return existByMain.getId();
         }
-
-        validateHomeMenu(updateReqVO.getSubSystemId(), updateReqVO.getHomeMenuId(), updateReqVO.getRoleIds());
-
-        SubSystemUsersDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemUsersDO.class);
-
-        subSystemUsersMapper.updateById(updateObj);
-
-        if (updateReqVO.getRoleIds() != null) {
-
-            assignUserRoles(updateReqVO.getId(), updateReqVO.getSubSystemId(), updateReqVO.getRoleIds());
-
+        SubSystemUsersDO roster = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, mainUser.getUsername());
+        if (roster == null) {
+            throw exception(SUB_SYSTEM_USER_USERNAME_NOT_FOUND);
         }
-
-        if (updateReqVO.getPostIds() != null) {
-
-            assignUserPosts(updateReqVO.getId(), updateReqVO.getSubSystemId(), updateReqVO.getPostIds());
-
+        if (roster.getMainUserId() != null && !Objects.equals(roster.getMainUserId(), mainUserId)) {
+            throw exception(SUB_SYSTEM_USER_MAIN_BOUND);
         }
-
-    }
-
-
-
-    @Override
-
-    @Transactional(rollbackFor = Exception.class)
-
-    public void deleteSubSystemUser(Long id) {
-
-        validateSubSystemUserExists(id);
-
-        subSystemUsersMapper.deleteById(id);
-
-        subSystemUserRoleMapper.deleteListByUserId(id);
-
-        subSystemUserPostMapper.deleteListByUserId(id);
-
-    }
-
-
-
-    @Override
-
-    @Transactional(rollbackFor = Exception.class)
-
-    public void deleteSubSystemUserList(List<Long> ids) {
-
-        if (CollUtil.isEmpty(ids)) {
-
-            return;
-
-        }
-
-        ids.forEach(this::deleteSubSystemUser);
-
-    }
-
-
-
-    @Override
-
-    public void updateSubSystemUserStatus(Long id, String status) {
-
-        validateSubSystemUserExists(id);
-
         SubSystemUsersDO updateObj = new SubSystemUsersDO();
-
-        updateObj.setId(id);
-
-        updateObj.setStatus(status);
-
+        updateObj.setId(roster.getId());
+        updateObj.setMainUserId(mainUserId);
         subSystemUsersMapper.updateById(updateObj);
-
+        subSystemPermissionContextService.evictBySubSystemUserId(roster.getId());
+        return roster.getId();
     }
 
-
-
     @Override
-
+    @Transactional(rollbackFor = Exception.class)
+    public void updateSubSystemUser(SubSystemUsersSaveReqVO updateReqVO) {
+        SubSystemUsersDO existUser = validateSubSystemUserExists(updateReqVO.getId());
+        validateSubSystemExists(updateReqVO.getSubSystemId());
+        validateUsernameUnique(updateReqVO.getSubSystemId(), updateReqVO.getUsername(), updateReqVO.getId());
+        if (updateReqVO.getMainUserId() != null
+                && (!Objects.equals(existUser.getSubSystemId(), updateReqVO.getSubSystemId())
+                || !Objects.equals(existUser.getMainUserId(), updateReqVO.getMainUserId()))) {
+            validateMainUserExists(updateReqVO.getMainUserId());
+            validateSubSystemUserNotExists(updateReqVO.getSubSystemId(), updateReqVO.getMainUserId());
+        }
+        validateHomeMenu(updateReqVO.getSubSystemId(), updateReqVO.getHomeMenuId(), updateReqVO.getRoleIds());
+        SubSystemUsersDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemUsersDO.class);
+        subSystemUsersMapper.updateById(updateObj);
+        if (updateReqVO.getRoleIds() != null) {
+            assignUserRoles(updateReqVO.getId(), updateReqVO.getSubSystemId(), updateReqVO.getRoleIds());
+        }
+        if (updateReqVO.getPostIds() != null) {
+            assignUserPosts(updateReqVO.getId(), updateReqVO.getSubSystemId(), updateReqVO.getPostIds());
+        }
+        subSystemPermissionContextService.evictBySubSystemUserId(updateReqVO.getId());
+    }
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteSubSystemUser(Long id) {
+        SubSystemUsersDO user = validateSubSystemUserExists(id);
+        subSystemPermissionContextService.evictBySubSystemUserId(id);
+        subSystemUsersMapper.deleteById(id);
+        subSystemUserRoleMapper.deleteListByUserId(id);
+        subSystemUserPostMapper.deleteListByUserId(id);
+    }
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteSubSystemUserList(List<Long> ids) {
+        if (CollUtil.isEmpty(ids)) {
+            return;
+        }
+        ids.forEach(this::deleteSubSystemUser);
+    }
+    @Override
+    public void updateSubSystemUserStatus(Long id, String status) {
+        validateSubSystemUserExists(id);
+        SubSystemUsersDO updateObj = new SubSystemUsersDO();
+        updateObj.setId(id);
+        updateObj.setStatus(status);
+        subSystemUsersMapper.updateById(updateObj);
+        subSystemPermissionContextService.evictBySubSystemUserId(id);
+    }
+    @Override
     public List<SubSystemRoleSimpleRespVO> getRoleSimpleList(Long subSystemId) {
-
         validateSubSystemExists(subSystemId);
-
         return BeanUtils.toBean(subSystemRoleMapper.selectListBySubSystemId(subSystemId), SubSystemRoleSimpleRespVO.class);
-
     }
-
-
-
     @Override
-
     public List<SubSystemPostSimpleRespVO> getPostSimpleList(Long subSystemId) {
-
         validateSubSystemExists(subSystemId);
-
         return BeanUtils.toBean(subSystemPostMapper.selectListBySubSystemId(subSystemId), SubSystemPostSimpleRespVO.class);
-
     }
-
-
-
     @Override
-
     public List<SubSystemTeamSimpleRespVO> getTeamSimpleList(Long subSystemId) {
-
         validateSubSystemExists(subSystemId);
-
         return BeanUtils.toBean(subSystemTeamMapper.selectListBySubSystemId(subSystemId), SubSystemTeamSimpleRespVO.class);
-
     }
-
     @Override
     public List<SubSystemMenuTreeRespVO> getUserHomeMenuTree(Long subSystemId, List<Long> roleIds) {
         validateSubSystemExists(subSystemId);
@@ -447,122 +276,233 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             return Collections.emptyList();
         }
         validateRolesBelongToSubSystem(subSystemId, roleIds);
-
         Set<Long> roleMenuIds = convertSet(subSystemRoleMenuMapper.selectListByRoleIds(roleIds),
                 SubSystemRoleMenuDO::getMenuId);
         if (CollUtil.isEmpty(roleMenuIds)) {
             return Collections.emptyList();
         }
-
         List<SubSystemMenuDO> allMenus = subSystemMenuMapper.selectListBySubSystemId(subSystemId);
         Map<Long, SubSystemMenuDO> menuMap = convertMap(allMenus, SubSystemMenuDO::getId);
-
         Set<Long> displayMenuIds = new HashSet<>();
         for (Long menuId : roleMenuIds) {
             addMenuAndAncestors(menuId, menuMap, displayMenuIds);
         }
-
         List<SubSystemMenuDO> displayMenus = allMenus.stream()
                 .filter(menu -> displayMenuIds.contains(menu.getId()))
                 .filter(menu -> "M".equals(menu.getType())
                         || ("C".equals(menu.getType()) && roleMenuIds.contains(menu.getId())))
                 .collect(Collectors.toList());
-
         return buildMenuTree(displayMenus, 0L);
     }
-
-
-
     @Override
-
     @Transactional(rollbackFor = Exception.class)
-
     public void assignSubSystemUserRole(SubSystemUsersAssignRoleReqVO reqVO) {
-
         SubSystemUsersDO user = validateSubSystemUserExists(reqVO.getId());
-
         assignUserRoles(reqVO.getId(), user.getSubSystemId(), reqVO.getRoleIds());
-
+        subSystemPermissionContextService.evictBySubSystemUserId(reqVO.getId());
     }
-
-
+    @Override
+    public List<Long> getSubSystemUserRoleIds(Long id) {
+        validateSubSystemUserExists(id);
+        return convertList(subSystemUserRoleMapper.selectListByUserId(id), SubSystemUserRoleDO::getRoleId);
+    }
 
     @Override
-
-    public List<Long> getSubSystemUserRoleIds(Long id) {
-
-        validateSubSystemUserExists(id);
-
-        return convertList(subSystemUserRoleMapper.selectListByUserId(id), SubSystemUserRoleDO::getRoleId);
-
-    }
-
-
-
-    private List<Long> getSubSystemUserPostIds(Long id) {
-
-        return convertList(subSystemUserPostMapper.selectListByUserId(id), SubSystemUserPostDO::getPostId);
-
-    }
-
-
-
-    private List<SubSystemUsersRespVO> buildRespList(List<SubSystemUsersDO> list) {
-
-        if (CollUtil.isEmpty(list)) {
-
-            return Collections.emptyList();
-
+    public SubSystemCardLoginRespVO cardLogin(String clientId, String clientSecret, String username) {
+        if (StrUtil.isBlank(clientSecret)) {
+            throw exception0(BAD_REQUEST.getCode(), "client_secret 未正确传递");
+        }
+        OAuth2ClientDO client = oauth2ClientService.validOAuthClientFromCache(
+                clientId, clientSecret, null, null, null);
+        SubSystemDO subSystem = subSystemMapper.selectByOauth2ClientId(client.getId());
+        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus())) {
+            throw exception(SUB_SYSTEM_NOT_EXISTS);
+        }
+        if (StrUtil.isBlank(username)) {
+            throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
+        }
+        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(
+                subSystem.getId(), username.trim());
+        if (user == null) {
+            throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
+        }
+        if ("1".equals(user.getStatus())) {
+            throw exception(SUB_SYSTEM_CARD_LOGIN_USER_DISABLED);
         }
 
+        List<Long> roleIds = convertList(
+                subSystemUserRoleMapper.selectListByUserId(user.getId()), SubSystemUserRoleDO::getRoleId);
+        List<String> roleCodes = Collections.emptyList();
+        if (CollUtil.isNotEmpty(roleIds)) {
+            roleCodes = subSystemRoleMapper.selectBatchIds(roleIds).stream()
+                    .filter(role -> role.getStatus() == null || Objects.equals(role.getStatus(), 0))
+                    .map(SubSystemRoleDO::getCode)
+                    .filter(StrUtil::isNotBlank)
+                    .collect(Collectors.toList());
+        }
+
+        SubSystemCardLoginRespVO resp = new SubSystemCardLoginRespVO();
+        resp.setSubSystemId(subSystem.getId());
+        resp.setClientId(client.getClientId());
+        resp.setUsername(user.getUsername());
+        resp.setNickname(user.getNickname());
+        resp.setStatus(user.getStatus());
+        resp.setWorkshopId(user.getWorkshopId());
+        resp.setTeamId(user.getTeamId());
+        resp.setMainUserId(user.getMainUserId());
+        resp.setRoleCodes(roleCodes);
+        return resp;
+    }
+
+    @Override
+    public SubSystemUserPermissionRespVO getPermissionInfo(String clientId, String clientSecret, String username) {
+        if (StrUtil.isBlank(clientSecret)) {
+            throw exception0(BAD_REQUEST.getCode(), "client_secret 未正确传递");
+        }
+        OAuth2ClientDO client = oauth2ClientService.validOAuthClientFromCache(
+                clientId, clientSecret, null, null, null);
+        SubSystemDO subSystem = subSystemMapper.selectByOauth2ClientId(client.getId());
+        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus())) {
+            throw exception(SUB_SYSTEM_NOT_EXISTS);
+        }
+        if (StrUtil.isBlank(username)) {
+            throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
+        }
+        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(
+                subSystem.getId(), username.trim());
+        if (user == null) {
+            throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
+        }
+        if ("1".equals(user.getStatus())) {
+            throw exception(SUB_SYSTEM_CARD_LOGIN_USER_DISABLED);
+        }
+
+        List<Long> roleIds = convertList(
+                subSystemUserRoleMapper.selectListByUserId(user.getId()), SubSystemUserRoleDO::getRoleId);
+        List<SubSystemRoleDO> roleList = Collections.emptyList();
+        if (CollUtil.isNotEmpty(roleIds)) {
+            roleList = subSystemRoleMapper.selectBatchIds(roleIds).stream()
+                    .filter(role -> role.getStatus() == null || Objects.equals(role.getStatus(), 0))
+                    .collect(Collectors.toList());
+        }
+
+        List<PortalPermContextRespVO.Role> roles = new ArrayList<>();
+        Set<String> permissions = new LinkedHashSet<>();
+        boolean allPerms = false;
+        for (SubSystemRoleDO role : roleList) {
+            PortalPermContextRespVO.Role r = new PortalPermContextRespVO.Role();
+            r.setId(role.getId());
+            r.setCode(role.getCode());
+            r.setName(role.getName());
+            roles.add(r);
+            if ("super_admin".equals(role.getCode()) || "admin".equals(role.getCode())) {
+                allPerms = true;
+            }
+        }
+        Set<Long> roleMenuIds;
+        if (allPerms) {
+            permissions.add("*:*:*");
+            roleMenuIds = convertSet(
+                    subSystemMenuMapper.selectListBySubSystemId(subSystem.getId()), SubSystemMenuDO::getId);
+        } else {
+            roleMenuIds = CollUtil.isEmpty(roleList) ? Collections.emptySet()
+                    : convertSet(subSystemRoleMenuMapper.selectListByRoleIds(
+                            convertList(roleList, SubSystemRoleDO::getId)), SubSystemRoleMenuDO::getMenuId);
+            if (CollUtil.isNotEmpty(roleMenuIds)) {
+                List<SubSystemMenuDO> authMenus = subSystemMenuMapper.selectBatchIds(roleMenuIds);
+                for (SubSystemMenuDO menu : authMenus) {
+                    if (menu.getStatus() != null && menu.getStatus() != 0) {
+                        continue;
+                    }
+                    if (StrUtil.isNotBlank(menu.getPerms())) {
+                        for (String perm : menu.getPerms().split(",")) {
+                            if (StrUtil.isNotBlank(perm)) {
+                                permissions.add(perm.trim());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        List<SubSystemMenuDO> allMenus = subSystemMenuMapper.selectListBySubSystemId(subSystem.getId()).stream()
+                .filter(menu -> menu.getStatus() == null || menu.getStatus() == 0)
+                .collect(Collectors.toList());
+        Map<Long, SubSystemMenuDO> menuMap = convertMap(allMenus, SubSystemMenuDO::getId);
+        Set<Long> displayMenuIds = new HashSet<>();
+        for (Long menuId : roleMenuIds) {
+            addMenuAndAncestors(menuId, menuMap, displayMenuIds);
+        }
+        List<SubSystemMenuDO> displayMenus = allMenus.stream()
+                .filter(menu -> displayMenuIds.contains(menu.getId()))
+                .collect(Collectors.toList());
+
+        SubSystemUserPermissionRespVO resp = new SubSystemUserPermissionRespVO();
+        resp.setUsername(user.getUsername());
+        resp.setNickname(user.getNickname());
+        resp.setStatus(user.getStatus());
+        resp.setWorkshopId(user.getWorkshopId());
+        resp.setTeamId(user.getTeamId());
+        resp.setRoles(roles);
+        resp.setPermissions(new ArrayList<>(permissions));
+        resp.setMenus(buildPermissionMenuTree(displayMenus, 0L));
+        return resp;
+    }
+
+    private List<SubSystemUserPermissionRespVO.MenuNode> buildPermissionMenuTree(
+            List<SubSystemMenuDO> menus, Long parentId) {
+        return menus.stream()
+                .filter(menu -> Objects.equals(menu.getParentId(), parentId))
+                .sorted(Comparator.comparing(SubSystemMenuDO::getOrderNum, Comparator.nullsLast(Integer::compareTo))
+                        .thenComparing(SubSystemMenuDO::getId))
+                .map(menu -> {
+                    SubSystemUserPermissionRespVO.MenuNode node = new SubSystemUserPermissionRespVO.MenuNode();
+                    node.setId(menu.getId());
+                    node.setParentId(menu.getParentId());
+                    node.setName(menu.getMenuName());
+                    node.setType(menu.getType());
+                    node.setPath(menu.getPath());
+                    node.setComponent(menu.getComponent());
+                    node.setPerms(menu.getPerms());
+                    node.setIcon(menu.getIcon());
+                    node.setOrderNum(menu.getOrderNum());
+                    node.setVisible(menu.getVisible());
+                    node.setStatus(menu.getStatus());
+                    node.setChildren(buildPermissionMenuTree(menus, menu.getId()));
+                    return node;
+                })
+                .collect(Collectors.toList());
+    }
+
+    private List<Long> getSubSystemUserPostIds(Long id) {
+        return convertList(subSystemUserPostMapper.selectListByUserId(id), SubSystemUserPostDO::getPostId);
+    }
+    private List<SubSystemUsersRespVO> buildRespList(List<SubSystemUsersDO> list) {
+        if (CollUtil.isEmpty(list)) {
+            return Collections.emptyList();
+        }
         Set<Long> subSystemIds = list.stream().map(SubSystemUsersDO::getSubSystemId).collect(Collectors.toSet());
-
         Set<Long> mainUserIds = list.stream().map(SubSystemUsersDO::getMainUserId).filter(Objects::nonNull).collect(Collectors.toSet());
-
         Map<Long, SubSystemDO> subSystemMap = convertMap(
-
                 subSystemMapper.selectListByIds(subSystemIds), SubSystemDO::getId);
-
         Map<Long, AdminUserDO> mainUserMap = CollUtil.isEmpty(mainUserIds) ? Collections.emptyMap()
-
                 : convertMap(adminUserMapper.selectList(AdminUserDO::getId, mainUserIds), AdminUserDO::getId);
-
-
-
         Map<Long, List<SubSystemUserRoleDO>> userRoleMap = subSystemUserRoleMapper.selectListByUserIds(
-
                 convertList(list, SubSystemUsersDO::getId)).stream()
-
                 .collect(Collectors.groupingBy(SubSystemUserRoleDO::getUserId));
-
         Map<Long, List<SubSystemUserPostDO>> userPostMap = subSystemUserPostMapper.selectListByUserIds(
-
                 convertList(list, SubSystemUsersDO::getId)).stream()
-
                 .collect(Collectors.groupingBy(SubSystemUserPostDO::getUserId));
-
-
-
         Set<Long> roleIds = userRoleMap.values().stream()
-
                 .flatMap(items -> items.stream().map(SubSystemUserRoleDO::getRoleId))
-
                 .collect(Collectors.toSet());
-
         Set<Long> postIds = userPostMap.values().stream()
-
                 .flatMap(items -> items.stream().map(SubSystemUserPostDO::getPostId))
-
                 .collect(Collectors.toSet());
-
         Map<Long, SubSystemRoleDO> roleMap = CollUtil.isEmpty(roleIds) ? Collections.emptyMap()
-
                 : convertMap(subSystemRoleMapper.selectListByIds(roleIds), SubSystemRoleDO::getId);
-
         Map<Long, SubSystemPostDO> postMap = CollUtil.isEmpty(postIds) ? Collections.emptyMap()
-
                 : convertMap(subSystemPostMapper.selectListByIds(postIds), SubSystemPostDO::getId);
-
         Set<Long> homeMenuIds = list.stream().map(SubSystemUsersDO::getHomeMenuId)
                 .filter(Objects::nonNull).collect(Collectors.toSet());
         Map<Long, Map<Long, SubSystemMenuDO>> subSystemMenuMapCache = new HashMap<>();
@@ -570,192 +510,114 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             subSystemIds.forEach(subSystemId -> subSystemMenuMapCache.put(subSystemId,
                     convertMap(subSystemMenuMapper.selectListBySubSystemId(subSystemId), SubSystemMenuDO::getId)));
         }
-
-
-
         return list.stream().map(item -> {
-
             SubSystemUsersRespVO vo = BeanUtils.toBean(item, SubSystemUsersRespVO.class);
-
             SubSystemDO subSystem = subSystemMap.get(item.getSubSystemId());
-
             if (subSystem != null) {
-
-                vo.setClientId(subSystem.getClientId());
-
+                OAuth2ClientDO oauth2Client = getOAuth2Client(subSystem);
+                vo.setClientId(oauth2Client != null ? oauth2Client.getClientId() : null);
                 vo.setClientName(subSystem.getSystemName());
-
             }
-
-            AdminUserDO mainUser = mainUserMap.get(item.getMainUserId());
-
+            // 身份字段以子系统用户表为准；仅在本地字段为空时用主用户兜底用户名/姓名
+            AdminUserDO mainUser = item.getMainUserId() == null ? null : mainUserMap.get(item.getMainUserId());
             if (mainUser != null) {
-
-                vo.setUsername(mainUser.getUsername());
-
-                vo.setNickname(mainUser.getNickname());
-
-                vo.setEmployeeNo(mainUser.getEmployeeNo());
-
-                vo.setCardNo(mainUser.getCardNo());
-
-                vo.setErpNos(mainUser.getErpNos());
-
-                vo.setDomainNo(mainUser.getDomainNo());
-
-            }
-
-            if (StrUtil.isNotEmpty(item.getTeamId())) {
-
-                SubSystemTeamDO team = subSystemTeamMapper.selectBySubSystemIdAndTeamCode(item.getSubSystemId(), item.getTeamId());
-
-                if (team != null) {
-
-                    vo.setTeamName(team.getTeamName());
-
+                if (StrUtil.isBlank(vo.getUsername())) {
+                    vo.setUsername(mainUser.getUsername());
                 }
-
+                if (StrUtil.isBlank(vo.getNickname())) {
+                    vo.setNickname(mainUser.getNickname());
+                }
             }
-
+            if (StrUtil.isNotEmpty(item.getTeamId())) {
+                SubSystemTeamDO team = subSystemTeamMapper.selectBySubSystemIdAndTeamCode(item.getSubSystemId(), item.getTeamId());
+                if (team != null) {
+                    vo.setTeamName(team.getTeamName());
+                }
+            }
             List<SubSystemUserRoleDO> userRoles = userRoleMap.getOrDefault(item.getId(), Collections.emptyList());
-
             vo.setRoleIds(convertList(userRoles, SubSystemUserRoleDO::getRoleId));
-
             vo.setRoleNames(userRoles.stream()
-
                     .map(userRole -> roleMap.get(userRole.getRoleId()))
-
                     .filter(Objects::nonNull)
-
                     .map(SubSystemRoleDO::getName)
-
                     .collect(Collectors.joining("、")));
-
             List<SubSystemUserPostDO> userPosts = userPostMap.getOrDefault(item.getId(), Collections.emptyList());
-
             vo.setPostIds(convertList(userPosts, SubSystemUserPostDO::getPostId));
-
             vo.setPostNames(userPosts.stream()
-
                     .map(userPost -> postMap.get(userPost.getPostId()))
-
                     .filter(Objects::nonNull)
-
                     .map(SubSystemPostDO::getName)
-
                     .collect(Collectors.joining("、")));
-
             if (item.getHomeMenuId() != null) {
                 Map<Long, SubSystemMenuDO> menuMap = subSystemMenuMapCache.get(item.getSubSystemId());
                 if (menuMap != null) {
                     vo.setHomeMenuName(buildMenuPath(item.getHomeMenuId(), menuMap));
                 }
             }
-
             return vo;
-
         }).collect(Collectors.toList());
-
     }
-
-
-
     private void assignUserRoles(Long userId, Long subSystemId, List<Long> roleIds) {
-
         subSystemUserRoleMapper.deleteListByUserId(userId);
-
         if (CollUtil.isEmpty(roleIds)) {
-
             return;
-
         }
-
         List<SubSystemRoleDO> roles = subSystemRoleMapper.selectListByIds(roleIds);
-
         for (SubSystemRoleDO role : roles) {
-
             if (!Objects.equals(subSystemId, role.getSubSystemId())) {
-
                 throw exception(ROLE_NOT_EXISTS);
-
             }
-
             SubSystemUserRoleDO userRole = new SubSystemUserRoleDO();
-
             userRole.setUserId(userId);
-
             userRole.setRoleId(role.getId());
-
             subSystemUserRoleMapper.insert(userRole);
-
         }
-
     }
-
-
-
     private void assignUserPosts(Long userId, Long subSystemId, List<Long> postIds) {
-
         subSystemUserPostMapper.deleteListByUserId(userId);
-
         if (CollUtil.isEmpty(postIds)) {
-
             return;
-
         }
-
         List<SubSystemPostDO> posts = subSystemPostMapper.selectListByIds(postIds);
-
         for (SubSystemPostDO post : posts) {
-
             if (!Objects.equals(subSystemId, post.getSubSystemId())) {
-
                 throw exception(POST_NOT_FOUND);
-
             }
-
             SubSystemUserPostDO userPost = new SubSystemUserPostDO();
-
             userPost.setUserId(userId);
-
             userPost.setPostId(post.getId());
-
             subSystemUserPostMapper.insert(userPost);
-
         }
-
     }
-
-
-
     private SubSystemUsersDO validateSubSystemUserExists(Long id) {
-
         SubSystemUsersDO user = subSystemUsersMapper.selectById(id);
-
         if (user == null) {
-
             throw exception(SUB_SYSTEM_USER_NOT_EXISTS);
-
         }
-
         return user;
-
     }
-
-
-
     private void validateSubSystemUserNotExists(Long subSystemId, Long mainUserId) {
-
-        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, mainUserId);
-
-        if (user != null) {
-
-            throw exception(SUB_SYSTEM_USER_EXISTS);
-
+        if (mainUserId == null) {
+            return;
         }
-
+        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, mainUserId);
+        if (user != null) {
+            throw exception(SUB_SYSTEM_USER_EXISTS);
+        }
     }
 
+    private void validateUsernameUnique(Long subSystemId, String username, Long id) {
+        if (StrUtil.isBlank(username)) {
+            return;
+        }
+        SubSystemUsersDO exist = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, username.trim());
+        if (exist == null) {
+            return;
+        }
+        if (id == null || !Objects.equals(exist.getId(), id)) {
+            throw exception(SUB_SYSTEM_USER_USERNAME_EXISTS);
+        }
+    }
     private void validateHomeMenu(Long subSystemId, Long homeMenuId, List<Long> roleIds) {
         if (homeMenuId == null) {
             return;
@@ -772,7 +634,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             throw exception(SUB_SYSTEM_USER_HOME_MENU_INVALID);
         }
     }
-
     private Set<Long> getRoleMenuIds(Long subSystemId, List<Long> roleIds) {
         List<SubSystemRoleDO> roles = validateRolesBelongToSubSystem(subSystemId, roleIds);
         if (hasSubSystemSuperAdminRole(roles)) {
@@ -780,14 +641,12 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return convertSet(subSystemRoleMenuMapper.selectListByRoleIds(roleIds), SubSystemRoleMenuDO::getMenuId);
     }
-
     /**
      * Ruoyi/SCADA 超级管理员（roleKey=admin）拥有全部菜单，sys_role_menu 中通常无记录。
      */
     private boolean hasSubSystemSuperAdminRole(List<SubSystemRoleDO> roles) {
         return roles.stream().anyMatch(role -> "admin".equals(role.getCode()));
     }
-
     private List<SubSystemRoleDO> validateRolesBelongToSubSystem(Long subSystemId, List<Long> roleIds) {
         if (CollUtil.isEmpty(roleIds)) {
             return Collections.emptyList();
@@ -803,7 +662,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return roles;
     }
-
     private void addMenuAndAncestors(Long menuId, Map<Long, SubSystemMenuDO> menuMap, Set<Long> displayMenuIds) {
         Long current = menuId;
         while (current != null && current != 0L) {
@@ -817,7 +675,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             current = menu.getParentId();
         }
     }
-
     private List<SubSystemMenuTreeRespVO> buildMenuTree(List<SubSystemMenuDO> menus, Long parentId) {
         return menus.stream()
                 .filter(menu -> Objects.equals(menu.getParentId(), parentId))
@@ -835,7 +692,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 })
                 .collect(Collectors.toList());
     }
-
     private String buildMenuPath(Long menuId, Map<Long, SubSystemMenuDO> menuMap) {
         List<String> names = new ArrayList<>();
         Long current = menuId;
@@ -849,100 +705,58 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return String.join(" / ", names);
     }
-
-
-
     private SubSystemDO validateSubSystemExists(Long subSystemId) {
-
         SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
-
         if (subSystem == null) {
-
             throw exception(SUB_SYSTEM_NOT_EXISTS);
-
         }
-
         return subSystem;
-
     }
-
-
-
     private AdminUserDO validateMainUserExists(Long mainUserId) {
-
         AdminUserDO mainUser = adminUserMapper.selectById(mainUserId);
-
         if (mainUser == null) {
-
             throw exception(USER_NOT_EXISTS);
-
         }
-
         return mainUser;
-
     }
-
-
-
     private UserExternalSystemRespVO convertExternal(SubSystemUsersDO item) {
-
         SubSystemDO subSystem = subSystemMapper.selectById(item.getSubSystemId());
-
         if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus())) {
-
             return null;
-
         }
-
-        OAuth2ClientDO client = oauth2ClientMapper.selectByClientId(subSystem.getClientId());
-
+        OAuth2ClientDO client = getOAuth2Client(subSystem);
         if (client == null || CommonStatusEnum.isDisable(client.getStatus())) {
-
             return null;
-
         }
-
         UserExternalSystemRespVO vo = new UserExternalSystemRespVO();
-
         vo.setId(item.getId());
-
         vo.setSubSystemId(subSystem.getId());
-
         vo.setSystemUrl(subSystem.getSystemUrl());
-
         vo.setClientId(client.getClientId());
-
         vo.setClientName(subSystem.getSystemName());
-
         if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
             vo.setLogo(subSystem.getSystemIcon());
         } else {
             vo.setLogo(client.getLogo());
         }
-
         vo.setWorkshopId(item.getWorkshopId());
-
         vo.setTeamId(item.getTeamId());
-
         vo.setHomeMenuId(item.getHomeMenuId());
-
         SubSystemHomePageDO homePage = subSystemHomePageMapper.selectBySubSystemId(subSystem.getId());
-
         if (homePage != null) {
             vo.setHomePageName(homePage.getHomePageName());
             vo.setHomePageUrl(homePage.getHomePageUrl());
         }
-
         vo.setSsoUrl(buildSsoUrl(client));
-
         return vo;
-
     }
-
-
-
     @Override
     public List<SubSystemPortalMenuRespVO> getMyPortalMenus(Long userId, Long subSystemId) {
+        List<SubSystemPortalMenuRespVO> cached = portalMyMenusRedisDAO.get(userId, subSystemId);
+        if (cached != null) {
+            warmPortalPermContext(userId, subSystemId);
+            return cached;
+        }
         SubSystemUsersDO subSystemUser = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, userId);
         if (subSystemUser == null || "1".equals(subSystemUser.getStatus())) {
             throw exception(SUB_SYSTEM_USER_NOT_EXISTS);
@@ -959,26 +773,51 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(roleMenuIds)) {
             return Collections.emptyList();
         }
-
         List<SubSystemMenuDO> allMenus = subSystemMenuMapper.selectListBySubSystemId(subSystemId).stream()
                 .filter(menu -> menu.getStatus() != null && menu.getStatus() == 0)
                 .collect(Collectors.toList());
         Map<Long, SubSystemMenuDO> menuMap = convertMap(allMenus, SubSystemMenuDO::getId);
-
         Set<Long> displayMenuIds = new HashSet<>();
         for (Long menuId : roleMenuIds) {
             addMenuAndAncestors(menuId, menuMap, displayMenuIds);
         }
-
         List<SubSystemMenuDO> displayMenus = allMenus.stream()
                 .filter(menu -> displayMenuIds.contains(menu.getId()))
                 .filter(menu -> "M".equals(menu.getType())
                         || ("C".equals(menu.getType()) && roleMenuIds.contains(menu.getId())))
                 .collect(Collectors.toList());
-
-        return buildPortalMenuTree(displayMenus, 0L, subSystem, menuMap);
+        Set<Long> styleIds = displayMenus.stream()
+                .filter(menu -> MenuStyleHelper.isFirstLevelMenu(menu.getParentId()))
+                .map(SubSystemMenuDO::getStyleId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, cn.jonhon.jump.module.system.dal.dataobject.permission.MenuColorDO> colorMap =
+                menuColorService.getMenuColorMap(styleIds);
+        warmPortalPermContext(userId, subSystemId);
+        List<SubSystemPortalMenuRespVO> tree = buildPortalMenuTree(displayMenus, 0L, subSystem, menuMap, colorMap, null);
+        portalMyMenusRedisDAO.set(userId, subSystemId, tree);
+        return tree;
     }
-
+    /**
+     * 进入子系统时预热权限包：仅 miss 时从 DB 重建。
+     * 改权靠各处 evict 失效，不在每次 my-menus 强制 rebuild。
+     * 必须带租户上下文，否则多租户表查询失败会导致 Redis 永远没有 portal:perm:context。
+     */
+    private void warmPortalPermContext(Long mainUserId, Long subSystemId) {
+        try {
+            Long tenantId = TenantContextHolder.getTenantId();
+            if (tenantId == null) {
+                tenantId = 1L;
+            }
+            Long finalTenantId = tenantId;
+            TenantUtils.execute(finalTenantId, () ->
+                    subSystemPermissionContextService.getOrRebuild(finalTenantId, mainUserId, subSystemId));
+        } catch (Exception ex) {
+            // 菜单返回不以权限包写入失败阻断，但必须打日志便于排查子系统鉴权 HTTP 放大
+            log.warn("[warmPortalPermContext] failed mainUserId={}, subSystemId={}, cause={}",
+                    mainUserId, subSystemId, ex.toString());
+        }
+    }
     @Override
     public Set<Long> getAllowedQuickNavMenuIds(Long userId, Long subSystemId) {
         SubSystemUsersDO subSystemUser = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, userId);
@@ -1004,31 +843,59 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 .map(SubSystemMenuDO::getId)
                 .collect(Collectors.toSet());
     }
-
     private List<SubSystemPortalMenuRespVO> buildPortalMenuTree(List<SubSystemMenuDO> menus, Long parentId,
                                                                 SubSystemDO subSystem,
-                                                                Map<Long, SubSystemMenuDO> menuMap) {
+                                                                Map<Long, SubSystemMenuDO> menuMap,
+                                                                Map<Long, cn.jonhon.jump.module.system.dal.dataobject.permission.MenuColorDO> colorMap,
+                                                                cn.jonhon.jump.module.system.dal.dataobject.permission.MenuColorDO firstLevelStyle) {
         return menus.stream()
                 .filter(menu -> Objects.equals(menu.getParentId(), parentId))
                 .sorted(Comparator.comparing(SubSystemMenuDO::getOrderNum, Comparator.nullsLast(Integer::compareTo))
                         .thenComparing(SubSystemMenuDO::getId))
-                .map(menu -> convertPortalMenu(menu, subSystem, menuMap, buildPortalMenuTree(menus, menu.getId(), subSystem, menuMap)))
+                .map(menu -> {
+                    cn.jonhon.jump.module.system.dal.dataobject.permission.MenuColorDO currentFirstLevel = firstLevelStyle;
+                    if (cn.jonhon.jump.module.system.util.MenuStyleHelper.isFirstLevelMenu(menu.getParentId())) {
+                        currentFirstLevel = cn.jonhon.jump.module.system.util.MenuStyleHelper
+                                .resolveFirstLevelStyle(menu.getStyleId(), colorMap);
+                    }
+                    cn.jonhon.jump.module.system.dal.dataobject.permission.MenuColorDO effective =
+                            cn.jonhon.jump.module.system.util.MenuStyleHelper.resolveEffectiveStyle(
+                                    menu.getParentId(), menu.getStyleId(), currentFirstLevel, colorMap);
+                    return convertPortalMenu(menu, subSystem, menuMap,
+                            buildPortalMenuTree(menus, menu.getId(), subSystem, menuMap, colorMap, currentFirstLevel),
+                            effective);
+                })
                 .collect(Collectors.toList());
     }
-
     private SubSystemPortalMenuRespVO convertPortalMenu(SubSystemMenuDO menu, SubSystemDO subSystem,
                                                         Map<Long, SubSystemMenuDO> menuMap,
-                                                        List<SubSystemPortalMenuRespVO> children) {
+                                                        List<SubSystemPortalMenuRespVO> children,
+                                                        cn.jonhon.jump.module.system.dal.dataobject.permission.MenuColorDO effectiveStyle) {
         SubSystemPortalMenuRespVO vo = new SubSystemPortalMenuRespVO();
         vo.setId(menu.getId());
         vo.setParentId(menu.getParentId());
         vo.setName(menu.getMenuName());
         vo.setPath(menu.getPath());
         vo.setIcon(menu.getIcon());
+        cn.jonhon.jump.module.system.util.MenuStyleHelper.applyStyle(effectiveStyle, new cn.jonhon.jump.module.system.util.MenuStyleHelper.StyleTarget() {
+            @Override
+            public void setStyleId(Long styleId) {
+                vo.setStyleId(styleId);
+            }
+            @Override
+            public void setColor(String color) {
+                vo.setColor(color);
+            }
+            @Override
+            public void setShape(String shape) {
+                vo.setShape(shape);
+            }
+        });
         vo.setComponentName(menu.getComponentName());
         vo.setVisible(menu.getVisible() == null || menu.getVisible() == 0);
         vo.setKeepAlive(menu.getIsCache() != null && menu.getIsCache() == 0);
         vo.setAlwaysShow(menu.getAlwaysShow() != null && menu.getAlwaysShow() == 1);
+        vo.setManualUrl(menu.getManualUrl());
         vo.setChildren(children);
         if ("C".equals(menu.getType())) {
             vo.setComponent("system/subSystem/portal/Empty");
@@ -1036,7 +903,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return vo;
     }
-
     private String buildIframeLink(SubSystemDO subSystem, SubSystemMenuDO menu, Map<Long, SubSystemMenuDO> menuMap) {
         if (StrUtil.isNotBlank(menu.getPath())
                 && (menu.getPath().startsWith("http://") || menu.getPath().startsWith("https://"))) {
@@ -1052,7 +918,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return baseUrl + "/#/" + routePath;
     }
-
     private String buildMenuRoutePath(Long menuId, Map<Long, SubSystemMenuDO> menuMap) {
         List<String> segments = new ArrayList<>();
         Long current = menuId;
@@ -1068,47 +933,30 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return String.join("/", segments);
     }
-
     private String buildSsoUrl(OAuth2ClientDO client) {
-
         if (CollUtil.isEmpty(client.getRedirectUris())) {
-
             return null;
-
         }
-
         String redirectUri = client.getRedirectUris().get(0);
-
         List<String> requestScopes = CollUtil.isNotEmpty(client.getAutoApproveScopes())
                 ? client.getAutoApproveScopes()
                 : (CollUtil.isNotEmpty(client.getScopes()) ? client.getScopes() : Collections.singletonList("user.read"));
         String scope = String.join(" ", requestScopes);
-
         return "/sso?client_id=" + encodeQueryParam(client.getClientId())
-
                 + "&redirect_uri=" + encodeQueryParam(redirectUri)
-
                 + "&response_type=code"
-
                 + "&scope=" + encodeQueryParam(scope);
-
     }
-
-
-
-    private String encodeQueryParam(String value) {
-
-        if (StrUtil.isEmpty(value)) {
-
-            return "";
-
+    private OAuth2ClientDO getOAuth2Client(SubSystemDO subSystem) {
+        if (subSystem == null || subSystem.getOauth2ClientId() == null) {
+            return null;
         }
-
-        return URLUtil.encode(value);
-
+        return oauth2ClientMapper.selectById(subSystem.getOauth2ClientId());
     }
-
-
-
+    private String encodeQueryParam(String value) {
+        if (StrUtil.isEmpty(value)) {
+            return "";
+        }
+        return URLUtil.encode(value);
+    }
 }
-

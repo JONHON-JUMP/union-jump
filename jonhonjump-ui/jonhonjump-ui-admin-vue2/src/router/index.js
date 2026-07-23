@@ -2,6 +2,7 @@ import Vue from 'vue'
 import Router from 'vue-router'
 /* Layout */
 import Layout from '@/layout'
+import Login from '@/views/login'
 
 Vue.use(Router)
 
@@ -41,7 +42,7 @@ export const constantRoutes = [
   },
   {
     path: '/login',
-    component: (resolve) => require(['@/views/login'], resolve),
+    component: Login,
     hidden: true
   },
   {
@@ -91,6 +92,32 @@ export const constantRoutes = [
         component: (resolve) => require(['@/views/system/notify/my/index'], resolve),
         name: 'MyNotifyMessage',
         meta: { title: '我的站内信', icon: 'message' },
+      }, {
+        path: 'notify-message/detail',
+        component: (resolve) => require(['@/views/system/notify/my/detail'], resolve),
+        name: 'MyNotifyMessageDetail',
+        meta: { title: '通知详情', activeMenu: '/user/notify-message' },
+      }, {
+        path: 'faq/detail',
+        component: (resolve) => require(['@/views/system/faq/my/detail'], resolve),
+        name: 'MyFaqDetail',
+        meta: { title: '常见 QA 详情', activeMenu: '/user/faq' },
+      }, {
+        path: 'faq',
+        component: (resolve) => require(['@/views/system/faq/my/index'], resolve),
+        name: 'MyFaq',
+        meta: { title: '常见 QA', icon: 'question' },
+    }]
+  },
+  {
+    path: '/system/user/detail',
+    component: Layout,
+    hidden: true,
+    children: [{
+      path: '',
+      component: (resolve) => require(['@/views/system/user/detail'], resolve),
+      name: 'SystemUserDetail',
+      meta: { title: '用户详情', activeMenu: '/system/user' }
     }]
   },
   {

@@ -129,7 +129,7 @@ sequenceDiagram
 
 | 字段 | 要求 |
 |------|------|
-| `client_id` | 与 `sub_system.client_id` 一致，如 `scada` |
+| `client_id` | OAuth2 客户端标识（来自 `system_oauth2_client.client_id`，如 `scada`）；`sub_system` 通过 `oauth2_client_id` 关联 OAuth2 客户端主键 |
 | `secret` | 与子系统 `application.yml` 中 `client-secret` 一致 |
 | `redirect_uris` | 子系统**前端**回调，如 `http://10.17.65.11:8081/scada/sso/callback` |
 | `authorized_grant_types` | `authorization_code`, `refresh_token` |
@@ -221,7 +221,7 @@ portal:
     enabled: true
     portal-url: http://10.17.65.11:8081          # 主系统前端（跳转 /sso 授权页）
     api-url: http://10.17.65.11:48080/admin-api    # 主系统后端（换 token）
-    client-id: scada                               # = sub_system.client_id
+    client-id: scada                               # = system_oauth2_client.client_id（运行时 SSO/路由）
     client-secret: Scada@2026                      # = system_oauth2_client.secret
     redirect-uri: http://10.17.65.11:8081/scada/sso/callback  # 必须完全一致
     scope: user.read
@@ -273,8 +273,8 @@ portal:
 
 ### Step 1：主库 PostgreSQL
 
-- [ ] `INSERT INTO sub_system (... client_id='mes', system_url='http://门户IP:8081/mes')`
-- [ ] `INSERT INTO system_oauth2_client`（`redirect_uris` = `http://门户IP:8081/mes/sso/callback`）
+- [ ] `INSERT INTO sub_system (... oauth2_client_id=<OAuth2客户端id>, system_url='http://门户IP:8081/mes')`
+- [ ] `INSERT INTO system_oauth2_client`（`client_id='mes'`，`redirect_uris` = `http://门户IP:8081/mes/sso/callback`）
 - [ ] 清 Redis OAuth 缓存或重启主系统后端
 - [ ] 导入/配置 `sub_system_menu`（可从子系统菜单脚本导入）
 - [ ] 配置 `sub_system_role`、`sub_system_users`、用户角色关联
@@ -425,3 +425,205 @@ sql/nginx/scada-b-machine-28080.conf.example
 ---
 
 **维护**：新增子系统时，优先复制 `sql/postgresql/sub-system-scada-nginx-proxy-2026-06-15.sql` 与 SCADA SSO 代码，全局替换 `scada` → 新 `client_id` 与 IP 即可。
+
+---
+
+## 11. 统一门户前端：页面分层与「当前系统」
+
+### 11.1 两套外壳，一个首页
+
+| 路由 | 外壳组件 | 说明 |
+|------|----------|------|
+| `/index`、`/` | `views/index.vue`（独立全屏门户） | 工作台首页：快捷应用网格、待办、全部应用 |
+| 其它业务路由 | `layout/components/PortalShell.vue` | 顶栏 + 底部 Dock + 中间 `AppMain`（含 iframe） |
+
+`layout/index.vue` 根据 `isPortalHome` 决定用哪套外壳：
+
+```js
+// path === '/index' → 直接渲染 AppMain（即 index.vue）
+// 其它路径 → PortalShell 包裹 AppMain
+```
+
+**重要设计**：所有子系统的「门户首页」都复用 **`/index`**，不再为每个子系统单独做 `/portal/{clientId}/home`。切换系统后只是换菜单、快捷导航和顶栏文案，URL 仍停留在 `/index`。
+
+### 11.2 `currentSystem` 状态机
+
+Vuex `portal.currentSystem` 只有两个语义：
+
+| 值 | 含义 | 侧边栏菜单来源 |
+|----|------|----------------|
+| `'main'` | 统一门户（主系统） | `permission.sidebarRouters`（`system_menu` 权限树） |
+| `clientId` 字符串 | 某个外部子系统，如 `scada` | 动态加载的 `sub_system_menu` 树 |
+
+切换系统时 `portal/switchSystem` 会：
+
+1. 缓存主系统侧栏（首次切走时保存到 `mainSidebarRouters`）
+2. 若目标是子系统：`enterSubSystem` → 拉菜单 → `GenerateSubSystemRoutes` → 静默 SSO
+3. 若 `stayOnPortalHome: true`：只换上下文，路由仍指向 `/index`
+4. 会话内记住选择：`sessionStorage` 键 `portal_last_system`
+
+### 11.3 路由模型（三张「地图」）
+
+```
+主系统业务路由          /system/user、/bpm/task/todo ...
+统一门户首页            /index
+子系统门户路由          /portal/{clientId}/{menuPath}
+子系统 iframe 实际地址   {system_url}/#/{path}   （存在菜单 meta.link）
+```
+
+`utils/portalRoute.js` 负责：
+
+- `parsePortalClientId(path)` — 从 URL 解析 `client_id`
+- `isMainBusinessPath(path)` — 子系统模式下禁止直接跳主系统业务页
+- `isSubSystemAllowedPath(path, clientId)` — 子系统模式下允许 `/index`、当前 `/portal/{clientId}/...`、`/user/...`
+- `resolvePortalFrameRoute` — 静态 `PortalFrame` 路由 + `pathLinkMap` 还原 iframe 标题与链接
+
+子系统菜单叶子节点在 `permission.js` 里生成路由时，会把 **iframe URL** 写入 `meta.link`；页面组件统一走 `PortalFrame.vue`（空壳，由 TagsView + iframe 真正展示内容）。
+
+### 11.4 底部 Dock（任务栏）
+
+`PortalDock.vue`：
+
+- **首页**：回 `/index`（`portal/navigateToPortalHome`）
+- **已打开应用**：来自 `tagsView.visitedViews`，过滤掉门户首页、纯占位路由
+- **全部应用**：打开 `AllAppsDrawer` 抽屉
+
+子系统 iframe 页与主系统 Vue 页共用同一套 Dock 页签；关闭页签时若已无业务页，则 `returnToPortalHome`。
+
+---
+
+## 12. 个人化能力：快捷导航 & 默认打开系统
+
+这两套配置都是 **按用户 + 按系统维度** 独立存储，互不影响。
+
+### 12.1 快捷导航
+
+| 维度 | 数据表 | API 前缀 |
+|------|--------|----------|
+| 主系统 | `system_user_quick_nav` | `GET/PUT /system/user/quick-nav/*` |
+| 外部子系统 | `sub_system_user_quick_nav` | `GET/PUT /system/sub-system-user/quick-nav/*`（带 `subSystemId`） |
+
+**展示位置**：
+
+- 门户首页 `/index` 的应用网格（`buildHomeApps`）
+- 「全部应用」抽屉里每行左侧星星（`AllAppsDrawer` + `portalQuickNavToggle.js`）
+
+**交互**：
+
+- 点星 = 把该菜单 `menuId` 加入**当前系统**的快捷导航
+- 再点 = 移除
+- 「配置快捷导航」弹窗只编辑**当前系统**（`PortalQuickNavSettings.vue`）
+
+主系统快捷应用统一蓝色；子系统统一青绿色。全部应用抽屉内按菜单 key 哈希分配多彩色（前端写死调色板）。
+
+### 12.2 默认打开系统（登录后落点）
+
+| 项目 | 说明 |
+|------|------|
+| 数据表 | `system_user_portal_default`（PostgreSQL 脚本：`sql/postgresql/system_user_portal_default.sql`） |
+| 字段 | `sub_system_id`：NULL 为统一门户，否则关联 `sub_system.id`；API 仍返回 `defaultSystem`（`main` 或运行时 `clientId`） |
+| API | `GET /system/user/portal-default/get`、`PUT .../save`（body: `{ subSystemId }`）、`DELETE .../clear` |
+
+**配置入口**：顶栏「切换」下拉里，每行左侧星星（仅当用户有 **≥2 个** 外部子系统时显示）。
+
+**登录后 `bootstrapAfterAuth` 优先级**：
+
+```mermaid
+flowchart TD
+    A[登录完成] --> B{本会话手动切过系统?}
+    B -->|是| C[恢复 session 中的系统]
+    B -->|否| D{用户配置了默认星?}
+    D -->|是| E[进入配置的系统 /index 上下文]
+    D -->|否| F{仅 1 个外部子系统?}
+    F -->|是| G[自动进入该子系统 /index]
+    F -->|否| H[统一门户 main /index]
+```
+
+- 星星最多 **1 个**；取消星星 = `configured=false`，走自动规则
+- 只有 1 个子系统时不显示星星，直接自动进入，无需配置
+
+---
+
+## 13. 权限与菜单：主系统 vs 子系统
+
+### 13.1 主系统
+
+- 菜单：`system_menu` + `system_role_menu` + `system_user_role`
+- 登录后 `GenerateRoutes(userInfo.menus)` 生成侧栏
+- 业务页面是主系统 Vue 组件（非 iframe）
+
+### 13.2 外部子系统
+
+- **注册**：`sub_system`（`oauth2_client_id` → `system_oauth2_client.id`、`system_url` 等）
+- **菜单在主库**：`sub_system_menu`（从子系统导入，非实时同步）
+- **用户关联**：`sub_system_users`（`main_user_id` ↔ `sub_system_id`）
+- **子系统内角色**：`sub_system_role`、`sub_system_user_role`、`sub_system_role_menu`
+- **门户拉菜单**：`GET /system/sub-system-users/my-menus?subSystemId=`
+- **顶栏列表**：`GET /system/sub-system-users/my-list`
+
+门户只负责「展示哪些入口」；iframe 内真实业务仍跑在子系统前后端。子系统用户必须与门户 `username` 对齐（SSO 按用户名匹配）。
+
+### 13.3 管理后台配置路径（运营视角）
+
+1. **外部系统管理** → 注册 `sub_system`
+2. **菜单管理** → 维护 `sub_system_menu`（目录/菜单、`link` 指向 iframe 地址）
+3. **用户/角色/岗位** → 关联门户用户与子系统角色
+4. **OAuth2 客户端** → 在「外部系统管理」中通过 `oauth2_client_id` 关联；运行时 `client_id` 字符串用于 SSO 与 `/portal/{clientId}` 路由
+
+---
+
+## 14. 端到端：从登录到打开子系统页面
+
+```text
+1. POST /admin-api/system/auth/login
+   → 主系统 JWT + menus（主系统侧栏）
+
+2. permission.js → GenerateRoutes
+   → portal/bootstrapAfterAuth（默认系统 / 单系统等）
+
+3. 用户停留在 /index
+   → currentSystem = main 或某 clientId
+   → 首页网格 = 对应系统的快捷导航
+
+4. 用户点「全部应用」某菜单 / 首页快捷图标
+   → 主系统路由：router.push('/system/user')
+   → 子系统路由：router.push('/portal/scada/system/user')
+
+5. 若 URL 以 /portal/{clientId} 开头
+   → permission ensurePortalAccess
+   → enterSubSystem（若未加载）
+   → runSilentSso（隐藏 iframe OAuth）
+   → TagsView 注册 iframe 视图
+   → 可见 iframe 加载 meta.link（如 /scada/#/system/user）
+```
+
+---
+
+## 15. 新子系统接入：最小数据依赖图
+
+```mermaid
+erDiagram
+    sub_system ||--o{ sub_system_menu : has
+    sub_system ||--o{ sub_system_users : links
+    system_users ||--o{ sub_system_users : main_user
+    sub_system_users ||--o{ sub_system_user_role : has
+    sub_system_role ||--o{ sub_system_role_menu : grants
+    sub_system_menu ||--o{ sub_system_role_menu : visible
+    system_oauth2_client ||--|| sub_system : oauth2_client_id
+```
+
+**缺一不可**：
+
+- `sub_system.oauth2_client_id` 关联有效的 `system_oauth2_client` 记录
+- 至少一条 `sub_system_menu` 且叶子带有效 `link`
+- 当前门户用户在 `sub_system_users` 有记录且角色有菜单
+- 子系统库存在同名用户 + SSO 模块 + Nginx 同域反代
+
+---
+
+## 16. 版本记录（续）
+
+| 日期 | 说明 |
+|------|------|
+| 2026-06-17 | 补充：统一 `/index` 门户首页、`currentSystem` 状态机、快捷导航/默认系统个人化、登录 bootstrap 优先级、前端分层说明 |
+

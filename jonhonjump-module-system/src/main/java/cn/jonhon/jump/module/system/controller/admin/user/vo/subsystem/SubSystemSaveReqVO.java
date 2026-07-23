@@ -16,10 +16,9 @@ public class SubSystemSaveReqVO {
     @Schema(description = "系统编号")
     private Long id;
 
-    @Schema(description = "OAuth2 客户端编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "scada_client")
-    @NotBlank(message = "OAuth2 客户端不能为空")
-    @Size(max = 64, message = "OAuth2 客户端编号长度不能超过 64 个字符")
-    private String clientId;
+    @Schema(description = "OAuth2 客户端编号（system_oauth2_client.id）", requiredMode = Schema.RequiredMode.REQUIRED, example = "41")
+    @NotNull(message = "OAuth2 客户端不能为空")
+    private Long oauth2ClientId;
 
     @Schema(description = "系统名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "SCADA 生产监控系统")
     @NotBlank(message = "系统名称不能为空")

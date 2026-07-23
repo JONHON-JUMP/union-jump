@@ -30,6 +30,15 @@ public class SubSystemPortalMenuRespVO {
     @Schema(description = "菜单图标")
     private String icon;
 
+    @Schema(description = "菜单样式编号")
+    private Long styleId;
+
+    @Schema(description = "图标形状")
+    private String shape;
+
+    @Schema(description = "主色 HEX")
+    private String color;
+
     @Schema(description = "是否可见")
     private Boolean visible;
 
@@ -41,6 +50,9 @@ public class SubSystemPortalMenuRespVO {
 
     @Schema(description = "Iframe 外链地址，仅菜单页面使用")
     private String link;
+
+    @Schema(description = "菜单说明书文件地址")
+    private String manualUrl;
 
     @Schema(description = "子菜单")
     private List<SubSystemPortalMenuRespVO> children;

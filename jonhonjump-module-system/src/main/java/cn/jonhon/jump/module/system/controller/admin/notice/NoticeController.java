@@ -1,15 +1,13 @@
 package cn.jonhon.jump.module.system.controller.admin.notice;
 
-import cn.hutool.core.lang.Assert;
-import cn.jonhon.jump.framework.common.enums.UserTypeEnum;
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
-import cn.jonhon.jump.module.infra.api.websocket.WebSocketSenderApi;
 import cn.jonhon.jump.module.system.controller.admin.notice.vo.NoticePageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.notice.vo.NoticeRespVO;
 import cn.jonhon.jump.module.system.controller.admin.notice.vo.NoticeSaveReqVO;
 import cn.jonhon.jump.module.system.dal.dataobject.notice.NoticeDO;
+import cn.jonhon.jump.module.system.enums.notice.NoticeStatusEnum;
 import cn.jonhon.jump.module.system.service.notice.NoticeService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -33,15 +31,11 @@ public class NoticeController {
     @Resource
     private NoticeService noticeService;
 
-    @Resource
-    private WebSocketSenderApi webSocketSenderApi;
-
     @PostMapping("/create")
     @Operation(summary = "创建通知公告")
     @PreAuthorize("@ss.hasPermission('system:notice:create')")
     public CommonResult<Long> createNotice(@Valid @RequestBody NoticeSaveReqVO createReqVO) {
-        Long noticeId = noticeService.createNotice(createReqVO);
-        return success(noticeId);
+        return success(noticeService.createNotice(createReqVO));
     }
 
     @PutMapping("/update")
@@ -52,8 +46,26 @@ public class NoticeController {
         return success(true);
     }
 
+    @PutMapping("/publish")
+    @Operation(summary = "发布通知公告")
+    @Parameter(name = "id", description = "编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('system:notice:update')")
+    public CommonResult<Boolean> publishNotice(@RequestParam("id") Long id) {
+        noticeService.publishNotice(id);
+        return success(true);
+    }
+
+    @PutMapping("/revoke")
+    @Operation(summary = "撤回通知公告")
+    @Parameter(name = "id", description = "编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('system:notice:update')")
+    public CommonResult<Boolean> revokeNotice(@RequestParam("id") Long id) {
+        noticeService.revokeNotice(id);
+        return success(true);
+    }
+
     @DeleteMapping("/delete")
-    @Operation(summary = "删除通知公告")
+    @Operation(summary = "删除通知公告（业务软删除，状态=已删除）")
     @Parameter(name = "id", description = "编号", required = true, example = "1024")
     @PreAuthorize("@ss.hasPermission('system:notice:delete')")
     public CommonResult<Boolean> deleteNotice(@RequestParam("id") Long id) {
@@ -62,7 +74,7 @@ public class NoticeController {
     }
 
     @DeleteMapping("/delete-list")
-    @Operation(summary = "批量删除通知公告")
+    @Operation(summary = "批量删除通知公告（业务软删除）")
     @Parameter(name = "ids", description = "编号列表", required = true)
     @PreAuthorize("@ss.hasPermission('system:notice:delete')")
     public CommonResult<Boolean> deleteNoticeList(@RequestParam("ids") List<Long> ids) {
@@ -71,11 +83,27 @@ public class NoticeController {
     }
 
     @GetMapping("/page")
-    @Operation(summary = "获取通知公告列表")
+    @Operation(summary = "获取通知公告列表（管理员，可按草稿/已发布/已删除筛选）")
     @PreAuthorize("@ss.hasPermission('system:notice:query')")
     public CommonResult<PageResult<NoticeRespVO>> getNoticePage(@Validated NoticePageReqVO pageReqVO) {
         PageResult<NoticeDO> pageResult = noticeService.getNoticePage(pageReqVO);
         return success(BeanUtils.toBean(pageResult, NoticeRespVO.class));
+    }
+
+    @GetMapping("/workbench-page")
+    @Operation(summary = "获得工作台通知分页", description = "普通用户仅可见已发布通知")
+    public CommonResult<PageResult<NoticeRespVO>> getNoticeWorkbenchPage(@Validated NoticePageReqVO pageReqVO) {
+        pageReqVO.setStatus(NoticeStatusEnum.PUBLISHED.getStatus());
+        PageResult<NoticeDO> pageResult = noticeService.getNoticePage(pageReqVO);
+        return success(BeanUtils.toBean(pageResult, NoticeRespVO.class));
+    }
+
+    @GetMapping("/app-get")
+    @Operation(summary = "获得通知详情", description = "供工作台、我的通知查看已发布通知")
+    @Parameter(name = "id", description = "编号", required = true, example = "1024")
+    public CommonResult<NoticeRespVO> getAppNotice(@RequestParam("id") Long id) {
+        NoticeDO notice = noticeService.getPublishedNotice(id);
+        return success(BeanUtils.toBean(notice, NoticeRespVO.class));
     }
 
     @GetMapping("/get")
@@ -85,18 +113,6 @@ public class NoticeController {
     public CommonResult<NoticeRespVO> getNotice(@RequestParam("id") Long id) {
         NoticeDO notice = noticeService.getNotice(id);
         return success(BeanUtils.toBean(notice, NoticeRespVO.class));
-    }
-
-    @PostMapping("/push")
-    @Operation(summary = "推送通知公告", description = "只发送给 websocket 连接在线的用户")
-    @Parameter(name = "id", description = "编号", required = true, example = "1024")
-    @PreAuthorize("@ss.hasPermission('system:notice:update')")
-    public CommonResult<Boolean> push(@RequestParam("id") Long id) {
-        NoticeDO notice = noticeService.getNotice(id);
-        Assert.notNull(notice, "公告不能为空");
-        // 通过 websocket 推送给在线的用户
-        webSocketSenderApi.sendObject(UserTypeEnum.ADMIN.getValue(), "notice-push", notice);
-        return success(true);
     }
 
 }

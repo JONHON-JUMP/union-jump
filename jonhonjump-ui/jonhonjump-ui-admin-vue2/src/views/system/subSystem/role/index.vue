@@ -13,7 +13,7 @@
             style="margin-bottom: 20px"
           />
         </div>
-        <div class="head-container sub-system-list">
+        <div class="head-container sub-system-list" v-loading="clientsLoading">
           <div
             v-for="item in filteredClientList"
             :key="item.id"
@@ -27,12 +27,20 @@
               <el-tag size="mini" type="info">{{ item.roleCount || 0 }} 角色</el-tag>
             </div>
           </div>
-          <el-empty v-if="filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
         </div>
       </el-col>
 
       <!-- 角色数据 -->
-      <el-col :span="20" :xs="24">
+      <el-col :span="20" :xs="24" v-loading="clientsLoading">
+        <el-alert
+          v-if="showSubSystemBindHint"
+          title="请先在左侧选择已登记的外部系统；关联系统信息后，才可新增/维护该系统下的角色与权限"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="mb8"
+        />
         <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
           <el-form-item label="角色名称" prop="name">
             <el-input v-model="queryParams.name" placeholder="请输入角色名称" clearable style="width: 240px"
@@ -61,6 +69,10 @@
           <el-col :span="1.5">
             <el-button type="primary" plain icon="el-icon-plus" size="mini" @click="handleAdd"
                        v-hasPermi="['sub-system:role:create']">新增</el-button>
+          </el-col>
+          <el-col :span="1.5">
+            <el-button type="info" plain icon="el-icon-upload2" size="mini" @click="handleImport"
+                       v-hasPermi="['sub-system:role:create']">导入</el-button>
           </el-col>
           <el-col :span="1.5">
             <el-button
@@ -103,6 +115,8 @@
                          v-hasPermi="['sub-system:role:update']">修改</el-button>
               <el-button size="mini" type="text" icon="el-icon-circle-check" @click="handleMenu(scope.row)"
                          v-hasPermi="['sub-system:role:update']">菜单权限</el-button>
+              <el-button size="mini" type="text" icon="el-icon-menu" @click="handleQuickNav(scope.row)"
+                         v-hasPermi="['sub-system:role:update']">快捷导航</el-button>
               <el-button size="mini" type="text" icon="el-icon-circle-check" @click="handleDataScope(scope.row)"
                          v-hasPermi="['sub-system:role:update']">数据权限</el-button>
               <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)"
@@ -214,6 +228,53 @@
         <el-button @click="openMenu = false">取 消</el-button>
       </div>
     </el-dialog>
+
+    <role-quick-nav-dialog
+      :visible.sync="openQuickNav"
+      :role-name="quickNavForm.name"
+      :role-code="quickNavForm.code"
+      :menu-tree="quickNavMenuTree"
+      :leaf-menu-ids="quickNavLeafMenuIds"
+      :menu-ids="quickNavMenuIds"
+      :saving="quickNavSaving"
+      @save="submitQuickNav"
+    />
+
+    <el-dialog :title="upload.title" :visible.sync="upload.open" width="400px" append-to-body>
+      <el-alert
+        :title="'当前系统：' + (selectedClient ? (selectedClient.name + ' (' + selectedClient.clientId + ')') : '未选择')"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+      <el-upload
+        ref="upload"
+        :limit="1"
+        accept=".xlsx, .xls"
+        :headers="upload.headers"
+        :action="uploadAction"
+        :disabled="upload.isUploading"
+        :on-progress="handleFileUploadProgress"
+        :on-success="handleFileSuccess"
+        :auto-upload="false"
+        drag
+      >
+        <i class="el-icon-upload"></i>
+        <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+        <div class="el-upload__tip text-center" slot="tip">
+          <div class="el-upload__tip">
+            <el-checkbox v-model="upload.updateSupport" /> 是否更新已存在的角色（按角色标识）
+          </div>
+          <span>仅允许 xls/xlsx。须先选择并确认关联外部系统。</span>
+          <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
+        </div>
+      </el-upload>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" @click="submitFileForm">确 定</el-button>
+        <el-button @click="upload.open = false">取 消</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -229,15 +290,23 @@ import {
   getSubSystemRole,
   getSubSystemRoleMenuIds,
   getSubSystemRolePage,
+  importSubSystemRoleTemplate,
   updateSubSystemRole,
   updateSubSystemRoleStatus
 } from '@/api/system/subSystemRole'
+import { getSubSystemRoleQuickNavList, saveSubSystemRoleQuickNav } from '@/api/system/subSystem/roleQuickNav'
+import { buildSubSystemRoleQuickNavCheckTree, getSubSystemQuickNavLeafIds } from '@/utils/roleQuickNavMenus'
+import RoleQuickNavDialog from '@/views/system/components/RoleQuickNavDialog.vue'
 import { listSimpleDepts } from '@/api/system/dept'
 import { CommonStatusEnum, SystemDataScopeEnum } from '@/utils/constants'
 import { DICT_TYPE, getDictDatas } from '@/utils/dict'
+import { getBaseHeader } from '@/utils/request'
+import subSystemImportGate from '@/utils/subSystemImportGate'
 
 export default {
   name: 'SubSystemRole',
+  mixins: [subSystemImportGate],
+  components: { RoleQuickNavDialog },
   data() {
     return {
       loading: false,
@@ -251,6 +320,12 @@ export default {
       open: false,
       openDataScope: false,
       openMenu: false,
+      openQuickNav: false,
+      quickNavSaving: false,
+      quickNavForm: {},
+      quickNavMenuTree: [],
+      quickNavLeafMenuIds: [],
+      quickNavMenuIds: [],
       menuExpand: false,
       menuNodeAll: false,
       deptExpand: true,
@@ -261,6 +336,13 @@ export default {
       depts: [],
       menuForm: {},
       checkedIds: [],
+      upload: {
+        open: false,
+        title: '',
+        isUploading: false,
+        updateSupport: false,
+        headers: getBaseHeader()
+      },
       queryParams: {
         pageNo: 1,
         pageSize: 10,
@@ -286,6 +368,13 @@ export default {
     }
   },
   computed: {
+    uploadAction() {
+      const id = this.selectedClient && this.selectedClient.id
+      const update = this.upload.updateSupport ? 'true' : 'false'
+      return process.env.VUE_APP_BASE_API + '/admin-api/system/sub-system-role/import'
+        + '?subSystemId=' + (id || '')
+        + '&updateSupport=' + update
+    },
     filteredClientList() {
       const keyword = (this.clientKeyword || '').trim().toLowerCase()
       if (!keyword) {
@@ -302,11 +391,16 @@ export default {
   },
   methods: {
     loadClientList() {
-      getSubSystemClientSimpleList().then(res => {
-        this.clientList = res.data || []
-        if (!this.selectedClient && this.clientList.length > 0) {
-          this.handleClientClick(this.clientList[0])
-        }
+      return this.withClientsLoading(() => {
+        return getSubSystemClientSimpleList().then(res => {
+          this.clientList = res.data || []
+          if (this.syncSelectedClientFromList()) {
+            return
+          }
+          if (!this.selectedClient && this.clientList.length > 0) {
+            this.handleClientClick(this.clientList[0])
+          }
+        })
       })
     },
     handleClientClick(item) {
@@ -363,13 +457,52 @@ export default {
       this.resetFormData()
     },
     handleAdd() {
-      if (!this.selectedClient) {
-        this.$modal.msgWarning('请先选择外部系统')
+      this.ensureSubSystemBoundBeforeAction('新增角色', { requireConfirm: false }).then(() => {
+        this.resetFormData()
+        this.open = true
+        this.title = '添加外部系统角色'
+      }).catch(() => {})
+    },
+    handleImport() {
+      this.ensureSubSystemBoundBeforeAction('导入').then(() => {
+        this.upload.title = '导入外部系统角色 — ' + (this.selectedClient.name || '')
+        this.upload.open = true
+        this.upload.headers = getBaseHeader()
+      }).catch(() => {})
+    },
+    importTemplate() {
+      importSubSystemRoleTemplate().then(response => {
+        this.$download.excel(response, '外部系统角色导入模板.xls')
+      })
+    },
+    handleFileUploadProgress() {
+      this.upload.isUploading = true
+    },
+    handleFileSuccess(response) {
+      this.upload.open = false
+      this.upload.isUploading = false
+      if (this.$refs.upload) {
+        this.$refs.upload.clearFiles()
+      }
+      if (response.code !== 0) {
+        this.$modal.msgError(response.msg || '导入失败')
         return
       }
-      this.resetFormData()
-      this.open = true
-      this.title = '添加外部系统角色'
+      const data = response.data || {}
+      let text = '新建：' + ((data.createKeys && data.createKeys.length) || 0)
+      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      text += '<br />更新：' + ((data.updateKeys && data.updateKeys.length) || 0)
+      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      const failMap = data.failureKeys || {}
+      const failKeys = Object.keys(failMap)
+      text += '<br />失败：' + failKeys.length
+      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + k + '：' + failMap[k] })
+      this.$alert(text, '导入结果', { dangerouslyUseHTMLString: true })
+      this.getList()
+      this.loadClientList()
+    },
+    submitFileForm() {
+      this.$refs.upload.submit()
     },
     handleUpdate(row) {
       this.resetFormData()
@@ -447,6 +580,45 @@ export default {
             this.menuCheckStrictly = false
           })
         })
+      })
+    },
+    handleQuickNav(row) {
+      this.quickNavForm = {
+        roleId: row.id,
+        subSystemId: row.subSystemId,
+        name: row.name,
+        code: row.code
+      }
+      this.quickNavMenuTree = []
+      this.quickNavLeafMenuIds = []
+      this.quickNavMenuIds = []
+      this.openQuickNav = true
+      Promise.all([
+        getSubSystemMenuSimpleList(row.subSystemId),
+        getSubSystemRoleMenuIds(row.id),
+        getSubSystemRoleQuickNavList(row.id)
+      ]).then(([menuRes, roleMenuRes, quickNavRes]) => {
+        const allMenus = menuRes.data || []
+        const roleMenuIds = roleMenuRes.data || []
+        this.quickNavMenuTree = buildSubSystemRoleQuickNavCheckTree(allMenus, roleMenuIds)
+        this.quickNavLeafMenuIds = getSubSystemQuickNavLeafIds(allMenus, roleMenuIds)
+        this.quickNavMenuIds = (quickNavRes.data && quickNavRes.data.menuIds) || []
+      }).catch(() => {
+        this.$modal.msgError('加载快捷导航菜单失败')
+        this.openQuickNav = false
+      })
+    },
+    submitQuickNav(menuIds) {
+      this.quickNavSaving = true
+      saveSubSystemRoleQuickNav({
+        subSystemId: this.quickNavForm.subSystemId,
+        roleId: this.quickNavForm.roleId,
+        menuIds: menuIds || []
+      }).then(() => {
+        this.$modal.msgSuccess('保存成功')
+        this.openQuickNav = false
+      }).finally(() => {
+        this.quickNavSaving = false
       })
     },
     handleDataScope(row) {

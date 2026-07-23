@@ -7,7 +7,10 @@ import lombok.Data;
 @Data
 public class SubSystemOAuth2ClientSimpleRespVO {
 
-    @Schema(description = "客户端编号")
+    @Schema(description = "OAuth2 客户端编号")
+    private Long id;
+
+    @Schema(description = "客户端标识")
     private String clientId;
 
     @Schema(description = "应用名称")

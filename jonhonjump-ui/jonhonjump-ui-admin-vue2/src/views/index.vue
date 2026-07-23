@@ -1,184 +1,69 @@
 <template>
-  <div class="jump-portal">
-    <header class="portal-header">
-      <button class="brand" type="button" aria-label="返回首页" @click="goHome">
-        <span class="brand-mark">J</span>
-        <span class="brand-copy">
-          <strong>JUMP 中航统一制造管理平台</strong>
-          <small>JONHON UNIFORM MANUFACTURE PLATFORM</small>
-        </span>
-      </button>
-
-      <div class="header-actions">
-        <div class="app-search">
-          <i class="el-icon-search" />
-          <input
-            v-model.trim="searchKeyword"
-            type="search"
-            aria-label="搜索应用"
-            placeholder="搜索应用"
-            @focus="searchFocused = true"
-            @keydown.esc="closeSearch"
-          >
-          <button v-if="searchKeyword" type="button" aria-label="清空搜索" @click="searchKeyword = ''">
-            <i class="el-icon-circle-close" />
-          </button>
-          <div v-if="showSearchPanel" class="search-panel">
-            <div class="search-panel__title">
-              <span>应用搜索</span><small>{{ filteredApps.length }} 个结果</small>
-            </div>
-            <button
-              v-for="app in filteredApps.slice(0, 8)"
-              :key="'search-' + app.name + app.path"
-              type="button"
-              class="search-result"
-              @mousedown.prevent="openApp(app)"
-            >
-              <span class="mini-icon" :style="{ background: app.color }">
-                <svg-icon v-if="app.svgIcon" :icon-class="app.svgIcon" />
-                <i v-else-if="app.icon" :class="app.icon" />
-                <svg-icon v-else icon-class="component" />
-              </span>
-              <span><strong>{{ app.name }}</strong><small>{{ app.group || app.subtitle || '授权应用' }}</small></span>
-              <i class="el-icon-arrow-right" />
-            </button>
-            <div v-if="!filteredApps.length" class="search-empty">未找到匹配应用，请尝试其他关键词</div>
-          </div>
-        </div>
-
-        <div class="system-chip">
-          <span class="status-dot" />
-          <span>当前系统：</span>
-          <strong>{{ currentSubsystem }}</strong>
-          <el-dropdown trigger="click" placement="bottom-end" @command="handleSubsystemChange">
-            <button class="system-switch" type="button">
-              切换
-              <i class="el-icon-arrow-down" />
-            </button>
-            <el-dropdown-menu slot="dropdown" class="system-dropdown">
-              <el-dropdown-item
-                v-for="system in subsystemOptions"
-                :key="system.value"
-                :command="system.value"
-                :class="{ 'is-current': currentSystem === system.value }"
-              >
-                <span class="system-option">
-                  <i :class="system.icon" />
-                  <span>
-                    <strong>{{ system.label }}</strong>
-                    <small>{{ system.description }}</small>
-                  </span>
-                  <i v-if="currentSystem === system.value" class="el-icon-check" />
-                </span>
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </el-dropdown>
-        </div>
-        <el-badge :value="unreadCount || ''" class="notice-badge">
-          <button class="round-action" type="button" aria-label="通知" @click="activeWorkbench = 'notice'"><i class="el-icon-bell" /></button>
-        </el-badge>
-        <el-dropdown trigger="click" @command="handleUserCommand">
-          <button class="user-entry" type="button">
-            <img v-if="avatar" :src="avatar" alt="">
-            <span v-else>{{ userInitial }}</span>
-          </button>
-          <el-dropdown-menu slot="dropdown">
-            <el-dropdown-item command="profile">个人中心</el-dropdown-item>
-            <el-dropdown-item command="settings">平台设置</el-dropdown-item>
-            <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
-          </el-dropdown-menu>
-        </el-dropdown>
-      </div>
-    </header>
-
+  <div class="jump-portal jump-portal--embedded">
     <main class="portal-main" @click="searchFocused = false">
       <section class="desktop-area">
         <div class="welcome-row">
           <div>
             <p class="date-label">{{ dateLabel }}</p>
             <h1>{{ greeting }}，{{ displayName }}</h1>
-            <p>从常用应用快速进入业务现场，也可通过底部“全部应用”查看当前账号的授权入口。</p>
-          </div>
-          <div class="welcome-actions">
-            <button class="quick-nav-config" type="button" @click="quickNavSettingsVisible = true">
-              <i class="el-icon-setting" />
-              配置快捷导航
-            </button>
-            <div class="shift-chip"><span class="status-dot" />白班 · 08:00 至 20:00</div>
           </div>
         </div>
 
-        <div
-          ref="appViewport"
-          class="app-viewport"
-          @wheel="handleAppWheel"
-          @touchstart="handleTouchStart"
-          @touchend="handleTouchEnd"
-        >
-          <transition :name="pageTransition" mode="out-in">
-            <div
-              :key="currentAppPage"
-              class="app-grid"
-              :style="{ '--app-columns': appColumns }"
-              role="list"
-              aria-label="常用应用"
-            >
-              <button
-                v-for="app in pagedApps"
-                :key="app.path || app.name + '|' + (app.subtitle || '')"
-                class="app-tile"
-                type="button"
-                role="listitem"
-                @click="openApp(app)"
-              >
-                <span class="app-icon" :style="{ background: app.color, boxShadow: app.shadow }">
-                  <span class="icon-highlight" />
-                  <svg-icon v-if="app.svgIcon" :icon-class="app.svgIcon" />
-                  <i v-else-if="app.icon" :class="app.icon" />
-                  <svg-icon v-else icon-class="component" />
-                  <em v-if="app.badge">{{ app.badge }}</em>
-                </span>
-                <strong>{{ app.name }}</strong>
-                <small>{{ app.subtitle }}</small>
-              </button>
-            </div>
-          </transition>
-        </div>
-        <div v-if="appPageCount > 1" class="page-indicator" aria-label="应用分页">
-          <button
-            v-for="page in appPageCount"
-            :key="page"
-            type="button"
-            :class="{ active: currentAppPage === page - 1 }"
-            :aria-label="'切换到第 ' + page + ' 页'"
-            @click="goToAppPage(page - 1)"
-          />
-        </div>
+        <portal-quick-nav-panel
+          ref="quickNavPanel"
+          variant="home"
+          @open="openApp"
+          @quick-nav-change="handleQuickNavChange"
+        />
       </section>
 
       <aside class="info-rail">
-        <section class="info-panel workbench-panel">
+        <section ref="workbenchPanel" class="info-panel workbench-panel">
           <div class="panel-heading">
             <div>
               <h2>工作台</h2>
-              <p>{{ currentWorkbenchSummary }}</p>
             </div>
             <time>{{ currentTime }}</time>
           </div>
-          <div class="workbench-tabs" role="tablist">
-            <button
-              v-for="tab in workbenchTabs"
-              :key="tab.key"
-              type="button"
-              :class="{ active: activeWorkbench === tab.key }"
-              @click="activeWorkbench = tab.key"
-            >{{ tab.label }}<span v-if="tab.count"> {{ tab.count }}</span></button>
+          <div class="workbench-tabs-row">
+            <div class="workbench-tabs" role="tablist">
+              <button
+                v-for="tab in workbenchTabs"
+                :key="tab.key"
+                type="button"
+                :class="{ active: activeWorkbench === tab.key }"
+                @click="switchWorkbench(tab.key)"
+              >{{ tab.label }}<span v-if="tab.count"> {{ tab.count }}</span></button>
+            </div>
+            <div class="workbench-tabs-actions">
+              <button
+                type="button"
+                class="workbench-action"
+                aria-label="刷新"
+                :disabled="workbenchLoading"
+                @click="refreshWorkbench"
+              >
+                <i class="el-icon-refresh" :class="{ 'is-spinning': workbenchLoading }" />
+              </button>
+              <button type="button" class="workbench-action workbench-action--more" @click="openWorkbenchMore">
+                更多
+              </button>
+            </div>
           </div>
-          <div class="task-list">
-            <button v-for="task in visibleTasks" :key="task.title" type="button" class="task-item" @click="showTask(task)">
+          <div v-loading="workbenchLoading" class="task-list">
+            <button
+              v-for="task in visibleTasks"
+              :key="getTaskKey(task)"
+              type="button"
+              class="task-item"
+              @click="showTask(task)"
+            >
               <span><strong>{{ task.title }}</strong><small>{{ task.description }}</small></span>
               <em :class="task.level">{{ task.tag }}</em>
             </button>
+            <div v-if="!workbenchLoading && !visibleTasks.length" class="task-empty">
+              {{ workbenchEmptyText }}
+            </div>
           </div>
           <button
             v-if="hasMoreTasks"
@@ -187,72 +72,29 @@
             @click="openWorkbenchMore"
           >
             查看更多
-            <span>还有 {{ currentTasks.length - workbenchDisplayLimit }} 条</span>
+            <span>还有 {{ remainingTaskCount }} 条</span>
             <i class="el-icon-arrow-right" />
           </button>
         </section>
       </aside>
     </main>
-
-    <portal-dock
-      @all-apps="drawerVisible = true"
-    />
-
-    <all-apps-drawer
-      ref="allAppsDrawer"
-      :visible.sync="drawerVisible"
-      :routes="sidebarRouters || []"
-      @open="openApp"
-      @pinned-change="handlePinnedAppsChange"
-    />
-
-    <portal-quick-nav-settings
-      v-model="quickNavSettingsVisible"
-      :portal-system-list="portalSystemList"
-      :initial-tab="quickNavInitialTab"
-      @saved="handleQuickNavSaved"
-    />
   </div>
 </template>
 
 <script>
 import { mapGetters } from 'vuex'
-import { getPath } from '@/utils/ruoyi'
+import { getPath, parseTime } from '@/utils/ruoyi'
 import { isExternal } from '@/utils/validate'
 import { getTodoTaskPage } from '@/api/bpm/task'
-import { getMyNotifyMessagePage, getUnreadNotifyMessageCount } from '@/api/system/notify/message'
-import { getUserQuickNavList } from '@/api/system/user/quickNav'
-import { getSubSystemUserQuickNavList } from '@/api/system/user/subSystemQuickNav'
-import { buildQuickNavItems, buildSidebarQuickApps } from '@/views/home/quickNavFromRoutes'
-import PortalQuickNavSettings from '@/views/home/PortalQuickNavSettings'
-import { faqList } from '@/views/home/quickNavData'
-import { buildSubsystemOptions, resolveCurrentSubsystemLabel } from '@/utils/portalSubsystem'
+import { listNoticeWorkbench } from '@/api/system/notice'
+import { listFaqWorkbench } from '@/api/system/faq'
+import { checkPermi } from '@/utils/permission'
 import { parsePortalClientId, isMainBusinessPath } from '@/utils/portalRoute'
-import AllAppsDrawer from './components/AllAppsDrawer.vue'
-import PortalDock from '@/layout/components/PortalDock.vue'
-import { getCachedPinnedApps, loadPinnedApps } from '@/utils/portalPinnedApps'
-
-const colors = {
-  blue: 'linear-gradient(145deg, #2597f4, #086fd8)',
-  cyan: 'linear-gradient(145deg, #12a9c4, #087d9f)',
-  teal: 'linear-gradient(145deg, #12aeb5, #08768c)',
-  green: 'linear-gradient(145deg, #13ad80, #087a59)',
-  orange: 'linear-gradient(145deg, #f39a13, #d76700)',
-  slate: 'linear-gradient(145deg, #6289b2, #315d91)',
-  violet: 'linear-gradient(145deg, #7e78c7, #51489b)'
-}
-
+import PortalQuickNavPanel from './components/PortalQuickNavPanel.vue'
+import { buildPortalHomeApps } from '@/utils/portalQuickNavApps'
+import { buildIconStyle, resolveMenuColors } from '@/utils/menuIconStyle'
+import { ensureDictDatas } from '@/utils/dict'
 import { resolvePortalMenuIcon } from '@/utils/portalMenuIcon'
-
-/** 跨 /index 挂载保留各系统快捷导航，避免返回首页时闪一下全量菜单 */
-const quickNavScopeCache = Object.create(null)
-
-function buildQuickNavScopeKey(currentSystem, subSystemId) {
-  if (currentSystem === 'main' || !subSystemId) {
-    return 'main'
-  }
-  return `sub:${subSystemId}`
-}
 
 function resolveMenuIconFields(icon, meta = {}) {
   const resolved = resolvePortalMenuIcon(icon, {
@@ -266,98 +108,61 @@ function resolveMenuIconFields(icon, meta = {}) {
   }
 }
 
-import { applyQuickNavDuplicateLabels } from '@/utils/quickNavLabel'
-
-function mapQuickNavApp(item, options) {
-  return {
-    name: item.name,
-    subtitle: item.subtitle || options.subtitle,
-    path: item.path,
-    svgIcon: item.svgIcon || null,
-    icon: item.icon || null,
-    color: options.color,
-    shadow: options.shadow,
-    keywords: item.keywords || item.name,
-    external: item.external
-  }
-}
-
-function mapQuickNavApps(items, options) {
-  return applyQuickNavDuplicateLabels(items, options.subtitle).map(item => mapQuickNavApp(item, options))
-}
-
 export default {
   name: 'JumpPortalHome',
-  components: { AllAppsDrawer, PortalDock, PortalQuickNavSettings },
+  components: { PortalQuickNavPanel },
   data() {
     return {
       searchKeyword: '',
       searchFocused: false,
-      drawerVisible: false,
-      quickNavSettingsVisible: false,
       activeWorkbench: 'notice',
-      currentAppPage: 0,
-      appColumns: 6,
-      appRows: 2,
-      pageDirection: 'next',
-      touchStartX: 0,
-      touchStartY: 0,
-      lastWheelAt: 0,
-      appResizeObserver: null,
       now: new Date(),
       timer: null,
-      pinnedApps: getCachedPinnedApps(),
       quickNavMenuIds: [],
+      quickNavLockedMenuIds: [],
       quickNavConfigured: false,
-      quickNavLoadedScope: null,
-      quickNavLoading: false,
       workbenchLoading: false,
-      unreadCount: 0,
-      desktopApps: [],
-      workbenchDisplayLimit: 3,
+      workbenchVisible: false,
+      workbenchLoaded: {
+        notice: false,
+        todo: false,
+        qa: false
+      },
+      workbenchInFlight: {
+        notice: null,
+        todo: null,
+        qa: null
+      },
+      workbenchObserver: null,
+      workbenchDisplayLimit: 5,
+      noticeRecentTotal: 0,
+      qaRecentTotal: 0,
+      noticeLoadFailed: false,
+      todoCount: 0,
+      todoRefreshTimer: null,
       workbenchTabs: [
-        { key: 'notice', label: '系统公告' },
+        { key: 'notice', label: '通知' },
         { key: 'todo', label: '待办', count: 0 },
         { key: 'qa', label: '常见 QA' }
       ],
       taskMap: {
         todo: [],
         notice: [],
-        qa: faqList.map(item => ({
-          title: item.title,
-          description: item.author,
-          tag: item.category.replace(/[【】]/g, ''),
-          level: 'info'
-        }))
+        qa: []
       }
     }
   },
   computed: {
     ...mapGetters([
-      'avatar', 'nickname', 'name', 'sidebarRouters',
+      'avatar', 'nickname', 'name', 'sidebarRouters', 'currentSystemSidebarRouters', 'currentSystemLabel',
       'currentSystem', 'portalSystemList'
     ]),
-    subsystemOptions() {
-      return buildSubsystemOptions(this.portalSystemList)
-    },
-    currentSubsystem() {
-      return resolveCurrentSubsystemLabel(this.currentSystem, this.portalSystemList)
-    },
     currentSubSystemId() {
       if (this.currentSystem === 'main') {
         return 0
       }
       const sys = (this.portalSystemList || []).find(item => item.clientId === this.currentSystem)
       return sys ? Number(sys.subSystemId) : 0
-    },
-    quickNavInitialTab() {
-      if (this.currentSystem === 'main' || !this.currentSubSystemId) {
-        return 'main'
-      }
-      return `sub-${this.currentSubSystemId}`
-    },
-    quickNavScopeKey() {
-      return buildQuickNavScopeKey(this.currentSystem, this.currentSubSystemId)
     },
     displayName() {
       return this.nickname || this.name || '制造同事'
@@ -379,24 +184,16 @@ export default {
     currentTime() {
       return this.now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false })
     },
-    appPageSize() {
-      return Math.max(1, this.appColumns * this.appRows)
-    },
-    appPageCount() {
-      return Math.max(1, Math.ceil(this.homeApps.length / this.appPageSize))
-    },
-    pagedApps() {
-      const start = this.currentAppPage * this.appPageSize
-      return this.homeApps.slice(start, start + this.appPageSize)
-    },
-    pageTransition() {
-      return this.pageDirection === 'next' ? 'app-page-next' : 'app-page-prev'
-    },
     authorizedApps() {
-      return this.flattenRoutes(this.sidebarRouters || [])
+      return this.flattenRoutes(this.currentSystemSidebarRouters || [])
     },
     homeApps() {
-      return this.buildHomeApps(this.quickNavMenuIds, this.quickNavConfigured)
+      return buildPortalHomeApps(
+        this.currentSystemSidebarRouters,
+        this.currentSystem,
+        this.quickNavMenuIds,
+        this.quickNavConfigured
+      )
     },
     drawerApps() {
       const seen = new Set()
@@ -421,222 +218,202 @@ export default {
     visibleTasks() {
       return this.currentTasks.slice(0, this.workbenchDisplayLimit)
     },
-    hasMoreTasks() {
-      return this.currentTasks.length > this.workbenchDisplayLimit
-    },
-    currentWorkbenchSummary() {
-      const summaries = {
-        notice: '平台通知与版本发布信息',
-        todo: `${this.taskMap.todo.length} 项任务等待处理`,
-        qa: '制造业务常见问题指引'
+    remainingTaskCount() {
+      if (this.activeWorkbench === 'notice') {
+        return Math.max(0, this.noticeRecentTotal - this.workbenchDisplayLimit)
       }
-      return summaries[this.activeWorkbench]
+      if (this.activeWorkbench === 'qa') {
+        return Math.max(0, this.qaRecentTotal - this.workbenchDisplayLimit)
+      }
+      return Math.max(0, this.currentTasks.length - this.workbenchDisplayLimit)
+    },
+    hasMoreTasks() {
+      return this.remainingTaskCount > 0
+    },
+    todoBadgeValue() {
+      return this.todoCount > 0 ? this.todoCount : ''
+    },
+    workbenchEmptyText() {
+      if (this.activeWorkbench === 'notice' && this.noticeLoadFailed) {
+        return '通知加载失败，请点击刷新重试'
+      }
+      const labels = {
+        notice: '暂无通知公告',
+        todo: '暂无待办任务',
+        qa: '暂无常见问题'
+      }
+      return labels[this.activeWorkbench] || '暂无数据'
     }
   },
   watch: {
     currentSystem() {
-      this.restoreQuickNavFromCache()
-      this.currentAppPage = 0
-      this.loadQuickNav().finally(() => {
-        this.$nextTick(this.updateAppPagination)
-      })
+      this.searchKeyword = ''
+      this.searchFocused = false
     },
-    '$route.path'(path) {
-      if (path === '/index' || path === '/') {
-        this.restoreQuickNavFromCache()
-        this.loadQuickNav()
+    activeWorkbench(tabKey) {
+      if (this.workbenchVisible) {
+        this.ensureWorkbenchTabLoaded(tabKey)
+      }
+    },
+    '$route'(to) {
+      if (to.path !== '/index' && to.path !== '/') {
+        return
+      }
+      this.applyWorkbenchFromQuery(to.query && to.query.workbench)
+      this.loadTodoCount()
+      if (this.workbenchVisible) {
+        this.refreshWorkbench()
       }
     }
   },
   mounted() {
-    if (this.$route.query.workbench && this.taskMap[this.$route.query.workbench]) {
-      this.activeWorkbench = this.$route.query.workbench
+    this.applyWorkbenchFromQuery(this.$route.query.workbench)
+    this._onOpenWorkbench = (tabKey) => {
+      this.openWorkbenchTab(tabKey)
     }
-    this.restoreQuickNavFromCache()
+    this.$root.$on('portal-open-workbench', this._onOpenWorkbench)
     this.timer = window.setInterval(() => { this.now = new Date() }, 30000)
-    this.loadPinnedApps()
-    this.$store.dispatch('portal/bootstrapAfterAuth').then(() => {
-      this.loadSubsystems().then(() => this.loadQuickNav())
-    })
-    this.loadWorkbenchData()
-    this.loadUnreadCount()
-    this.$nextTick(this.initAppPagination)
+    this.setupWorkbenchObserver()
+    this.loadTodoCount()
+    this.todoRefreshTimer = window.setInterval(() => {
+      this.loadTodoCount()
+    }, 60000)
+  },
+  activated() {
+    this.applyWorkbenchFromQuery(this.$route.query.workbench)
   },
   beforeDestroy() {
+    if (this._onOpenWorkbench) {
+      this.$root.$off('portal-open-workbench', this._onOpenWorkbench)
+      this._onOpenWorkbench = null
+    }
     window.clearInterval(this.timer)
-    if (this.appResizeObserver) this.appResizeObserver.disconnect()
-    window.removeEventListener('resize', this.updateAppPagination)
+    if (this.todoRefreshTimer) {
+      window.clearInterval(this.todoRefreshTimer)
+      this.todoRefreshTimer = null
+    }
+    if (this.workbenchObserver) {
+      this.workbenchObserver.disconnect()
+      this.workbenchObserver = null
+    }
   },
   methods: {
-    buildHomeApps(menuIds, configured) {
-      const scopeKey = this.quickNavScopeKey
-      if (this.quickNavLoadedScope !== scopeKey) {
-        const cached = quickNavScopeCache[scopeKey]
-        if (cached) {
-          menuIds = cached.menuIds
-          configured = cached.configured
-        } else if (this.quickNavLoading) {
-          return []
-        }
-      }
-
-      if (this.currentSystem !== 'main') {
-        const quickNavApps = buildQuickNavItems(this.sidebarRouters, menuIds)
-        if (quickNavApps.length) {
-          return mapQuickNavApps(quickNavApps, {
-            subtitle: '快捷导航',
-            color: colors.teal,
-            shadow: '0 12px 22px rgba(8,118,140,.24)'
-          })
-        }
-        if (!configured) {
-          return mapQuickNavApps(buildSidebarQuickApps(this.sidebarRouters), {
-            subtitle: '快捷入口',
-            color: colors.teal,
-            shadow: '0 12px 22px rgba(8,118,140,.24)'
-          })
-        }
-        return []
-      }
-
-      const quickNavApps = mapQuickNavApps(buildQuickNavItems(this.sidebarRouters, menuIds), {
-        subtitle: '快捷导航',
-        color: colors.blue,
-        shadow: '0 12px 22px rgba(8,111,216,.24)'
-      })
-      const pinned = this.pinnedApps.map(app => ({
-        ...app,
-        ...resolveMenuIconFields(app.icon, { title: app.name, path: app.path }),
-        subtitle: app.group || '固定应用',
-        color: colors.blue,
-        shadow: '0 12px 22px rgba(8,111,216,.24)',
-        pinned: true
-      }))
-      const seen = new Set()
-      return [...quickNavApps, ...pinned].filter(app => {
-        const key = app.path || `${app.name}|${app.subtitle}`
-        if (seen.has(key)) return false
-        seen.add(key)
-        return true
-      })
+    iconStyle(app) {
+      return buildIconStyle(app)
     },
-    restoreQuickNavFromCache() {
-      const scopeKey = this.quickNavScopeKey
-      const cached = quickNavScopeCache[scopeKey]
-      if (cached) {
-        this.quickNavMenuIds = [...cached.menuIds]
-        this.quickNavConfigured = cached.configured
-        this.quickNavLoadedScope = scopeKey
+    applyWorkbenchFromQuery(tabKey) {
+      if (tabKey && Object.prototype.hasOwnProperty.call(this.taskMap, tabKey)) {
+        this.openWorkbenchTab(tabKey)
+      }
+    },
+    openWorkbenchTab(tabKey) {
+      if (!tabKey || !Object.prototype.hasOwnProperty.call(this.taskMap, tabKey)) {
         return
       }
-      this.quickNavMenuIds = []
-      this.quickNavConfigured = false
-      this.quickNavLoadedScope = null
+      this.switchWorkbench(tabKey)
     },
-    cacheQuickNavState(scopeKey, menuIds, configured) {
-      quickNavScopeCache[scopeKey] = {
-        menuIds: [...menuIds],
-        configured: !!configured
-      }
-    },
-    preloadQuickNavForSystem(systemValue) {
-      if (systemValue === 'main') {
-        const cached = quickNavScopeCache.main
-        if (cached) {
-          this.quickNavMenuIds = [...cached.menuIds]
-          this.quickNavConfigured = cached.configured
-          this.quickNavLoadedScope = 'main'
-        } else {
-          this.quickNavMenuIds = []
-          this.quickNavConfigured = false
-          this.quickNavLoadedScope = null
-        }
+    setupWorkbenchObserver() {
+      if (typeof IntersectionObserver === 'undefined') {
+        this.workbenchVisible = true
+        this.ensureWorkbenchTabLoaded(this.activeWorkbench)
         return
       }
-      const sys = (this.portalSystemList || []).find(item => item.clientId === systemValue)
-      const scopeKey = buildQuickNavScopeKey(systemValue, sys ? Number(sys.subSystemId) : 0)
-      const cached = quickNavScopeCache[scopeKey]
-      if (cached) {
-        this.quickNavMenuIds = [...cached.menuIds]
-        this.quickNavConfigured = cached.configured
-        this.quickNavLoadedScope = scopeKey
-      } else {
-        this.quickNavMenuIds = []
-        this.quickNavConfigured = false
-        this.quickNavLoadedScope = null
-      }
-    },
-    loadSubsystems() {
-      return this.$store.dispatch('portal/loadSystemList')
-    },
-    loadQuickNav() {
-      const scopeKey = this.quickNavScopeKey
-      const request = this.currentSubSystemId > 0
-        ? getSubSystemUserQuickNavList(this.currentSubSystemId)
-        : getUserQuickNavList()
-      this.quickNavLoading = true
-      return request.then(res => {
-        const config = res.data || {}
-        const menuIds = config.menuIds || []
-        const configured = !!config.configured
-        if (scopeKey !== this.quickNavScopeKey) {
+      this.$nextTick(() => {
+        const panel = this.$refs.workbenchPanel
+        if (!panel) {
           return
         }
-        this.quickNavMenuIds = menuIds
-        this.quickNavConfigured = configured
-        this.quickNavLoadedScope = scopeKey
-        this.cacheQuickNavState(scopeKey, menuIds, configured)
-        this.$nextTick(this.updateAppPagination)
-      }).catch(() => {
-        if (scopeKey === this.quickNavScopeKey) {
-          this.quickNavMenuIds = []
-          this.quickNavConfigured = false
-          this.quickNavLoadedScope = scopeKey
-        }
-      }).finally(() => {
-        if (scopeKey === this.quickNavScopeKey) {
-          this.quickNavLoading = false
-        }
+        this.workbenchObserver = new IntersectionObserver(entries => {
+          const visible = entries.some(entry => entry.isIntersecting)
+          if (!visible || this.workbenchVisible) {
+            return
+          }
+          this.workbenchVisible = true
+          this.ensureWorkbenchTabLoaded(this.activeWorkbench)
+        }, { threshold: 0.1 })
+        this.workbenchObserver.observe(panel)
       })
     },
-    handleQuickNavSaved(payload) {
-      if (!payload || payload.scope === 'main') {
-        if (this.currentSystem === 'main') {
-          const menuIds = (payload && payload.menuIds) || []
-          this.quickNavMenuIds = menuIds
-          this.quickNavConfigured = true
-          this.quickNavLoadedScope = 'main'
-          this.cacheQuickNavState('main', menuIds, true)
-        }
-      } else if (payload.scope === 'sub' && payload.subSystemId === this.currentSubSystemId) {
-        const scopeKey = this.quickNavScopeKey
-        const menuIds = payload.menuIds || []
-        this.quickNavMenuIds = menuIds
-        this.quickNavConfigured = true
-        this.quickNavLoadedScope = scopeKey
-        this.cacheQuickNavState(scopeKey, menuIds, true)
+    switchWorkbench(tabKey) {
+      this.activeWorkbench = tabKey
+      if (!this.workbenchVisible) {
+        this.workbenchVisible = true
       }
-      this.currentAppPage = 0
-      this.$nextTick(this.updateAppPagination)
+      this.ensureWorkbenchTabLoaded(tabKey)
     },
-    loadUnreadCount() {
-      return getUnreadNotifyMessageCount().then(res => {
-        this.unreadCount = res.data || 0
-      }).catch(() => {
-        this.unreadCount = 0
+    ensureWorkbenchTabLoaded(tabKey) {
+      if (!tabKey || this.workbenchLoaded[tabKey]) {
+        return Promise.resolve()
+      }
+      if (this.workbenchInFlight[tabKey]) {
+        return this.workbenchInFlight[tabKey]
+      }
+      const task = this.loadWorkbenchTab(tabKey).finally(() => {
+        this.workbenchInFlight[tabKey] = null
       })
+      this.workbenchInFlight[tabKey] = task
+      return task
     },
-    loadWorkbenchData() {
-      this.workbenchLoading = true
-      return Promise.all([this.loadTodoTasks(), this.loadNoticeTasks()]).finally(() => {
-        this.workbenchLoading = false
+    loadWorkbenchTab(tabKey) {
+      if (tabKey === 'todo') {
+        return this.loadTodoTasks().then(() => {
+          this.workbenchLoaded.todo = true
+        })
+      }
+      if (tabKey === 'notice') {
+        return ensureDictDatas(this.DICT_TYPE.SYSTEM_NOTIFY_TEMPLATE_TYPE).then(() => this.loadNoticeTasks()).then(() => {
+          this.workbenchLoaded.notice = true
+        }).catch(() => {
+          // 失败也标记，避免超时后无限重试把控制台刷爆
+          this.workbenchLoaded.notice = true
+        })
+      }
+      if (tabKey === 'qa') {
+        return ensureDictDatas(this.DICT_TYPE.SYSTEM_FAQ_CATEGORY).then(() => this.loadFaqTasks()).then(() => {
+          this.workbenchLoaded.qa = true
+        }).catch(() => {
+          this.workbenchLoaded.qa = true
+        })
+      }
+      return Promise.resolve()
+    },
+    refreshWorkbench() {
+      this.workbenchLoaded[this.activeWorkbench] = false
+      this.workbenchInFlight[this.activeWorkbench] = null
+      return this.loadWorkbenchTab(this.activeWorkbench)
+    },
+    loadTodoCount() {
+      if (!checkPermi(['bpm:task:query'])) {
+        this.todoCount = 0
+        this.workbenchTabs = this.workbenchTabs.map(tab => tab.key === 'todo'
+          ? { ...tab, count: 0 }
+          : tab)
+        return Promise.resolve()
+      }
+      return getTodoTaskPage({ pageNo: 1, pageSize: 1 }, true).then(response => {
+        this.todoCount = (response.data && response.data.total) || 0
+        this.workbenchTabs = this.workbenchTabs.map(tab => tab.key === 'todo'
+          ? { ...tab, count: this.todoCount }
+          : tab)
+      }).catch(() => {
+        this.todoCount = 0
       })
     },
     loadTodoTasks() {
-      return getTodoTaskPage({ pageNo: 1, pageSize: 8 }).then(response => {
-        const list = response.data.list || []
+      if (!checkPermi(['bpm:task:query'])) {
+        this.todoCount = 0
         this.workbenchTabs = this.workbenchTabs.map(tab => tab.key === 'todo'
-          ? { ...tab, count: response.data.total || 0 }
+          ? { ...tab, count: undefined }
+          : tab)
+        this.taskMap.todo = []
+        return Promise.resolve()
+      }
+      this.workbenchLoading = true
+      return getTodoTaskPage({ pageNo: 1, pageSize: 8 }, true).then(response => {
+        const list = response.data.list || []
+        this.todoCount = (response.data && response.data.total) || 0
+        this.workbenchTabs = this.workbenchTabs.map(tab => tab.key === 'todo'
+          ? { ...tab, count: this.todoCount }
           : tab)
         this.taskMap.todo = list.map(row => ({
           title: this.buildTodoTitle(row),
@@ -647,20 +424,63 @@ export default {
         }))
       }).catch(() => {
         this.taskMap.todo = []
+      }).finally(() => {
+        this.workbenchLoading = false
       })
     },
     loadNoticeTasks() {
-      return getMyNotifyMessagePage({ pageNo: 1, pageSize: 8 }).then(response => {
-        const list = response.data.list || []
+      this.workbenchLoading = true
+      return listNoticeWorkbench({
+        pageNo: 1,
+        pageSize: this.workbenchDisplayLimit
+      }).then(response => {
+        const page = (response && response.data) || {}
+        const list = page.list || []
+        const total = Number(page.total) || 0
+        this.noticeRecentTotal = total
+        this.noticeLoadFailed = false
+        this.workbenchTabs = this.workbenchTabs.map(tab => tab.key === 'notice'
+          ? { ...tab, count: total || undefined }
+          : tab)
         this.taskMap.notice = list.map(row => ({
-          title: row.templateContent || '-',
-          description: row.templateNickname || '系统通知',
-          tag: '通知',
+          title: row.title || '-',
+          description: this.getDictDataLabel(this.DICT_TYPE.SYSTEM_NOTIFY_TEMPLATE_TYPE, row.type) || '-',
+          tag: parseTime(row.createTime, '{y}-{m}-{d} {h}:{i}') || '-',
+          level: 'info',
+          raw: row
+        }))
+      }).catch(err => {
+        console.error('[workbench] load notice failed', err)
+        this.noticeLoadFailed = true
+        this.noticeRecentTotal = 0
+        this.taskMap.notice = []
+        this.workbenchTabs = this.workbenchTabs.map(tab => tab.key === 'notice'
+          ? { ...tab, count: undefined }
+          : tab)
+      }).finally(() => {
+        this.workbenchLoading = false
+      })
+    },
+    loadFaqTasks() {
+      this.workbenchLoading = true
+      return listFaqWorkbench({
+        pageNo: 1,
+        pageSize: this.workbenchDisplayLimit
+      }).then(response => {
+        const list = response.data.list || []
+        this.qaRecentTotal = response.data.total || 0
+        this.taskMap.qa = list.map(row => ({
+          title: row.title || '-',
+          description: this.getDictDataLabel(this.DICT_TYPE.SYSTEM_FAQ_CATEGORY, row.category) || '-',
+          tag: parseTime(row.createTime, '{y}-{m}-{d} {h}:{i}') || '-',
           level: 'info',
           raw: row
         }))
       }).catch(() => {
-        this.taskMap.notice = []
+        this.qaRecentTotal = 0
+        this.taskMap.qa = []
+      }).finally(() => {
+        this.workbenchLoading = false
       })
     },
     buildTodoTitle(row) {
@@ -669,92 +489,10 @@ export default {
       if (user && taskName) return `${user} - ${taskName}`
       return taskName || user || '-'
     },
-    async loadPinnedApps() {
-      this.pinnedApps = await loadPinnedApps()
-      this.$nextTick(this.updateAppPagination)
-    },
-    handlePinnedAppsChange(apps) {
-      this.pinnedApps = apps
-      if (this.currentAppPage >= this.appPageCount) {
-        this.currentAppPage = this.appPageCount - 1
-      }
-      this.$nextTick(this.updateAppPagination)
-    },
-    handleSubsystemChange(value) {
-      if (value === this.currentSystem) return
-      this.preloadQuickNavForSystem(value)
-      this.currentAppPage = 0
-      const loading = this.$loading({
-        lock: true,
-        text: '正在切换系统...',
-        spinner: 'el-icon-loading'
-      })
-      this.$store.dispatch('portal/switchSystem', { system: value, stayOnPortalHome: true }).catch(err => {
-        this.restoreQuickNavFromCache()
-        this.$message.error(typeof err === 'string' ? err : (err.message || '切换系统失败'))
-      }).finally(() => {
-        loading.close()
-      })
-    },
-    initAppPagination() {
-      this.updateAppPagination()
-      if (typeof ResizeObserver !== 'undefined') {
-        this.appResizeObserver = new ResizeObserver(this.updateAppPagination)
-        this.appResizeObserver.observe(this.$refs.appViewport)
-      } else {
-        window.addEventListener('resize', this.updateAppPagination)
-      }
-    },
-    updateAppPagination() {
-      const viewport = this.$refs.appViewport
-      if (!viewport) return
-      const width = viewport.clientWidth
-      const height = viewport.clientHeight
-      let columns = 3
-      if (width >= 1020) columns = 6
-      else if (width >= 820) columns = 5
-      else if (width >= 620) columns = 4
-      const rows = Math.max(1, Math.min(3, Math.floor((height + 28) / 155)))
-      this.appColumns = columns
-      this.appRows = rows
-      if (this.currentAppPage >= this.appPageCount) {
-        this.currentAppPage = this.appPageCount - 1
-      }
-    },
-    handleAppWheel(event) {
-      if (this.appPageCount <= 1) return
-      const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
-      if (Math.abs(delta) < 18) return
-      event.preventDefault()
-      const now = Date.now()
-      if (now - this.lastWheelAt < 420) return
-      this.lastWheelAt = now
-      this.changeAppPage(delta > 0 ? 1 : -1)
-    },
-    handleTouchStart(event) {
-      const touch = event.touches && event.touches[0]
-      if (!touch) return
-      this.touchStartX = touch.clientX
-      this.touchStartY = touch.clientY
-    },
-    handleTouchEnd(event) {
-      const touch = event.changedTouches && event.changedTouches[0]
-      if (!touch || this.appPageCount <= 1) return
-      const deltaX = touch.clientX - this.touchStartX
-      const deltaY = touch.clientY - this.touchStartY
-      if (Math.abs(deltaX) < 45 || Math.abs(deltaX) <= Math.abs(deltaY)) return
-      this.changeAppPage(deltaX < 0 ? 1 : -1)
-    },
-    changeAppPage(step) {
-      const nextPage = Math.min(Math.max(this.currentAppPage + step, 0), this.appPageCount - 1)
-      if (nextPage === this.currentAppPage) return
-      this.pageDirection = step > 0 ? 'next' : 'prev'
-      this.currentAppPage = nextPage
-    },
-    goToAppPage(page) {
-      if (page === this.currentAppPage) return
-      this.pageDirection = page > this.currentAppPage ? 'next' : 'prev'
-      this.currentAppPage = page
+    handleQuickNavChange(payload) {
+      this.quickNavMenuIds = (payload && payload.menuIds) || []
+      this.quickNavLockedMenuIds = (payload && payload.lockedMenuIds) || []
+      this.quickNavConfigured = !!(payload && payload.configured)
     },
     flattenRoutes(routes, basePath = '', group = '') {
       const result = []
@@ -772,7 +510,7 @@ export default {
               title,
               path
             }),
-            color: colors.blue,
+            ...resolveMenuColors(route.meta || {}),
             keywords: `${title} ${group}`
           })
         }
@@ -787,7 +525,6 @@ export default {
     },
     openApp(app) {
       this.searchFocused = false
-      this.drawerVisible = false
       if (!app) return
       if (!app.path) {
         const keywords = [app.name]
@@ -799,15 +536,18 @@ export default {
         if (authorizedApp) {
           this.openApp(authorizedApp)
         } else {
-          this.drawerVisible = true
-          this.$nextTick(() => {
-            if (this.$refs.allAppsDrawer) this.$refs.allAppsDrawer.openWithKeyword(app.name)
-          })
+          this.$root.$emit('portal-open-all-apps', app.name)
         }
         return
       }
       if (this.currentSystem !== 'main' && isMainBusinessPath(app.path)) {
-        this.$message.warning('当前为子系统模式，请从门户首页选择应用进入')
+        const loading = this.$loading({ lock: true, text: '正在进入主系统...', spinner: 'el-icon-loading' })
+        this.$store.dispatch('portal/switchSystem', { system: 'main', skipNavigate: true })
+          .then(() => this.$router.push(app.path))
+          .catch(err => {
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入主系统失败'))
+          })
+          .finally(() => loading.close())
         return
       }
       if (isExternal(app.path)) {
@@ -824,13 +564,22 @@ export default {
         if (this.$route.path === app.path) {
           return
         }
-        const loading = this.$loading({ lock: true, text: '正在进入子系统...', spinner: 'el-icon-loading' })
-        this.$store.dispatch('portal/enterSubSystem', { clientId, navigate: false })
-          .then(() => this.$router.push(app.path))
+        const menusReady = !!(this.$store.state.portal.loadedSubSystems || {})[clientId]
+        const loading = menusReady
+          ? null
+          : this.$loading({ lock: true, text: '加载子系统菜单...', spinner: 'el-icon-loading' })
+        this.$store.dispatch('portal/ensureSubSystemReady', clientId)
+          .then(() => {
+            // ensureSubSystemReady 已按需激活；若加载期间用户已切走，不再跳转
+            if (this.$store.state.portal.currentSystem !== clientId) {
+              return
+            }
+            return this.$router.push(app.path)
+          })
           .catch(err => {
             this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
           })
-          .finally(() => loading.close())
+          .finally(() => loading && loading.close())
         return
       }
       if (this.$route.path !== app.path) {
@@ -841,44 +590,47 @@ export default {
       const app = this.drawerApps.find(item => item.name.includes(keyword) || (item.group || '').includes(keyword))
       if (app) this.openApp(app)
       else {
-        this.drawerVisible = true
-        this.$nextTick(() => {
-          if (this.$refs.allAppsDrawer) this.$refs.allAppsDrawer.openWithKeyword(keyword)
-        })
+        this.$root.$emit('portal-open-all-apps', keyword)
       }
     },
     closeSearch() {
       this.searchKeyword = ''
       this.searchFocused = false
     },
-    goHome() {
-      if (this.$route.path === '/index' || this.$route.path === '/') return
-      this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
-    },
     showTask(task) {
       if (this.activeWorkbench === 'todo' && task.raw && task.raw.processInstance) {
         this.$router.push({ name: 'BpmProcessInstanceDetail', query: { id: task.raw.processInstance.id } }).catch(() => {})
         return
       }
-      if (this.activeWorkbench === 'notice') {
-        this.$router.push('/user/notify-message').catch(() => {})
+      if (this.activeWorkbench === 'notice' && task.raw && task.raw.id) {
+        this.$router.push({ name: 'MyNotifyMessageDetail', query: { noticeId: task.raw.id } }).catch(() => {})
+        return
+      }
+      if (this.activeWorkbench === 'qa' && task.raw && task.raw.id) {
+        this.$router.push({ name: 'MyFaqDetail', query: { faqId: task.raw.id } }).catch(() => {})
         return
       }
       this.$message.info(task.title)
     },
+    getTaskKey(task) {
+      if (task.raw && task.raw.id) {
+        return `${this.activeWorkbench}-${task.raw.id}`
+      }
+      return `${this.activeWorkbench}-${task.title}`
+    },
     openWorkbenchMore() {
+      if (this.activeWorkbench === 'notice') {
+        this.$router.push({ name: 'MyNotifyMessage' }).catch(() => {})
+        return
+      }
+      if (this.activeWorkbench === 'qa') {
+        this.$router.push({ name: 'MyFaq' }).catch(() => {})
+        return
+      }
       const targets = {
-        notice: {
-          paths: ['/system/notice', '/user/notify-message'],
-          keyword: '公告'
-        },
         todo: {
           paths: ['/bpm/task/todo'],
           keyword: '待办'
-        },
-        qa: {
-          paths: [],
-          keyword: '帮助'
         }
       }
       const target = targets[this.activeWorkbench]
@@ -890,23 +642,7 @@ export default {
         return
       }
 
-      this.drawerVisible = true
-      this.$nextTick(() => {
-        if (this.$refs.allAppsDrawer) this.$refs.allAppsDrawer.openWithKeyword(target.keyword)
-      })
-    },
-    handleUserCommand(command) {
-      if (command === 'profile') this.$router.push('/user/profile')
-      else if (command === 'settings') this.$message.info('平台设置入口已打开，可在此接入个人偏好配置')
-      else if (command === 'logout') {
-        this.$confirm('确定退出 JUMP 统一制造管理平台吗？', '退出登录', {
-          confirmButtonText: '退出',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }).then(() => {
-          this.$store.dispatch('LogOut').then(() => { location.href = getPath('/index') })
-        }).catch(() => {})
-      }
+      this.$root.$emit('portal-open-all-apps', target.keyword)
     }
   }
 }
@@ -920,19 +656,19 @@ $canvas: #eaf4fc;
 
 .jump-portal {
   display: flex;
-  height: 100vh;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
-  padding: 22px 26px 20px;
+  padding: 0;
   box-sizing: border-box;
   flex-direction: column;
   color: $ink;
-  background:
-    radial-gradient(circle at 2% 2%, rgba(67, 183, 239, .18), transparent 30%),
-    radial-gradient(circle at 98% 18%, rgba(42, 195, 172, .14), transparent 28%),
-    radial-gradient(circle at 58% 100%, rgba(255, 192, 75, .11), transparent 24%),
-    $canvas;
+  background: transparent;
   font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+}
+
+.jump-portal--embedded {
+  flex: 1 1 auto;
 }
 
 button, input { font: inherit; }
@@ -964,17 +700,15 @@ button { color: inherit; }
 }
 
 .brand-mark {
-  display: grid;
+  display: block;
   flex: 0 0 60px;
   width: 60px;
   height: 60px;
-  place-items: center;
+  padding: 4px;
   border-radius: 16px;
-  color: #fff;
-  background: linear-gradient(145deg, #0e88e9, #08a7bd);
+  object-fit: contain;
+  background: #fff;
   box-shadow: 0 8px 16px rgba(8, 124, 229, .22);
-  font-size: 27px;
-  font-weight: 700;
 }
 
 .brand-copy {
@@ -994,6 +728,24 @@ button { color: inherit; }
 
 .brand-copy small { margin-top: 3px; color: $muted; font-size: 13px; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
+.switch-user-btn {
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid #f5c06a;
+  border-radius: 999px;
+  background: #fff7e6;
+  color: #b88230;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s ease, box-shadow .2s ease;
+}
+.switch-user-btn:hover,
+.switch-user-btn:focus-visible {
+  outline: none;
+  background: #ffefd2;
+  box-shadow: 0 0 0 3px rgba(230, 162, 60, .16);
+}
 
 .app-search {
   position: relative;
@@ -1047,37 +799,6 @@ button { color: inherit; }
 .search-result > i { color: #7790aa; }
 .search-empty { padding: 24px 12px; color: $muted; text-align: center; }
 
-.system-chip, .shift-chip {
-  display: flex;
-  height: 48px;
-  padding: 0 8px 0 15px;
-  align-items: center;
-  border-radius: 24px;
-  color: #44607f;
-  background: #e3f1fd;
-  font-size: 14px;
-  white-space: nowrap;
-}
-
-.system-chip strong { color: #075eb5; }
-.system-switch {
-  height: 30px;
-  margin-left: 9px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 15px;
-  color: #075eb5;
-  background: rgba(255, 255, 255, .72);
-  font-size: 12px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background .18s ease, transform .18s ease;
-}
-.system-switch:hover, .system-switch:focus-visible { outline: none; background: #fff; }
-.system-switch:active { transform: scale(.97); }
-.system-switch i { margin-left: 2px; font-size: 10px; }
-.status-dot { display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: #11a574; box-shadow: 0 0 0 4px rgba(17, 165, 116, .12); }
-
 .round-action, .user-entry {
   display: grid;
   width: 50px;
@@ -1095,68 +816,12 @@ button { color: inherit; }
 .user-entry img { width: 100%; height: 100%; object-fit: cover; }
 .notice-badge ::v-deep .el-badge__content { top: 8px; right: 10px; }
 
-.portal-main { display: grid; min-height: 0; margin-top: 22px; grid-template-columns: minmax(0, 1fr) 460px; gap: 24px; flex: 1 1 auto; }
+.portal-main { display: grid; min-height: 0; margin-top: 0; grid-template-columns: minmax(0, 1fr) 460px; gap: 24px; flex: 1 1 auto; }
 .desktop-area { position: relative; display: flex; min-height: 0; padding: 26px 22px; flex-direction: column; }
 .welcome-row { display: flex; align-items: flex-start; justify-content: space-between; }
-.welcome-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 12px; }
-.quick-nav-config {
-  display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px solid rgba(8,111,216,.18);
-  border-radius: 999px; background: rgba(255,255,255,.92); color: #086fd8; font-size: 13px; cursor: pointer;
-  transition: background .2s ease, box-shadow .2s ease;
-  &:hover { background: #fff; box-shadow: 0 8px 18px rgba(8,111,216,.12); }
-}
 .date-label { margin: 0 0 7px; color: #3275aa; font-size: 14px; font-weight: 600; }
 .welcome-row h1 { margin: 0; color: #0e223c; font-size: 36px; line-height: 1.25; letter-spacing: -.02em; }
-.welcome-row > div:first-child > p:last-child { max-width: 620px; margin: 10px 0 0; color: $muted; font-size: 16px; line-height: 1.7; }
-.shift-chip { height: 42px; background: rgba(255, 255, 255, .66); }
 
-.app-viewport {
-  position: relative;
-  height: auto;
-  min-height: 260px;
-  max-height: 430px;
-  margin-top: 44px;
-  padding: 12px 6px 0;
-  overflow: hidden;
-  box-sizing: border-box;
-  flex: 1 1 auto;
-  touch-action: pan-y;
-}
-
-.app-grid {
-  display: grid;
-  height: calc(100% - 12px);
-  align-content: start;
-  grid-template-columns: repeat(var(--app-columns), minmax(108px, 1fr));
-  column-gap: clamp(14px, 2vw, 30px);
-  row-gap: 30px;
-}
-
-.app-tile { display: flex; min-width: 0; padding: 0; align-items: center; border: 0; outline: 0; background: transparent; flex-direction: column; cursor: pointer; }
-.app-icon { position: relative; display: grid; width: 92px; height: 92px; place-items: center; border-radius: 22px; color: #fff; font-size: 43px; transition: transform .2s cubic-bezier(.16, 1, .3, 1), filter .2s ease; }
-.app-tile:hover .app-icon, .app-tile:focus-visible .app-icon { transform: translateY(-5px); filter: saturate(1.08); }
-.app-tile:focus-visible .app-icon { outline: 3px solid rgba(8, 124, 229, .24); outline-offset: 5px; }
-.app-tile:active .app-icon { transform: translateY(-1px) scale(.97); }
-.app-icon .svg-icon { position: relative; z-index: 1; width: 42px; height: 42px; }
-.app-icon > i { position: relative; z-index: 1; font-size: 42px; line-height: 1; }
-.icon-highlight { position: absolute; top: 0; right: 8px; left: 8px; height: 27px; border-radius: 18px; background: linear-gradient(180deg, rgba(255, 255, 255, .28), transparent); pointer-events: none; }
-.app-icon em { position: absolute; top: -7px; right: -7px; z-index: 2; min-width: 24px; height: 24px; padding: 0 6px; border: 3px solid $canvas; border-radius: 12px; color: #fff; background: #ed3d45; font-size: 12px; font-style: normal; font-weight: 700; line-height: 18px; }
-.app-tile > strong { margin-top: 13px; font-size: 16px; line-height: 1.4; }
-.app-tile > small { margin-top: 3px; color: $muted; font-size: 12px; }
-.app-page-next-enter-active,
-.app-page-next-leave-active,
-.app-page-prev-enter-active,
-.app-page-prev-leave-active {
-  transition: transform .24s cubic-bezier(.16, 1, .3, 1), opacity .18s ease;
-}
-.app-page-next-enter { opacity: 0; transform: translateX(34px); }
-.app-page-next-leave-to { opacity: 0; transform: translateX(-34px); }
-.app-page-prev-enter { opacity: 0; transform: translateX(-34px); }
-.app-page-prev-leave-to { opacity: 0; transform: translateX(34px); }
-.page-indicator { display: flex; min-height: 20px; margin-top: 16px; align-items: center; justify-content: center; gap: 7px; }
-.page-indicator button { width: 9px; height: 9px; padding: 0; border: 0; border-radius: 5px; background: #9eb1c5; cursor: pointer; transition: width .2s ease, background .2s ease; }
-.page-indicator button:hover, .page-indicator button:focus-visible { outline: 3px solid rgba(8, 124, 229, .15); outline-offset: 2px; }
-.page-indicator button.active { width: 34px; background: $primary; }
 .info-rail {
   min-width: 0;
   min-height: 0;
@@ -1189,20 +854,84 @@ button { color: inherit; }
 .panel-heading button { padding: 5px; border: 0; color: $muted; background: transparent; cursor: pointer; }
 
 .workbench-panel { display: flex; height: 100%; min-height: 0; flex-direction: column; }
-.workbench-tabs { display: flex; margin-top: 20px; gap: 7px; }
+.workbench-tabs-row {
+  display: flex;
+  margin-top: 20px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.workbench-tabs { display: flex; min-width: 0; gap: 7px; flex: 1 1 auto; }
+.workbench-tabs-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+.workbench-action {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  color: #5a718e;
+  background: rgba(255, 255, 255, .55);
+  font-size: 16px;
+  cursor: pointer;
+  transition: background .18s ease, color .18s ease;
+}
+.workbench-action:hover,
+.workbench-action:focus-visible {
+  outline: none;
+  color: #087ce5;
+  background: rgba(255, 255, 255, .92);
+}
+.workbench-action:disabled {
+  opacity: .6;
+  cursor: not-allowed;
+}
+.workbench-action--more {
+  width: auto;
+  height: 32px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.workbench-action .is-spinning {
+  animation: workbench-spin .8s linear infinite;
+}
+@keyframes workbench-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .workbench-tabs button { height: 38px; padding: 0 14px; border: 1px solid rgba(255, 255, 255, .76); border-radius: 19px; color: #4f6680; background: rgba(231, 242, 251, .72); font-size: 14px; font-weight: 600; white-space: nowrap; cursor: pointer; transition: background .18s ease, color .18s ease, transform .18s ease; }
 .workbench-tabs button:hover { background: rgba(255, 255, 255, .9); }
 .workbench-tabs button.active { color: #fff; background: $primary; }
 .workbench-tabs button:active { transform: scale(.98); }
 .workbench-tabs button:focus-visible { outline: 3px solid rgba(8, 124, 229, .2); outline-offset: 2px; }
 .task-list { display: flex; min-height: 0; margin-top: 16px; overflow: auto; gap: 10px; flex: 1 1 auto; flex-direction: column; scrollbar-color: #aac0d3 transparent; scrollbar-width: thin; }
+.task-empty {
+  display: flex;
+  min-height: 120px;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  border: 1px dashed rgba(8, 124, 229, .18);
+  border-radius: 12px;
+  color: #6a8199;
+  background: rgba(255, 255, 255, .42);
+  font-size: 13px;
+}
 .task-item { display: flex; width: 100%; padding: 16px 14px; align-items: flex-start; justify-content: space-between; border: 1px solid rgba(255, 255, 255, .78); border-radius: 12px; background: linear-gradient(135deg, rgba(255, 255, 255, .76), rgba(222, 240, 253, .66)); text-align: left; cursor: pointer; transition: background .18s ease, transform .18s ease; }
 .task-item:hover, .task-item:focus-visible { outline: none; background: rgba(255, 255, 255, .94); transform: translateY(-1px); }
 .task-item:active { transform: translateY(0) scale(.995); }
 .task-item > span { display: flex; min-width: 0; padding-right: 8px; flex-direction: column; }
 .task-item strong { font-size: 14px; }
 .task-item small { margin-top: 7px; color: #5a718e; font-size: 12px; line-height: 1.5; }
-.task-item em { flex: 0 0 auto; padding: 4px 8px; border-radius: 12px; color: #116bb6; background: #cce7fb; font-size: 11px; font-style: normal; font-weight: 700; }
+.task-item em { flex: 0 0 auto; padding: 4px 8px; border-radius: 12px; color: #116bb6; background: #cce7fb; font-size: 11px; font-style: normal; font-weight: 700; white-space: nowrap; }
 .task-item em.urgent { color: #d72835; background: #ffd8db; }
 .task-item em.warning { color: #9b5a00; background: #ffe5b8; }
 .task-item em.success { color: #087a59; background: #cceee3; }
@@ -1228,7 +957,7 @@ button { color: inherit; }
 .workbench-more span { margin-left: 7px; color: #637b95; font-size: 11px; font-weight: 400; }
 .workbench-more i { margin-left: auto; }
 
-.mini-icon { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border-radius: 12px; color: #fff; }
+.mini-icon { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border-radius: 12px; }
 .mini-icon .svg-icon { width: 22px; height: 22px; }
 .mini-icon > i { font-size: 22px; line-height: 1; }
 @media (max-width: 1280px) {
@@ -1237,7 +966,6 @@ button { color: inherit; }
   .brand-copy strong { font-size: 19px; }
   .brand-copy small { display: none; }
   .app-search { width: 270px; }
-  .system-chip span:not(.status-dot) { display: none; }
   .portal-main { grid-template-columns: minmax(0, 1fr) 410px; gap: 18px; }
 }
 
@@ -1257,11 +985,7 @@ button { color: inherit; }
   .jump-portal { padding: 12px 12px 98px; }
   .brand-copy strong { font-size: 17px; }
   .welcome-row h1 { font-size: 30px; }
-  .shift-chip { display: none; }
-  .app-viewport { height: 300px; margin-top: 36px; }
-  .app-grid { grid-template-columns: repeat(var(--app-columns), minmax(84px, 1fr)); }
-  .app-icon { width: 76px; height: 76px; border-radius: 18px; }
-  .app-icon .svg-icon { width: 34px; height: 34px; }
+  .workbench-tabs-row { align-items: flex-start; flex-wrap: wrap; }
   .workbench-tabs { overflow-x: auto; padding-bottom: 4px; }
 }
 
@@ -1269,31 +993,13 @@ button { color: inherit; }
   .notice-badge, .user-entry { display: none; }
   .header-actions { flex-wrap: wrap; }
   .app-search { flex-basis: 100%; }
-  .system-chip { max-width: 100%; }
   .brand-mark { flex-basis: 46px; width: 46px; height: 46px; border-radius: 13px; }
   .desktop-area { padding-right: 4px; padding-left: 4px; }
-  .app-viewport { height: 300px; }
-  .app-grid { grid-template-columns: repeat(var(--app-columns), minmax(80px, 1fr)); column-gap: 8px; }
-  .app-tile > small { display: none; }
   .workbench-panel { min-height: 520px; padding: 18px 14px; }
   .task-list { min-height: 330px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
-  .app-tile:hover .app-icon, .app-tile:focus-visible .app-icon, .app-tile:active .app-icon { transform: none; }
 }
-</style>
-
-<style lang="scss">
-.system-dropdown { min-width: 260px; padding: 8px; border: 0; border-radius: 14px; box-shadow: 0 12px 28px rgba(41, 81, 117, .16); }
-.system-dropdown .el-dropdown-menu__item { height: auto; padding: 9px 10px; border-radius: 10px; line-height: 1.4; }
-.system-dropdown .el-dropdown-menu__item:hover { color: #075eb5; background: #edf6fd; }
-.system-dropdown .el-dropdown-menu__item.is-current { color: #075eb5; background: #e5f2fd; }
-.system-option { display: flex; align-items: center; gap: 10px; }
-.system-option > i:first-child { width: 28px; color: #2785d1; font-size: 18px; text-align: center; }
-.system-option > span { display: flex; min-width: 0; flex: 1; flex-direction: column; }
-.system-option strong { color: #183653; font-size: 13px; }
-.system-option small { margin-top: 2px; color: #71859b; font-size: 11px; }
-.system-option > .el-icon-check { color: #087ce5; font-weight: 700; }
 </style>

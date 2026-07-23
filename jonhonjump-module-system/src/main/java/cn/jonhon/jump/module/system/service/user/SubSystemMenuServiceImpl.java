@@ -12,10 +12,10 @@ import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMenuMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemRoleMenuMapper;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
-
 import javax.annotation.Resource;
 import java.util.Collections;
 import java.util.List;
@@ -29,6 +29,7 @@ import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.*;
 
 @Service
 @Validated
+@Slf4j
 public class SubSystemMenuServiceImpl implements SubSystemMenuService {
 
     private static final Long ID_ROOT = 0L;
@@ -41,6 +42,12 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     private SubSystemRoleMenuMapper subSystemRoleMenuMapper;
     @Resource
     private SubSystemUserQuickNavService subSystemUserQuickNavService;
+    @Resource
+    private SubSystemRoleQuickNavService subSystemRoleQuickNavService;
+    @Resource
+    private cn.jonhon.jump.module.system.service.permission.MenuColorService menuColorService;
+    @Resource
+    private SubSystemPermissionContextService subSystemPermissionContextService;
 
     @Override
     public List<SubSystemMenuRespVO> getSubSystemMenuList(SubSystemMenuListReqVO reqVO) {
@@ -63,6 +70,7 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         validateSubSystemExists(createReqVO.getSubSystemId());
         validateParentMenu(createReqVO.getSubSystemId(), createReqVO.getParentId(), null);
         validateMenuName(createReqVO.getSubSystemId(), createReqVO.getParentId(), createReqVO.getName(), null);
+        normalizeMenuStyle(createReqVO);
 
         SubSystemMenuDO menu = convertToDO(createReqVO);
         subSystemMenuMapper.insert(menu);
@@ -75,9 +83,11 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         validateSubSystemExists(updateReqVO.getSubSystemId());
         validateParentMenu(updateReqVO.getSubSystemId(), updateReqVO.getParentId(), updateReqVO.getId());
         validateMenuName(updateReqVO.getSubSystemId(), updateReqVO.getParentId(), updateReqVO.getName(), updateReqVO.getId());
+        normalizeMenuStyle(updateReqVO);
 
         SubSystemMenuDO updateObj = convertToDO(updateReqVO);
         subSystemMenuMapper.updateById(updateObj);
+        subSystemPermissionContextService.evictByMenuId(updateReqVO.getId());
     }
 
     @Override
@@ -88,9 +98,11 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         }
         validateSubSystemMenuExists(id);
         validateMenuNotAssigned(id);
+        subSystemPermissionContextService.evictByMenuId(id);
         subSystemMenuMapper.deleteById(id);
         subSystemRoleMenuMapper.deleteListByMenuId(id);
         subSystemUserQuickNavService.deleteByMenuId(id);
+        subSystemRoleQuickNavService.deleteByMenuId(id);
     }
 
     @Override
@@ -102,10 +114,12 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
             }
             validateSubSystemMenuExists(id);
             validateMenuNotAssigned(id);
+            subSystemPermissionContextService.evictByMenuId(id);
         });
         subSystemMenuMapper.deleteByIds(ids);
         subSystemRoleMenuMapper.deleteListByMenuIds(ids);
         subSystemUserQuickNavService.deleteByMenuIds(ids);
+        subSystemRoleQuickNavService.deleteByMenuIds(ids);
     }
 
     private List<SubSystemMenuRespVO> buildRespList(List<SubSystemMenuDO> list) {
@@ -134,12 +148,14 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         vo.setParentId(menu.getParentId());
         vo.setPath(menu.getPath());
         vo.setIcon(menu.getIcon());
+        vo.setStyleId(menu.getStyleId());
         vo.setComponent(menu.getComponent());
         vo.setComponentName(menu.getComponentName());
         vo.setStatus(menu.getStatus());
         vo.setVisible(menu.getVisible() != null && menu.getVisible() == 0);
         vo.setKeepAlive(menu.getIsCache() != null && menu.getIsCache() == 0);
         vo.setAlwaysShow(menu.getAlwaysShow() != null && menu.getAlwaysShow() == 1);
+        vo.setManualUrl(menu.getManualUrl());
         vo.setCreateTime(menu.getCreateTime());
         return vo;
     }
@@ -155,14 +171,25 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         menu.setParentId(reqVO.getParentId());
         menu.setPath(reqVO.getPath());
         menu.setIcon(reqVO.getIcon());
+        menu.setStyleId(reqVO.getStyleId());
         menu.setComponent(reqVO.getComponent());
         menu.setComponentName(reqVO.getComponentName());
         menu.setStatus(reqVO.getStatus());
         menu.setVisible(Boolean.FALSE.equals(reqVO.getVisible()) ? 1 : 0);
         menu.setIsCache(Boolean.FALSE.equals(reqVO.getKeepAlive()) ? 1 : 0);
         menu.setAlwaysShow(Boolean.TRUE.equals(reqVO.getAlwaysShow()) ? 1 : 0);
+        menu.setManualUrl(reqVO.getManualUrl());
         menu.setIsFrame(isExternalLink(reqVO.getPath()) ? 0 : 1);
         return menu;
+    }
+
+    /** 仅一级菜单可配置颜色，子菜单继承一级菜单颜色 */
+    private void normalizeMenuStyle(SubSystemMenuSaveReqVO reqVO) {
+        if (!ID_ROOT.equals(reqVO.getParentId())) {
+            reqVO.setStyleId(null);
+            return;
+        }
+        menuColorService.validateMenuColorExists(reqVO.getStyleId());
     }
 
     private boolean isExternalLink(String path) {
@@ -232,9 +259,13 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     }
 
     private void validateMenuName(Long subSystemId, Long parentId, String name, Long selfId) {
+        if (StrUtil.isBlank(name)) {
+            return;
+        }
         SubSystemMenuDO menu = subSystemMenuMapper.selectBySubSystemIdAndParentIdAndName(subSystemId, parentId, name);
         if (menu != null && !ObjectUtil.equal(menu.getId(), selfId)) {
-            throw exception(SUB_SYSTEM_MENU_NAME_DUPLICATE);
+            log.warn("[validateMenuName][子系统({}) 菜单名称({}) 在同一父菜单下已存在重名，仅提醒不拦截]",
+                    subSystemId, name);
         }
     }
 

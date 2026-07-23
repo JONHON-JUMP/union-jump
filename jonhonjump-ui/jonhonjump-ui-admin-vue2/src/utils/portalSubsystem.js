@@ -1,3 +1,18 @@
+export function shouldShowPortalDefaultSettings(systemList) {
+  return (systemList || []).length >= 1
+}
+
+/**
+ * 规则默认：仅 1 个外部系统（共 2 个入口）时默认子系统，否则默认统一门户。
+ */
+export function resolveRuleBasedPortalDefault(systemList) {
+  const externals = systemList || []
+  if (externals.length === 1) {
+    return externals[0].clientId
+  }
+  return 'main'
+}
+
 export function getUniqueSubSystem(systemList) {
   if (!systemList || systemList.length !== 1) {
     return null

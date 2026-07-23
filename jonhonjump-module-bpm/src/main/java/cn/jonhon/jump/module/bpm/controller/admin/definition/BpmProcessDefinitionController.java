@@ -12,6 +12,8 @@ import cn.jonhon.jump.module.bpm.dal.dataobject.definition.BpmProcessDefinitionI
 import cn.jonhon.jump.module.bpm.service.definition.BpmCategoryService;
 import cn.jonhon.jump.module.bpm.service.definition.BpmFormService;
 import cn.jonhon.jump.module.bpm.service.definition.BpmProcessDefinitionService;
+import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmBooleanUtils;
+import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmnModelUtils;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -92,7 +94,7 @@ public class BpmProcessDefinitionController {
         list.removeIf(processDefinition -> {
             BpmProcessDefinitionInfoDO processDefinitionInfo = processDefinitionMap.get(processDefinition.getId());
             return processDefinitionInfo == null // 不存在
-                    || Boolean.FALSE.equals(processDefinitionInfo.getVisible()) // visible 不可见
+                    || !BpmBooleanUtils.isTrue(processDefinitionInfo.getVisible()) // visible 不可见
                     || !processDefinitionService.canUserStartProcessDefinition(processDefinitionInfo, userId); // 无权限发起
         });
 
@@ -128,6 +130,15 @@ public class BpmProcessDefinitionController {
         BpmnModel bpmnModel = processDefinitionService.getProcessDefinitionBpmnModel(processDefinition.getId());
         return success(BpmProcessDefinitionConvert.INSTANCE.buildProcessDefinition(
                 processDefinition, null, processDefinitionInfo, null, null, bpmnModel));
+    }
+
+    @GetMapping("/get-bpmn-xml")
+    @Operation(summary = "获得流程定义的 BPMN XML")
+    @Parameter(name = "id", description = "流程编号", required = true, example = "1024")
+    @PreAuthorize("@ss.hasPermission('bpm:process-definition:query')")
+    public CommonResult<String> getProcessDefinitionBpmnXml(@RequestParam("id") String id) {
+        BpmnModel bpmnModel = processDefinitionService.getProcessDefinitionBpmnModel(id);
+        return success(BpmnModelUtils.getBpmnXml(bpmnModel));
     }
 
 }

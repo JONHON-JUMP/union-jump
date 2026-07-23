@@ -1,19 +1,24 @@
 package cn.jonhon.jump.module.system.controller.admin.user;
 
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemMenuListReqVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemMenuRespVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemMenuSaveReqVO;
+import cn.jonhon.jump.framework.excel.core.util.ExcelUtils;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
 import cn.jonhon.jump.module.system.service.user.SubSystemMenuService;
+import cn.jonhon.jump.module.system.service.user.SubSystemMetaImportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
+import javax.servlet.http.HttpServletResponse;
 import javax.validation.Valid;
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 
@@ -27,6 +32,8 @@ public class SubSystemMenuController {
 
     @Resource
     private SubSystemMenuService subSystemMenuService;
+    @Resource
+    private SubSystemMetaImportService subSystemMetaImportService;
 
     @GetMapping("/list")
     @Operation(summary = "获得外部系统菜单列表")
@@ -76,6 +83,41 @@ public class SubSystemMenuController {
     public CommonResult<Boolean> deleteSubSystemMenuList(@RequestParam("ids") List<Long> ids) {
         subSystemMenuService.deleteSubSystemMenuList(ids);
         return success(true);
+    }
+
+    @GetMapping("/get-import-template")
+    @Operation(summary = "下载外部系统菜单导入模板")
+    @PreAuthorize("@ss.hasPermission('sub-system:menu:create')")
+    public void importTemplate(HttpServletResponse response) throws IOException {
+        List<SubSystemMenuImportExcelVO> list = Arrays.asList(
+                SubSystemMenuImportExcelVO.builder()
+                        .parentName("根")
+                        .name("系统管理")
+                        .type(1)
+                        .sort(1)
+                        .path("/system")
+                        .status(0)
+                        .visible(true)
+                        .build()
+        );
+        ExcelUtils.write(response, "外部系统菜单导入模板.xls", "菜单", SubSystemMenuImportExcelVO.class, list);
+    }
+
+    @PostMapping("/import")
+    @Operation(summary = "导入外部系统菜单（须先选择已登记外部系统）")
+    @Parameters({
+            @Parameter(name = "subSystemId", description = "外部系统编号", required = true),
+            @Parameter(name = "file", description = "Excel 文件", required = true),
+            @Parameter(name = "updateSupport", description = "是否更新已存在", example = "false")
+    })
+    @PreAuthorize("@ss.hasPermission('sub-system:menu:create')")
+    public CommonResult<SubSystemUserImportRespVO> importExcel(
+            @RequestParam("subSystemId") Long subSystemId,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "updateSupport", required = false, defaultValue = "false") Boolean updateSupport
+    ) throws Exception {
+        List<SubSystemMenuImportExcelVO> list = ExcelUtils.read(file, SubSystemMenuImportExcelVO.class);
+        return success(subSystemMetaImportService.importMenuList(subSystemId, list, Boolean.TRUE.equals(updateSupport)));
     }
 
 }

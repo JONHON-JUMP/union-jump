@@ -94,6 +94,12 @@
         box-sizing: border-box;
       }
     }
+  }
+}
+
+// 设计器才拉伸 svg；预览器由 bpmn-js 自己控制 viewport，强行 100% 会导致图形挤在底部
+.my-process-designer:not(.my-process-viewer) {
+  .my-process-designer__container {
     svg {
       width: 100%;
       height: 100%;

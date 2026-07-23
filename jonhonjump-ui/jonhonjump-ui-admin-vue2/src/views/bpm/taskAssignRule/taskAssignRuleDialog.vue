@@ -36,7 +36,7 @@
         </el-form-item>
         <el-form-item label="规则类型" prop="type">
           <el-select v-model="form.type" clearable style="width: 100%">
-            <el-option v-for="dict in taskAssignRuleTypeDictDatas" :key="parseInt(dict.value)" :label="dict.label" :value="parseInt(dict.value)"/>
+            <el-option v-for="dict in taskAssignRuleTypeOptions" :key="parseInt(dict.value)" :label="dict.label" :value="parseInt(dict.value)"/>
           </el-select>
         </el-form-item>
         <el-form-item v-if="form.type === 10" label="指定角色" prop="roleIds">
@@ -128,9 +128,27 @@ export default {
 
       // 数据字典
       modelFormTypeDictDatas: getDictDatas(DICT_TYPE.BPM_MODEL_FORM_TYPE),
-      taskAssignRuleTypeDictDatas: getDictDatas(DICT_TYPE.BPM_TASK_ASSIGN_RULE_TYPE),
       taskAssignScriptDictDatas: getDictDatas(DICT_TYPE.BPM_TASK_ASSIGN_SCRIPT),
     };
+  },
+  computed: {
+    taskAssignRuleTypeOptions() {
+      const dictDatas = getDictDatas(DICT_TYPE.BPM_TASK_ASSIGN_RULE_TYPE)
+      if (dictDatas && dictDatas.length > 0) {
+        return dictDatas
+      }
+      // 字典未加载时的兜底（与后端 BpmTaskCandidateStrategyEnum 常用项一致）
+      return [
+        { value: '10', label: '角色' },
+        { value: '20', label: '部门的成员' },
+        { value: '21', label: '部门的负责人' },
+        { value: '22', label: '岗位' },
+        { value: '30', label: '用户' },
+        { value: '35', label: '发起人自选' },
+        { value: '40', label: '用户组' },
+        { value: '60', label: '流程表达式' }
+      ]
+    }
   },
   methods: {
     initModel(modelId) {
@@ -189,9 +207,10 @@ export default {
         modelId: this.modelId,
         processDefinitionId: this.processDefinitionId,
       }).then(response => {
+        this.list = response.data || [];
+      }).finally(() => {
         this.loading = false;
-        this.list = response.data;
-      })
+      });
     },
     /** 处理修改任务分配规则的按钮操作 */
     handleUpdateTaskAssignRule(row) {
@@ -246,6 +265,8 @@ export default {
             form.options = form.userGroupIds;
           } else if (form.type === 50) {
             form.options = form.scripts;
+          } else {
+            form.options = [];
           }
           form.roleIds = undefined;
           form.deptIds = undefined;
@@ -253,23 +274,24 @@ export default {
           form.userIds = undefined;
           form.userGroupIds = undefined;
           form.scripts = undefined;
-          // 新增
-          if (!form.id) {
-            form.modelId = this.modelId; // 模型编号
-            createTaskAssignRule(form).then(response => {
-              this.$modal.msgSuccess("修改成功");
-              this.open = false;
-              this.getList();
-            });
-            // 修改
-          } else {
-            form.taskDefinitionKey = undefined; // 无法修改
-            updateTaskAssignRule(form).then(response => {
-              this.$modal.msgSuccess("修改成功");
-              this.open = false;
-              this.getList();
-            });
+          const payload = {
+            modelId: this.modelId,
+            taskDefinitionKey: this.form.taskDefinitionKey,
+            type: form.type,
+            options: form.options
+          };
+          if (!payload.taskDefinitionKey) {
+            this.$modal.msgError("任务标识缺失，请关闭弹窗后重试");
+            return;
           }
+          const saveRequest = this.form.id
+            ? updateTaskAssignRule({ ...payload, id: this.form.id })
+            : createTaskAssignRule(payload);
+          saveRequest.then(() => {
+            this.$modal.msgSuccess("保存成功");
+            this.open = false;
+            this.getList();
+          }).catch(() => {});
         }
       });
     },

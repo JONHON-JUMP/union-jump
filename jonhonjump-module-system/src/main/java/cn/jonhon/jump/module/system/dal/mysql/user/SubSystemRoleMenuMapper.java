@@ -34,6 +34,10 @@ public interface SubSystemRoleMenuMapper extends BaseMapperX<SubSystemRoleMenuDO
         return selectCount(SubSystemRoleMenuDO::getMenuId, menuId);
     }
 
+    default List<SubSystemRoleMenuDO> selectListByMenuId(Long menuId) {
+        return selectList(SubSystemRoleMenuDO::getMenuId, menuId);
+    }
+
     default void deleteListByMenuId(Long menuId) {
         delete(new LambdaQueryWrapperX<SubSystemRoleMenuDO>().eq(SubSystemRoleMenuDO::getMenuId, menuId));
     }

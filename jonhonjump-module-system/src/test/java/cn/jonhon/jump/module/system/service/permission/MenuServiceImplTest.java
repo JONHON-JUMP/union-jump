@@ -288,7 +288,7 @@ public class MenuServiceImplTest extends BaseDbUnitTest {
         String otherSonMenuName = randomString();
 
         // 调用，无需断言
-        menuService.validateMenuName(parentId, otherSonMenuName, otherSonMenuId);
+        menuService.validateMenuName(parentId, otherSonMenuName, MenuTypeEnum.MENU.getType(), otherSonMenuId);
     }
 
     @Test
@@ -300,9 +300,51 @@ public class MenuServiceImplTest extends BaseDbUnitTest {
         Long otherSonMenuId = randomLongId();
         String otherSonMenuName = sonMenu.getName(); //相同名称
 
-        // 调用，并断言异常
-        assertServiceException(() -> menuService.validateMenuName(parentId, otherSonMenuName, otherSonMenuId),
-                MENU_NAME_DUPLICATE);
+        // 重名仅提醒，不拦截
+        menuService.validateMenuName(parentId, otherSonMenuName,
+                MenuTypeEnum.MENU.getType(), otherSonMenuId);
+    }
+
+    @Test
+    public void testValidateMenu_globalNameDuplicate() {
+        // mock 两个不同父节点下的同名菜单
+        MenuDO parentMenuA = buildMenuDO(MenuTypeEnum.DIR, "parentA", ID_ROOT);
+        menuMapper.insert(parentMenuA);
+        MenuDO parentMenuB = buildMenuDO(MenuTypeEnum.DIR, "parentB", ID_ROOT);
+        menuMapper.insert(parentMenuB);
+        MenuDO existingMenu = buildMenuDO(MenuTypeEnum.MENU, "duplicateName", parentMenuA.getId());
+        menuMapper.insert(existingMenu);
+
+        // 重名仅提醒，不拦截
+        menuService.validateMenuName(parentMenuB.getId(), "duplicateName",
+                MenuTypeEnum.MENU.getType(), null);
+    }
+
+    @Test
+    public void testValidateMenu_updateWithoutNameChange_allowsHistoricalDuplicate() {
+        MenuDO parentMenuA = buildMenuDO(MenuTypeEnum.DIR, "parentA", ID_ROOT);
+        menuMapper.insert(parentMenuA);
+        MenuDO parentMenuB = buildMenuDO(MenuTypeEnum.DIR, "parentB", ID_ROOT);
+        menuMapper.insert(parentMenuB);
+        MenuDO menuA = buildMenuDO(MenuTypeEnum.MENU, "duplicateName", parentMenuA.getId());
+        menuMapper.insert(menuA);
+        MenuDO menuB = buildMenuDO(MenuTypeEnum.MENU, "duplicateName", parentMenuB.getId());
+        menuMapper.insert(menuB);
+
+        menuService.validateMenuName(parentMenuB.getId(), "duplicateName",
+                MenuTypeEnum.MENU.getType(), menuB.getId());
+    }
+
+    @Test
+    public void testValidateMenu_buttonNameAllowedUnderDifferentParent() {
+        MenuDO parentMenuA = buildMenuDO(MenuTypeEnum.MENU, "parentA", ID_ROOT);
+        menuMapper.insert(parentMenuA);
+        MenuDO parentMenuB = buildMenuDO(MenuTypeEnum.MENU, "parentB", ID_ROOT);
+        menuMapper.insert(parentMenuB);
+        MenuDO buttonA = buildMenuDO(MenuTypeEnum.BUTTON, "query", parentMenuA.getId());
+        menuMapper.insert(buttonA);
+
+        menuService.validateMenuName(parentMenuB.getId(), "query", MenuTypeEnum.BUTTON.getType(), null);
     }
 
     // ====================== 初始化方法 ======================

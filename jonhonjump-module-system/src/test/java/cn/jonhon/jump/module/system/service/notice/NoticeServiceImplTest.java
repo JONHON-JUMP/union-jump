@@ -1,12 +1,12 @@
 package cn.jonhon.jump.module.system.service.notice;
 
-import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.test.core.ut.BaseDbUnitTest;
 import cn.jonhon.jump.module.system.controller.admin.notice.vo.NoticePageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.notice.vo.NoticeSaveReqVO;
 import cn.jonhon.jump.module.system.dal.dataobject.notice.NoticeDO;
 import cn.jonhon.jump.module.system.dal.mysql.notice.NoticeMapper;
+import cn.jonhon.jump.module.system.enums.notice.NoticeStatusEnum;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Import;
 
@@ -34,17 +34,17 @@ class NoticeServiceImplTest extends BaseDbUnitTest {
         // 插入前置数据
         NoticeDO dbNotice = randomPojo(NoticeDO.class, o -> {
             o.setTitle("尼古拉斯赵四来啦！");
-            o.setStatus(CommonStatusEnum.ENABLE.getStatus());
+            o.setStatus(NoticeStatusEnum.PUBLISHED.getStatus());
         });
         noticeMapper.insert(dbNotice);
         // 测试 title 不匹配
         noticeMapper.insert(cloneIgnoreId(dbNotice, o -> o.setTitle("尼古拉斯凯奇也来啦！")));
         // 测试 status 不匹配
-        noticeMapper.insert(cloneIgnoreId(dbNotice, o -> o.setStatus(CommonStatusEnum.DISABLE.getStatus())));
+        noticeMapper.insert(cloneIgnoreId(dbNotice, o -> o.setStatus(NoticeStatusEnum.DRAFT.getStatus())));
         // 准备参数
         NoticePageReqVO reqVO = new NoticePageReqVO();
         reqVO.setTitle("尼古拉斯赵四来啦！");
-        reqVO.setStatus(CommonStatusEnum.ENABLE.getStatus());
+        reqVO.setStatus(NoticeStatusEnum.PUBLISHED.getStatus());
 
         // 调用
         PageResult<NoticeDO> pageResult = noticeService.getNoticePage(reqVO);
@@ -71,8 +71,10 @@ class NoticeServiceImplTest extends BaseDbUnitTest {
     @Test
     public void testCreateNotice_success() {
         // 准备参数
-        NoticeSaveReqVO reqVO = randomPojo(NoticeSaveReqVO.class)
-                .setId(null); // 避免 id 被赋值
+        NoticeSaveReqVO reqVO = randomPojo(NoticeSaveReqVO.class, o -> {
+            o.setId(null);
+            o.setStatus(NoticeStatusEnum.DRAFT.getStatus());
+        });
 
         // 调用
         Long noticeId = noticeService.createNotice(reqVO);
@@ -85,11 +87,14 @@ class NoticeServiceImplTest extends BaseDbUnitTest {
     @Test
     public void testUpdateNotice_success() {
         // 插入前置数据
-        NoticeDO dbNoticeDO = randomPojo(NoticeDO.class);
+        NoticeDO dbNoticeDO = randomPojo(NoticeDO.class, o -> o.setStatus(NoticeStatusEnum.DRAFT.getStatus()));
         noticeMapper.insert(dbNoticeDO);
 
         // 准备更新参数
-        NoticeSaveReqVO reqVO = randomPojo(NoticeSaveReqVO.class, o -> o.setId(dbNoticeDO.getId()));
+        NoticeSaveReqVO reqVO = randomPojo(NoticeSaveReqVO.class, o -> {
+            o.setId(dbNoticeDO.getId());
+            o.setStatus(NoticeStatusEnum.PUBLISHED.getStatus());
+        });
 
         // 更新
         noticeService.updateNotice(reqVO);
@@ -101,14 +106,16 @@ class NoticeServiceImplTest extends BaseDbUnitTest {
     @Test
     public void testDeleteNotice_success() {
         // 插入前置数据
-        NoticeDO dbNotice = randomPojo(NoticeDO.class);
+        NoticeDO dbNotice = randomPojo(NoticeDO.class, o -> o.setStatus(NoticeStatusEnum.PUBLISHED.getStatus()));
         noticeMapper.insert(dbNotice);
 
-        // 删除
+        // 删除（业务软删）
         noticeService.deleteNotice(dbNotice.getId());
 
-        // 检查是否删除成功
-        assertNull(noticeMapper.selectById(dbNotice.getId()));
+        // 检查是否改为已删除
+        NoticeDO notice = noticeMapper.selectById(dbNotice.getId());
+        assertNotNull(notice);
+        assertEquals(NoticeStatusEnum.DELETED.getStatus(), notice.getStatus());
     }
 
     @Test

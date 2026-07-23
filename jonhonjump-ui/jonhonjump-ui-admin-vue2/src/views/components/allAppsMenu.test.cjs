@@ -61,7 +61,10 @@ assert.deepEqual(users, {
   key: 'leaf:/system/users:用户管理',
   name: '用户管理',
   icon: 'user',
-  path: '/system/users'
+  path: '/system/users',
+  menuId: null,
+  color: undefined,
+  shape: undefined
 })
 
 const tools = groups[0].children.find(item => item.name === '开发工具')
@@ -74,7 +77,10 @@ assert.deepEqual(tools.children[11], {
   key: 'leaf:/system/tools/item-12:三级菜单 12',
   name: '三级菜单 12',
   icon: 'component',
-  path: '/system/tools/item-12'
+  path: '/system/tools/item-12',
+  menuId: null,
+  color: undefined,
+  shape: undefined
 })
 
 assert.equal(groups[0].children.some(item => item.name === '隐藏项'), false)
@@ -105,7 +111,7 @@ assert.deepEqual(
 )
 assert.deepEqual(
   searchMenus(groups, '开发').map(item => item.name),
-  ['开发工具']
+  deepLeaves.map(item => item.meta.title)
 )
 assert.deepEqual(
   searchMenus(groups, '三级菜单 12').map(item => item.name),
@@ -113,8 +119,10 @@ assert.deepEqual(
 )
 assert.deepEqual(
   searchMenus(groups, '系统管理').map(item => item.name),
-  ['用户管理', '开发工具', '提升菜单', '外部文档', '绝对报表']
+  ['用户管理', ...deepLeaves.map(item => item.meta.title), '提升菜单', '外部文档', '绝对报表']
 )
+assert.equal(searchMenus(groups, '用户')[0].subtitle, '系统管理')
+assert.equal(searchMenus(groups, '三级菜单 12')[0].subtitle, '开发工具')
 
 const topLevelFallbacks = normalizeMenuTree([
   route('/standalone', '独立入口'),

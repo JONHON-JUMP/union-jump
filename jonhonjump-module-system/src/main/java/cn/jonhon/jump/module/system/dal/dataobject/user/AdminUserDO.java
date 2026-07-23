@@ -34,6 +34,10 @@ public class AdminUserDO extends TenantBaseDO {
     @TableId
     private Long id;
     /**
+     * 跨系统唯一用户标识（注册/创建时生成：U + yyyyMMddHHmmss + 三位流水号，如 U20260720170405001）
+     */
+    private String userUid;
+    /**
      * 用户账号
      */
     private String username;

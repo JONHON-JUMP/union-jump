@@ -24,9 +24,9 @@ public class SubSystemDO extends BaseDO {
     /**
      * OAuth2 客户端编号
      *
-     * 关联 {@link OAuth2ClientDO#getClientId()}
+     * 关联 {@link OAuth2ClientDO#getId()}
      */
-    private String clientId;
+    private Long oauth2ClientId;
     /**
      * 外部系统名称
      */

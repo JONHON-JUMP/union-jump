@@ -19,4 +19,16 @@ public class SubSystemUserQuickNavRespVO {
     @Schema(description = "是否已保存过个人配置")
     private Boolean configured;
 
+    @Schema(description = "角色默认快捷导航（不可删除，仅可调整顺序）")
+    private List<Long> lockedMenuIds;
+
+    @Schema(description = "可直接渲染的快捷应用（门户首页优先用，无需等 my-menus）")
+    private List<QuickNavAppItemVO> apps;
+
+    public SubSystemUserQuickNavRespVO(List<Long> menuIds, Boolean configured, List<Long> lockedMenuIds) {
+        this.menuIds = menuIds;
+        this.configured = configured;
+        this.lockedMenuIds = lockedMenuIds;
+    }
+
 }

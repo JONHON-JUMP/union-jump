@@ -88,6 +88,13 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Resource
     private ConfigApi configApi;
 
+    @Resource
+    @Lazy
+    private SubSystemPermissionContextService subSystemPermissionContextService;
+
+    @Resource
+    private UserUidGenerator userUidGenerator;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     @LogRecord(type = SYSTEM_USER_TYPE, subType = SYSTEM_USER_CREATE_SUB_TYPE, bizNo = "{{#user.id}}",
@@ -103,11 +110,12 @@ public class AdminUserServiceImpl implements AdminUserService {
         // 1.2 校验正确性
         validateUserForCreateOrUpdate(null, createReqVO.getUsername(),
                 createReqVO.getMobile(), createReqVO.getEmail(), createReqVO.getDeptId(), createReqVO.getPostIds());
-        // 2.1 插入用户
+        // 2.1 插入用户（user_uid 由生成器保证全局唯一，禁止外部指定）
         AdminUserDO user = BeanUtils.toBean(createReqVO, AdminUserDO.class);
         user.setStatus(CommonStatusEnum.ENABLE.getStatus()); // 默认开启
         user.setPassword(encodePassword(createReqVO.getPassword())); // 加密密码
-        userMapper.insert(user);
+        user.setUserUid(null);
+        userUidGenerator.insertWithUniqueUid(user, () -> userMapper.insert(user));
         // 2.2 插入关联岗位
         if (CollectionUtil.isNotEmpty(user.getPostIds())) {
             userPostMapper.insertBatch(convertList(user.getPostIds(),
@@ -139,7 +147,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         AdminUserDO user = BeanUtils.toBean(registerReqVO, AdminUserDO.class);
         user.setStatus(CommonStatusEnum.ENABLE.getStatus()); // 默认开启
         user.setPassword(encodePassword(registerReqVO.getPassword())); // 加密密码
-        userMapper.insert(user);
+        user.setUserUid(null);
+        userUidGenerator.insertWithUniqueUid(user, () -> userMapper.insert(user));
         return user.getId();
     }
 
@@ -155,9 +164,15 @@ public class AdminUserServiceImpl implements AdminUserService {
 
         // 2.1 更新用户
         AdminUserDO updateObj = BeanUtils.toBean(updateReqVO, AdminUserDO.class);
+        updateObj.setUserUid(null); // 唯一标识创建后不可变更
         userMapper.updateById(updateObj);
         // 2.2 更新岗位
         updateUserPost(updateReqVO, updateObj);
+        // 用户名变更会影响权限包里的 username 字段
+        if (oldUser != null && updateReqVO.getUsername() != null
+                && !updateReqVO.getUsername().equals(oldUser.getUsername())) {
+            subSystemPermissionContextService.evictAllByMainUserId(updateReqVO.getId());
+        }
 
         // 3. 记录操作日志上下文
         LogRecordContext.putVariable(DiffParseFunction.OLD_OBJECT, BeanUtils.toBean(oldUser, UserSaveReqVO.class));
@@ -253,6 +268,7 @@ public class AdminUserServiceImpl implements AdminUserService {
         // 如果是禁用用户，则删除其 Token 信息
         if (CommonStatusEnum.isDisable(status)) {
             oauth2TokenService.removeAccessToken(id, UserTypeEnum.ADMIN.getValue());
+            subSystemPermissionContextService.evictAllByMainUserId(id);
         }
     }
 
@@ -263,6 +279,8 @@ public class AdminUserServiceImpl implements AdminUserService {
     public void deleteUser(Long id) {
         // 1. 校验用户存在
         AdminUserDO user = validateUserExists(id);
+
+        subSystemPermissionContextService.evictAllByMainUserId(id);
 
         // 2.1 删除用户
         userMapper.deleteById(id);
@@ -278,10 +296,12 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteUserList(List<Long> ids) {
-        // 1. 批量删除用户
+        // 1. 先清子系统权限包
+        ids.forEach(id -> subSystemPermissionContextService.evictAllByMainUserId(id));
+        // 2. 批量删除用户
         userMapper.deleteByIds(ids);
 
-        // 2. 批量删除用户关联数据
+        // 3. 批量删除用户关联数据
         ids.forEach(id -> {
             permissionService.processUserDeleted(id);
             userPostMapper.deleteByUserId(id);
@@ -291,6 +311,16 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     public AdminUserDO getUserByUsername(String username) {
         return userMapper.selectByUsername(username);
+    }
+
+    @Override
+    public AdminUserDO getUserByUserUid(String userUid) {
+        return userMapper.selectByUserUid(userUid);
+    }
+
+    @Override
+    public String allocateUserUid() {
+        return userUidGenerator.allocate();
     }
 
     @Override
@@ -519,7 +549,10 @@ public class AdminUserServiceImpl implements AdminUserService {
             int currentIndex = index.getAndIncrement();
             // 2.1.1 校验字段是否符合要求
             try {
-                ValidationUtils.validate(BeanUtils.toBean(importUser, UserSaveReqVO.class).setPassword(initPassword));
+                UserSaveReqVO saveReqVO = BeanUtils.toBean(importUser, UserSaveReqVO.class);
+                saveReqVO.setPassword(initPassword);
+                saveReqVO.setErpNos(parseImportErpNos(importUser.getErpNos()));
+                ValidationUtils.validate(saveReqVO);
             } catch (ConstraintViolationException ex) {
                 String key = StrUtil.blankToDefault(importUser.getUsername(), "第 " + currentIndex + " 行");
                 respVO.getFailureUsernames().put(key, ex.getMessage());
@@ -537,8 +570,18 @@ public class AdminUserServiceImpl implements AdminUserService {
             // 2.2.1 判断如果不存在，在进行插入
             AdminUserDO existUser = userMapper.selectByUsername(importUser.getUsername());
             if (existUser == null) {
-                userMapper.insert(BeanUtils.toBean(importUser, AdminUserDO.class)
-                        .setPassword(encodePassword(initPassword)).setPostIds(new HashSet<>())); // 设置默认密码及空岗位编号数组
+                AdminUserDO newUser = BeanUtils.toBean(importUser, AdminUserDO.class)
+                        .setPassword(encodePassword(initPassword))
+                        .setPostIds(new HashSet<>());
+                fillImportExtendedFields(newUser, importUser);
+                newUser.setUserUid(null); // 禁止外部指定，统一由生成器分配唯一号
+                try {
+                    userUidGenerator.insertWithUniqueUid(newUser, () -> userMapper.insert(newUser));
+                } catch (Exception ex) {
+                    respVO.getFailureUsernames().put(importUser.getUsername(),
+                            StrUtil.blankToDefault(ex.getMessage(), "分配用户唯一标识失败"));
+                    return;
+                }
                 respVO.getCreateUsernames().add(importUser.getUsername());
                 return;
             }
@@ -548,11 +591,45 @@ public class AdminUserServiceImpl implements AdminUserService {
                 return;
             }
             AdminUserDO updateUser = BeanUtils.toBean(importUser, AdminUserDO.class);
+            fillImportExtendedFields(updateUser, importUser);
             updateUser.setId(existUser.getId());
+            // 已有 UID 永不覆盖；历史空值则补发唯一号
+            if (StrUtil.isBlank(existUser.getUserUid())) {
+                updateUser.setUserUid(userUidGenerator.allocate());
+            } else {
+                updateUser.setUserUid(null);
+            }
             userMapper.updateById(updateUser);
             respVO.getUpdateUsernames().add(importUser.getUsername());
         });
         return respVO;
+    }
+
+    /**
+     * Excel 中 ERP账号为字符串，需转成 Set；工号/域账号/卡号随 Bean 拷贝，这里再兜底一次。
+     */
+    private void fillImportExtendedFields(AdminUserDO user, UserImportExcelVO importUser) {
+        if (user == null || importUser == null) {
+            return;
+        }
+        user.setEmployeeNo(StrUtil.blankToDefault(importUser.getEmployeeNo(), null));
+        user.setDomainNo(StrUtil.blankToDefault(importUser.getDomainNo(), null));
+        user.setCardNo(StrUtil.blankToDefault(importUser.getCardNo(), null));
+        user.setErpNos(parseImportErpNos(importUser.getErpNos()));
+    }
+
+    private Set<String> parseImportErpNos(String erpNos) {
+        if (StrUtil.isBlank(erpNos)) {
+            return null;
+        }
+        String normalized = erpNos.replace('、', ',').replace('，', ',');
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        for (String item : StrUtil.splitTrim(normalized, ',')) {
+            if (StrUtil.isNotBlank(item)) {
+                result.add(item);
+            }
+        }
+        return result.isEmpty() ? null : result;
     }
 
     @Override

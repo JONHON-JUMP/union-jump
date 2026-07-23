@@ -46,7 +46,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    background: linear-gradient(135deg, rgba(10, 14, 39, 0.92) 0%, rgba(13, 20, 64, 0.88) 50%, rgba(10, 18, 48, 0.85) 100%);
+    background: linear-gradient(135deg, rgba(10, 14, 39, 0.75) 0%, rgba(13, 20, 64, 0.7) 50%, rgba(10, 18, 48, 0.65) 100%),
+                url('../images/bg.png') center / cover no-repeat;
     overflow: hidden;
 }
 
@@ -60,14 +61,6 @@
     background: linear-gradient(90deg, transparent, rgba(12, 17, 42, 0.9));
     z-index: 3;
     pointer-events: none;
-}
-
-.jump-login-mian-page #particle-canvas {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    z-index: 1;
 }
 
 .jump-login-mian-page .brand-overlay {

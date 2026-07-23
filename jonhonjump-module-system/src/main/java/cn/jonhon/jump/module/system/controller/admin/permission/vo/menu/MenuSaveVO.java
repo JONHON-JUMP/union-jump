@@ -42,6 +42,9 @@ public class MenuSaveVO {
     @Schema(description = "菜单图标,仅菜单类型为菜单或者目录时，才需要传", example = "/menu/list")
     private String icon;
 
+    @Schema(description = "菜单样式编号", example = "2")
+    private Long styleId;
+
     @Schema(description = "组件路径,仅菜单类型为菜单时，才需要传", example = "system/post/index")
     @Size(max = 200, message = "组件路径不能超过255个字符")
     private String component;
@@ -61,5 +64,9 @@ public class MenuSaveVO {
 
     @Schema(description = "是否总是显示", example = "false")
     private Boolean alwaysShow;
+
+    @Schema(description = "菜单说明书文件地址", example = "https://example.com/manual.pdf")
+    @Size(max = 1024, message = "菜单说明书地址不能超过1024个字符")
+    private String manualUrl;
 
 }

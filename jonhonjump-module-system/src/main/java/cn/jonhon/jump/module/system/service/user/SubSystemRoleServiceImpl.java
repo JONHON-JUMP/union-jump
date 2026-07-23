@@ -6,9 +6,12 @@ import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.collection.CollectionUtils;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
+import cn.jonhon.jump.module.system.dal.dataobject.oauth2.OAuth2ClientDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.*;
+import cn.jonhon.jump.module.system.dal.mysql.oauth2.OAuth2ClientMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.*;
 import cn.jonhon.jump.module.system.enums.permission.DataScopeEnum;
+import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
 import cn.jonhon.jump.module.system.enums.permission.RoleTypeEnum;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,11 +35,17 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     @Resource
     private SubSystemMapper subSystemMapper;
     @Resource
+    private OAuth2ClientMapper oauth2ClientMapper;
+    @Resource
     private SubSystemMenuMapper subSystemMenuMapper;
     @Resource
     private SubSystemRoleMenuMapper subSystemRoleMenuMapper;
     @Resource
     private SubSystemUserRoleMapper subSystemUserRoleMapper;
+    @Resource
+    private SubSystemRoleQuickNavService subSystemRoleQuickNavService;
+    @Resource
+    private SubSystemPermissionContextService subSystemPermissionContextService;
 
     @Override
     public PageResult<SubSystemRoleRespVO> getSubSystemRolePage(SubSystemRolePageReqVO pageReqVO) {
@@ -76,6 +85,7 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         SubSystemRoleDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemRoleDO.class);
         updateObj.setSubSystemId(role.getSubSystemId());
         subSystemRoleMapper.updateById(updateObj);
+        subSystemPermissionContextService.evictByRoleId(updateReqVO.getId());
     }
 
     @Override
@@ -85,6 +95,7 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         validateRoleNotAssigned(id);
         subSystemRoleMapper.deleteById(id);
         subSystemRoleMenuMapper.deleteListByRoleId(id);
+        subSystemRoleQuickNavService.deleteByRoleId(id);
     }
 
     @Override
@@ -95,7 +106,10 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
             validateRoleNotAssigned(id);
         });
         subSystemRoleMapper.deleteByIds(ids);
-        ids.forEach(subSystemRoleMenuMapper::deleteListByRoleId);
+        ids.forEach(id -> {
+            subSystemRoleMenuMapper.deleteListByRoleId(id);
+            subSystemRoleQuickNavService.deleteByRoleId(id);
+        });
     }
 
     @Override
@@ -105,6 +119,7 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         updateObj.setId(id);
         updateObj.setStatus(status);
         subSystemRoleMapper.updateById(updateObj);
+        subSystemPermissionContextService.evictByRoleId(id);
     }
 
     @Override
@@ -117,9 +132,25 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
                     vo.setName(menu.getMenuName());
                     vo.setParentId(menu.getParentId());
                     vo.setOrderNum(menu.getOrderNum());
+                    vo.setType(convertMenuTypeFromDb(menu.getType()));
+                    vo.setStatus(menu.getStatus());
+                    vo.setVisible(menu.getVisible() != null && menu.getVisible() == 0);
                     return vo;
                 })
                 .collect(Collectors.toList());
+    }
+
+    private Integer convertMenuTypeFromDb(String type) {
+        if ("M".equals(type)) {
+            return MenuTypeEnum.DIR.getType();
+        }
+        if ("C".equals(type)) {
+            return MenuTypeEnum.MENU.getType();
+        }
+        if ("F".equals(type)) {
+            return MenuTypeEnum.BUTTON.getType();
+        }
+        return MenuTypeEnum.DIR.getType();
     }
 
     @Override
@@ -158,6 +189,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         if (CollUtil.isNotEmpty(deleteMenuIds)) {
             subSystemRoleMenuMapper.deleteListByRoleIdAndMenuIds(reqVO.getRoleId(), deleteMenuIds);
         }
+        // 权限变更后失效权限包，子系统下一次请求重建
+        subSystemPermissionContextService.evictByRoleId(reqVO.getRoleId());
     }
 
     @Override
@@ -177,11 +210,16 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         Map<Long, SubSystemDO> subSystemMap = convertMap(
                 subSystemMapper.selectListByIds(convertSet(list, SubSystemRoleDO::getSubSystemId)),
                 SubSystemDO::getId);
+        Map<Long, OAuth2ClientDO> clientMap = convertMap(
+                oauth2ClientMapper.selectList(OAuth2ClientDO::getId,
+                        convertSet(subSystemMap.values(), SubSystemDO::getOauth2ClientId)),
+                OAuth2ClientDO::getId);
         return list.stream().map(role -> {
             SubSystemRoleRespVO vo = BeanUtils.toBean(role, SubSystemRoleRespVO.class);
             SubSystemDO subSystem = subSystemMap.get(role.getSubSystemId());
             if (subSystem != null) {
-                vo.setClientId(subSystem.getClientId());
+                OAuth2ClientDO client = clientMap.get(subSystem.getOauth2ClientId());
+                vo.setClientId(client != null ? client.getClientId() : null);
                 vo.setClientName(subSystem.getSystemName());
             }
             return vo;

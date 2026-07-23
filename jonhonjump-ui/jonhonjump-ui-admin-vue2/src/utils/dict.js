@@ -1,9 +1,9 @@
 /**
- * Created by 芋道源码
- *
  * 数据字典工具类
  */
 import store from '@/store'
+
+const requestedTypes = new Set()
 
 export const DICT_TYPE = {
   USER_TYPE: 'user_type',
@@ -16,6 +16,7 @@ export const DICT_TYPE = {
   SYSTEM_ROLE_TYPE: 'system_role_type',
   SYSTEM_DATA_SCOPE: 'system_data_scope',
   SYSTEM_NOTICE_TYPE: 'system_notice_type',
+  SYSTEM_NOTICE_STATUS: 'system_notice_status',
   SYSTEM_LOGIN_TYPE: 'system_login_type',
   SYSTEM_LOGIN_RESULT: 'system_login_result',
   SYSTEM_SMS_CHANNEL_CODE: 'system_sms_channel_code',
@@ -26,6 +27,7 @@ export const DICT_TYPE = {
   SYSTEM_OAUTH2_GRANT_TYPE: 'system_oauth2_grant_type',
   SYSTEM_MAIL_SEND_STATUS: 'system_mail_send_status',
   SYSTEM_NOTIFY_TEMPLATE_TYPE: 'system_notify_template_type',
+  SYSTEM_FAQ_CATEGORY: 'system_faq_category',
 
   // ========== INFRA 模块 ==========
   INFRA_BOOLEAN_STRING: 'infra_boolean_string',
@@ -43,99 +45,106 @@ export const DICT_TYPE = {
   // ========== BPM 模块 ==========
   BPM_MODEL_CATEGORY: 'bpm_model_category',
   BPM_MODEL_FORM_TYPE: 'bpm_model_form_type',
-  BPM_TASK_ASSIGN_RULE_TYPE: 'bpm_task_assign_rule_type',
+  BPM_TASK_ASSIGN_RULE_TYPE: 'bpm_task_candidate_strategy',
   BPM_PROCESS_INSTANCE_STATUS: 'bpm_process_instance_status',
   BPM_PROCESS_INSTANCE_RESULT: 'bpm_process_instance_result',
+  BPM_TASK_STATUS: 'bpm_task_status',
+  BPM_PROCESS_LISTENER_TYPE: 'bpm_process_listener_type',
+  BPM_PROCESS_LISTENER_VALUE_TYPE: 'bpm_process_listener_value_type',
   BPM_TASK_ASSIGN_SCRIPT: 'bpm_task_assign_script',
   BPM_OA_LEAVE_TYPE: 'bpm_oa_leave_type',
 
   // ========== PAY 模块 ==========
-  PAY_CHANNEL_WECHAT_VERSION: 'pay_channel_wechat_version', // 微信渠道版本
-
-  PAY_CHANNEL_CODE: 'pay_channel_code', // 支付渠道编码类型
-  PAY_ORDER_STATUS: 'pay_order_status', // 商户支付订单状态
-  PAY_REFUND_STATUS: 'pay_refund_status', // 退款订单状态
-  PAY_NOTIFY_STATUS: 'pay_notify_status', // 商户支付回调状态
-  PAY_NOTIFY_TYPE: 'pay_notify_type', // 商户支付回调状态
+  PAY_CHANNEL_WECHAT_VERSION: 'pay_channel_wechat_version',
+  PAY_CHANNEL_CODE: 'pay_channel_code',
+  PAY_ORDER_STATUS: 'pay_order_status',
+  PAY_REFUND_STATUS: 'pay_refund_status',
+  PAY_NOTIFY_STATUS: 'pay_notify_status',
+  PAY_NOTIFY_TYPE: 'pay_notify_type',
 
   // ========== MP 模块 ==========
-  MP_AUTO_REPLY_REQUEST_MATCH: 'mp_auto_reply_request_match', // 自动回复请求匹配类型
-  MP_MESSAGE_TYPE: 'mp_message_type', // 消息类型
+  MP_AUTO_REPLY_REQUEST_MATCH: 'mp_auto_reply_request_match',
+  MP_MESSAGE_TYPE: 'mp_message_type',
 
   // ========== MALL - PRODUCT 模块 ==========
-  PRODUCT_SPU_STATUS: 'product_spu_status', // 商品 SPU 状态
+  PRODUCT_SPU_STATUS: 'product_spu_status',
 
   // ========== MALL - ORDER 模块 ==========
-  TRADE_AFTER_SALE_STATUS: 'trade_after_sale_status', // 售后 - 状态
-  TRADE_AFTER_SALE_WAY: 'trade_after_sale_way', // 售后 - 方式
-  TRADE_AFTER_SALE_TYPE: 'trade_after_sale_type', // 售后 - 类型
-  TRADE_ORDER_TYPE: 'trade_order_type', // 订单 - 类型
-  TRADE_ORDER_STATUS: 'trade_order_status', // 订单 - 状态
-  TRADE_ORDER_ITEM_AFTER_SALE_STATUS: 'trade_order_item_after_sale_status', // 订单项 - 售后状态
+  TRADE_AFTER_SALE_STATUS: 'trade_after_sale_status',
+  TRADE_AFTER_SALE_WAY: 'trade_after_sale_way',
+  TRADE_AFTER_SALE_TYPE: 'trade_after_sale_type',
+  TRADE_ORDER_TYPE: 'trade_order_type',
+  TRADE_ORDER_STATUS: 'trade_order_status',
+  TRADE_ORDER_ITEM_AFTER_SALE_STATUS: 'trade_order_item_after_sale_status',
 
   // ========== MALL - PROMOTION 模块 ==========
-  PROMOTION_DISCOUNT_TYPE: 'promotion_discount_type', // 优惠类型
-  PROMOTION_PRODUCT_SCOPE: 'promotion_product_scope', // 营销的商品范围
-  PROMOTION_COUPON_TEMPLATE_VALIDITY_TYPE: 'promotion_coupon_template_validity_type', // 优惠劵模板的有限期类型
-  PROMOTION_COUPON_STATUS: 'promotion_coupon_status', // 优惠劵的状态
-  PROMOTION_COUPON_TAKE_TYPE: 'promotion_coupon_take_type', // 优惠劵的领取方式
-  PROMOTION_ACTIVITY_STATUS: 'promotion_activity_status', // 优惠活动的状态
-  PROMOTION_CONDITION_TYPE: 'promotion_condition_type', // 营销的条件类型枚举
+  PROMOTION_DISCOUNT_TYPE: 'promotion_discount_type',
+  PROMOTION_PRODUCT_SCOPE: 'promotion_product_scope',
+  PROMOTION_COUPON_TEMPLATE_VALIDITY_TYPE: 'promotion_coupon_template_validity_type',
+  PROMOTION_COUPON_STATUS: 'promotion_coupon_status',
+  PROMOTION_COUPON_TAKE_TYPE: 'promotion_coupon_take_type',
+  PROMOTION_ACTIVITY_STATUS: 'promotion_activity_status',
+  PROMOTION_CONDITION_TYPE: 'promotion_condition_type',
+}
+
+function triggerDictTypeLoad(dictType) {
+  if (!dictType || requestedTypes.has(dictType)) {
+    return
+  }
+  const cached = store.getters.dict_datas[dictType]
+  if (cached && cached.length) {
+    return
+  }
+  requestedTypes.add(dictType)
+  store.dispatch('dict/loadDictType', dictType).finally(() => {
+    requestedTypes.delete(dictType)
+  })
 }
 
 /**
- * 获取 dictType 对应的数据字典数组
- *
- * @param dictType 数据类型
- * @returns {*|Array} 数据字典数组
+ * 获取 dictType 对应的数据字典数组（按需懒加载，渲染期间只读不写）
  */
 export function getDictDatas(dictType) {
+  triggerDictTypeLoad(dictType)
   return store.getters.dict_datas[dictType] || []
 }
 
-/**
- * 获取 dictType 对应的数据字典数组
- *
- * @param dictType 数据类型
- * @param values 数组、单个元素
- * @returns {*|Array} 数据字典数组
- */
+export function ensureDictDatas(dictType) {
+  return store.dispatch('dict/loadDictType', dictType)
+}
+
 export function getDictDatas2(dictType, values) {
   if (values === undefined) {
-    return [];
+    return []
   }
-  // 如果是单个元素，则转换成数组
   if (!Array.isArray(values)) {
-    values = [this.value];
+    values = [values]
   }
-  // 获得字典数据
-  const results = [];
+  const results = []
   for (const value of values) {
-    const dict = getDictData(dictType, value);
+    const dict = getDictData(dictType, value)
     if (dict) {
-      results.push(dict);
+      results.push(dict)
     }
   }
-  return results;
+  return results
 }
 
 export function getDictData(dictType, value) {
-  // 获取 dictType 对应的数据字典数组
   const dictDatas = getDictDatas(dictType)
-  if (!dictDatas || dictDatas.length === 0) {
-    return ''
+  if (!dictDatas || !dictDatas.length) {
+    return undefined
   }
-  // 获取 value 对应的展示名
-  value = value + '' // 强制转换成字符串，因为 DictData 小类数值，是字符串
+  value = value + ''
   for (const dictData of dictDatas) {
     if (dictData.value === value) {
-      return dictData;
+      return dictData
     }
   }
   return undefined
 }
 
 export function getDictDataLabel(dictType, value) {
-  const dict = getDictData(dictType, value);
-  return dict ? dict.label : '';
+  const dict = getDictData(dictType, value)
+  return dict ? dict.label : ''
 }

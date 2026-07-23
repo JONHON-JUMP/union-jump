@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container">
+  <div class="app-container bpm-process-detail">
     <!-- 审批信息 -->
     <el-card class="box-card" v-loading="processInstanceLoading" v-for="(item, index) in runningTasks" :key="index">
       <div slot="header" class="clearfix">
@@ -315,7 +315,7 @@ export default {
         this.tasks = [];
         // 移除已取消的审批
         response.data.forEach(task => {
-          if (task.result !== 4) {
+          if (!this.isTaskCanceled(task)) {
             this.tasks.push(task);
           }
         });
@@ -335,12 +335,12 @@ export default {
         });
 
         // 需要审核的记录
-        const userId = store.getters.userId;
+        const userId = Number(store.getters.userId);
         this.tasks.forEach(task => {
-          if (task.result !== 1 && task.result !== 6) { // 只有待处理才需要
+          if (!this.isTaskPending(task)) {
             return;
           }
-          if (!task.assigneeUser || task.assigneeUser.id !== userId) { // 自己不是处理人
+          if (!task.assigneeUser || Number(task.assigneeUser.id) !== userId) {
             return;
           }
           this.runningTasks.push({...task});
@@ -353,45 +353,61 @@ export default {
         this.tasksLoad = false;
       });
     },
+    /** 兼容新版 status 与旧版 result 字段 */
+    getTaskStatus(task) {
+      if (task.status !== undefined && task.status !== null) {
+        return task.status;
+      }
+      return task.result;
+    },
+    /** 任务是否已取消 */
+    isTaskCanceled(task) {
+      return this.getTaskStatus(task) === 4;
+    },
+    /** 任务是否待审批（当前用户可处理） */
+    isTaskPending(task) {
+      const status = this.getTaskStatus(task);
+      // 0=待审批, 1=审批中, 7=审批通过中；兼容旧版 result=6
+      return status === 0 || status === 1 || status === 6 || status === 7;
+    },
     getDateStar(ms) {
       return getDate(ms);
     },
     getTimelineItemIcon(item) {
-      if (item.result === 1) {
+      const status = this.getTaskStatus(item);
+      if (status === 0 || status === 1 || status === 6 || status === 7) {
         return 'el-icon-time';
       }
-      if (item.result === 2) {
+      if (status === 2) {
         return 'el-icon-check';
       }
-      if (item.result === 3) {
+      if (status === 3) {
         return 'el-icon-close';
       }
-      if (item.result === 4) {
+      if (status === 4) {
         return 'el-icon-remove-outline';
       }
-      if (item.result === 5) {
+      if (status === 5) {
         return 'el-icon-back'
       }
       return '';
     },
     getTimelineItemType(item) {
-      if (item.result === 1) {
+      const status = this.getTaskStatus(item);
+      if (status === 0 || status === 1 || status === 6 || status === 7) {
         return 'primary';
       }
-      if (item.result === 2) {
+      if (status === 2) {
         return 'success';
       }
-      if (item.result === 3) {
+      if (status === 3) {
         return 'danger';
       }
-      if (item.result === 4) {
+      if (status === 4) {
         return 'info';
       }
-      if (item.result === 5) {
+      if (status === 5) {
         return 'warning';
-      }
-      if (item.result === 6) {
-        return 'default'
       }
       return '';
     },
@@ -525,8 +541,13 @@ export default {
 </script>
 
 <style lang="scss">
+.bpm-process-detail {
+  padding-bottom: 24px;
+}
+
 .my-process-designer {
-  height: calc(100vh - 200px);
+  height: 480px;
+  min-height: 360px;
 }
 
 .box-card {

@@ -33,22 +33,28 @@ const permission = {
      * @param commit commit 函数
      * @param menus  路由参数
      */
-    GenerateRoutes({commit}, menus) {
+    GenerateRoutes({commit, rootState}, menus) {
       return new Promise(resolve => {
         // 将 menus 菜单，转换为 route 路由数组
-        const sdata = JSON.parse(JSON.stringify(menus)) // 【重要】用于菜单中的数据
-        const rdata = JSON.parse(JSON.stringify(menus)) // 用于最后添加到 Router 中的数据
+        const sdata = JSON.parse(JSON.stringify(menus || [])) // 【重要】用于菜单中的数据
+        const rdata = JSON.parse(JSON.stringify(menus || [])) // 用于最后添加到 Router 中的数据
         const sidebarRoutes = filterAsyncRouter(sdata)
         const rewriteRoutes = filterAsyncRouter(rdata, false, true)
         rewriteRoutes.push({path: '*', redirect: '/404', hidden: true})
         commit('SET_ROUTES', rewriteRoutes)
-        commit('SET_SIDEBAR_ROUTERS', constantRoutes.concat(sidebarRoutes))
         commit('SET_DEFAULT_ROUTES', sidebarRoutes)
         commit('SET_TOPBAR_ROUTES', sidebarRoutes)
+        const mainSidebar = constantRoutes.concat(sidebarRoutes)
+        // 主系统侧栏进门户缓存；若当前默认是子系统，不覆盖其侧栏
+        commit('portal/SET_MAIN_SIDEBAR_ROUTERS', mainSidebar, { root: true })
+        const currentSystem = rootState.portal && rootState.portal.currentSystem
+        if (!currentSystem || currentSystem === 'main') {
+          commit('SET_SIDEBAR_ROUTERS', mainSidebar)
+        }
         resolve(rewriteRoutes)
       })
     },
-    GenerateSubSystemRoutes({ commit }, { subSystemId, clientId, menus, portalHome }) {
+    GenerateSubSystemRoutes({ commit }, { subSystemId, clientId, menus, portalHome, applyToLive }) {
       return new Promise(resolve => {
         let menuList = JSON.parse(JSON.stringify(menus))
         if (portalHome && portalHome.link) {
@@ -59,9 +65,12 @@ const permission = {
         const sidebarRoutes = filterSubSystemRouter(sdata, subSystemId, clientId)
         const nestedRewrite = filterSubSystemRouter(rdata, subSystemId, clientId, false, true)
         const rewriteRoutes = buildPortalRewriteRoutes(nestedRewrite)
-        commit('SET_SIDEBAR_ROUTERS', sidebarRoutes)
-        commit('SET_TOPBAR_ROUTES', sidebarRoutes)
-        resolve({ rewriteRoutes, nestedRewrite })
+        // 后台预热只缓存，不覆盖当前壳的侧栏（避免切回主系统后又被预热抢壳）
+        if (applyToLive !== false) {
+          commit('SET_SIDEBAR_ROUTERS', sidebarRoutes)
+          commit('SET_TOPBAR_ROUTES', sidebarRoutes)
+        }
+        resolve({ rewriteRoutes, nestedRewrite, sidebarRoutes })
       })
     }
   }
@@ -75,8 +84,11 @@ function filterAsyncRouter(asyncRouterMap, lastRouter = false, type = false) {
     route.meta = {
       title: route.name,
       icon: route.icon,
+      color: route.color,
+      shape: route.shape,
       noCache: !route.keepAlive,
-      menuId: route.id
+      menuId: route.id,
+      manualUrl: route.manualUrl
     }
     route.hidden = !route.visible
     // 处理 name 属性
@@ -151,10 +163,13 @@ function filterSubSystemRouter(asyncRouterMap, subSystemId, clientId, lastRouter
     route.meta = {
       title: route.name,
       icon: route.icon,
+      color: route.color,
+      shape: route.shape,
       noCache: !route.keepAlive,
       menuId: route.id,
       subSystemId,
-      clientId
+      clientId,
+      manualUrl: route.manualUrl
     }
     if (route.link) {
       route.meta.link = route.link
@@ -209,6 +224,7 @@ function ensureTopLevelIframeRouteLayout(route) {
     keepAlive: route.keepAlive,
     link: route.link,
     portalHome: route.portalHome,
+    manualUrl: route.manualUrl,
     component: route.component || 'system/subSystem/portal/Empty',
     componentName: route.componentName,
     alwaysShow: false

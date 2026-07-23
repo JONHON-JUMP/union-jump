@@ -1,29 +1,35 @@
-import {decrypt, encrypt} from "@/utils/jsencrypt";
-
 const AccessTokenKey = 'ACCESS_TOKEN'
 const RefreshTokenKey = 'REFRESH_TOKEN'
+
+/** 现场模式：Token 仅存 sessionStorage，关闭浏览器即失效 */
+const tokenStorage = sessionStorage
+
+// 清理旧版 localStorage 中的持久化登录态
+;[AccessTokenKey, RefreshTokenKey, 'PASSWORD', 'REMEMBER_ME'].forEach(key => {
+  localStorage.removeItem(key)
+})
 
 // ========== Token 相关 ==========
 
 export function getAccessToken() {
-  return localStorage.getItem(AccessTokenKey)
+  return tokenStorage.getItem(AccessTokenKey)
 }
 
 export function getRefreshToken() {
-  return localStorage.getItem(RefreshTokenKey)
+  return tokenStorage.getItem(RefreshTokenKey)
 }
 
 export function setToken(token) {
-  localStorage.setItem(AccessTokenKey, token.accessToken)
-  localStorage.setItem(RefreshTokenKey, token.refreshToken)
+  tokenStorage.setItem(AccessTokenKey, token.accessToken)
+  tokenStorage.setItem(RefreshTokenKey, token.refreshToken)
 }
 
 export function removeToken() {
-  localStorage.removeItem(AccessTokenKey)
-  localStorage.removeItem(RefreshTokenKey)
+  tokenStorage.removeItem(AccessTokenKey)
+  tokenStorage.removeItem(RefreshTokenKey)
 }
 
-// ========== 账号相关 ==========
+// ========== 账号相关（现场模式不记住密码） ==========
 
 const UsernameKey = 'USERNAME'
 const PasswordKey = 'PASSWORD'
@@ -31,52 +37,53 @@ const RememberMeKey = 'REMEMBER_ME'
 const LoginTypeKey = 'LOGIN_TYPE'
 
 export function getUsername() {
-  return localStorage.getItem(UsernameKey)
+  return sessionStorage.getItem(UsernameKey)
 }
 
 export function setUsername(username) {
-  localStorage.setItem(UsernameKey, username)
+  sessionStorage.setItem(UsernameKey, username)
 }
 
 export function removeUsername() {
-  localStorage.removeItem(UsernameKey)
+  sessionStorage.removeItem(UsernameKey)
 }
 
 export function getPassword() {
-  const password = localStorage.getItem(PasswordKey)
-  return password ? decrypt(password) : undefined
+  return undefined
 }
 
-export function setPassword(password) {
-  localStorage.setItem(PasswordKey, encrypt(password))
+export function setPassword() {
+  // 现场模式不保存密码
 }
 
 export function removePassword() {
+  sessionStorage.removeItem(PasswordKey)
   localStorage.removeItem(PasswordKey)
 }
 
 export function getRememberMe() {
-  return localStorage.getItem(RememberMeKey) === 'true'
+  return false
 }
 
-export function setRememberMe(rememberMe) {
-  localStorage.setItem(RememberMeKey, rememberMe)
+export function setRememberMe() {
+  // 现场模式不支持记住我
 }
 
 export function removeRememberMe() {
+  sessionStorage.removeItem(RememberMeKey)
   localStorage.removeItem(RememberMeKey)
 }
 
 export function getLoginType() {
-  return localStorage.getItem(LoginTypeKey)
+  return sessionStorage.getItem(LoginTypeKey)
 }
 
 export function setLoginType(loginType) {
-  localStorage.setItem(LoginTypeKey, loginType)
+  sessionStorage.setItem(LoginTypeKey, loginType)
 }
 
 export function removeLoginType() {
-  localStorage.removeItem(LoginTypeKey)
+  sessionStorage.removeItem(LoginTypeKey)
 }
 
 // ========== 租户相关 ==========
@@ -86,37 +93,37 @@ const TenantNameKey = 'TENANT_NAME'
 const VisitTenantIdKey = 'VISIT_TENANT_ID'
 
 export function getTenantName() {
-  return localStorage.getItem(TenantNameKey)
+  return sessionStorage.getItem(TenantNameKey)
 }
 
 export function setTenantName(username) {
-  localStorage.setItem(TenantNameKey, username)
+  sessionStorage.setItem(TenantNameKey, username)
 }
 
 export function removeTenantName() {
-  localStorage.removeItem(TenantNameKey)
+  sessionStorage.removeItem(TenantNameKey)
 }
 
 export function getTenantId() {
-  return localStorage.getItem(TenantIdKey)
+  return sessionStorage.getItem(TenantIdKey)
 }
 
 export function setTenantId(username) {
-  localStorage.setItem(TenantIdKey, username)
+  sessionStorage.setItem(TenantIdKey, username)
 }
 
 export function removeTenantId() {
-  localStorage.removeItem(TenantIdKey)
+  sessionStorage.removeItem(TenantIdKey)
 }
 
 export function getVisitTenantId() {
-  return localStorage.getItem(VisitTenantIdKey)
+  return sessionStorage.getItem(VisitTenantIdKey)
 }
 
 export function setVisitTenantId(tenantId) {
-  localStorage.setItem(VisitTenantIdKey, tenantId)
+  sessionStorage.setItem(VisitTenantIdKey, tenantId)
 }
 
 export function removeVisitTenantId() {
-  localStorage.removeItem(VisitTenantIdKey)
+  sessionStorage.removeItem(VisitTenantIdKey)
 }

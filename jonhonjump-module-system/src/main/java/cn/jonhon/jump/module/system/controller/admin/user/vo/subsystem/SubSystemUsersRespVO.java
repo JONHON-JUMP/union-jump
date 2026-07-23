@@ -5,7 +5,6 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Set;
 
 @Schema(description = "管理后台 - 人员子系统关系 Response VO")
 @Data
@@ -26,28 +25,16 @@ public class SubSystemUsersRespVO {
     @Schema(description = "外部系统名称")
     private String clientName;
 
-    @Schema(description = "主数据用户账号")
+    @Schema(description = "子系统用户名")
     private String username;
 
-    @Schema(description = "主数据用户昵称")
+    @Schema(description = "用户姓名")
     private String nickname;
-
-    @Schema(description = "工号")
-    private String employeeNo;
-
-    @Schema(description = "刷卡卡号")
-    private String cardNo;
-
-    @Schema(description = "ERP 账号数组")
-    private Set<String> erpNos;
-
-    @Schema(description = "域账号")
-    private String domainNo;
 
     @Schema(description = "车间编号")
     private String workshopId;
 
-    @Schema(description = "班组编号")
+    @Schema(description = "班组编码（对应班组 teamCode，非主键 id）")
     private String teamId;
 
     @Schema(description = "班组名称")

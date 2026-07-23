@@ -107,4 +107,69 @@ public interface RedisKeyConstants {
      */
     String WXA_SUBSCRIBE_TEMPLATE = "wxa_subscribe_template";
 
+    /**
+     * 用户主系统快捷导航的缓存
+     * <p>
+     * KEY 格式：user_quick_nav:{userId}
+     * VALUE 数据格式：String {@link cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.UserQuickNavRespVO}
+     */
+    String USER_QUICK_NAV = "user_quick_nav:%s";
+
+    /**
+     * 用户外部子系统快捷导航的缓存
+     * <p>
+     * KEY 格式：sub_system_user_quick_nav:{userId}:{subSystemId}
+     * VALUE 数据格式：String {@link cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.SubSystemUserQuickNavRespVO}
+     */
+    String SUB_SYSTEM_USER_QUICK_NAV = "sub_system_user_quick_nav:%s:%s";
+
+    /**
+     * 登录用户权限信息缓存
+     * <p>
+     * KEY 格式：user_permission_info:{userId}
+     * VALUE 数据格式：String {@link cn.jonhon.jump.module.system.controller.admin.auth.vo.AuthPermissionInfoRespVO}
+     * <p>
+     * 无 TTL：菜单/角色变更时主动 delete；过期靠淘汰而非固定 10 分钟重建
+     */
+    String USER_PERMISSION_INFO = "user_permission_info:%s";
+
+    /**
+     * 门户 my-menus 缓存
+     * <p>
+     * KEY 格式：portal_my_menus:{userId}:{subSystemId}
+     * VALUE：List&lt;SubSystemPortalMenuRespVO&gt; JSON；改子系统菜单/角色时主动失效
+     */
+    String PORTAL_MY_MENUS = "portal_my_menus:%s:%s";
+
+    /**
+     * 子系统权限包（主系统写、子系统只读）
+     * <p>
+     * KEY 格式：portal:perm:context:{tenantId}:{mainUserId}:{subSystemId}
+     * VALUE 数据格式：String {@link cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.PortalPermContextRespVO}
+     */
+    String PORTAL_PERM_CONTEXT = "portal:perm:context:%s:%s:%s";
+
+    /**
+     * 子系统扩展业务缓存（主系统 HTTP 代写）
+     * <p>
+     * KEY 格式：portal:ext:{clientId}:{namespace}:{key}
+     */
+    String PORTAL_EXT_CACHE = "portal:ext:%s:%s:%s";
+
+    /**
+     * 字典数据（按类型）缓存
+     * <p>
+     * KEY 格式：dict_data_type:{dictType}
+     * VALUE 数据格式：String List&lt;DictDataDO&gt; JSON
+     */
+    String DICT_DATA_TYPE = "dict_data_type:%s";
+
+    /**
+     * 字典数据全量快照缓存
+     * <p>
+     * KEY 格式：dict_data_all
+     * VALUE 数据格式：String List&lt;DictDataDO&gt; JSON
+     */
+    String DICT_DATA_ALL = "dict_data_all";
+
 }

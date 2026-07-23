@@ -2,14 +2,193 @@
   <div class="app-container">
     <doc-alert title="流程表达式" url="https://doc.iocoder.cn/bpm/expression/" />
 
-    <el-link type="danger" target="_blank" href="https://github.com/yudaocode/yudao-ui-admin-vue3">
-      该功能支持 Vue3 + element-plus 版本！
-    </el-link>
-    <br />
-    <el-text>
-      可参考 https://github.com/yudaocode/yudao-ui-admin-vue3/blob/master/src/views/bpm/processExpression/index.vue 代码，pull request 贡献给我们！
-    </el-text>
+    <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
+      <el-form-item label="名字" prop="name">
+        <el-input v-model="queryParams.name" placeholder="请输入名字" clearable @keyup.enter.native="handleQuery"/>
+      </el-form-item>
+      <el-form-item label="状态" prop="status">
+        <el-select v-model="queryParams.status" placeholder="请选择状态" clearable>
+          <el-option v-for="dict in getDictDatas(DICT_TYPE.COMMON_STATUS)"
+                     :key="dict.value" :label="dict.label" :value="parseInt(dict.value)"/>
+        </el-select>
+      </el-form-item>
+      <el-form-item label="创建时间" prop="createTime">
+        <el-date-picker v-model="queryParams.createTime" style="width: 240px" value-format="yyyy-MM-dd HH:mm:ss" type="daterange"
+                        range-separator="-" start-placeholder="开始日期" end-placeholder="结束日期" :default-time="['00:00:00', '23:59:59']" />
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" icon="el-icon-search" @click="handleQuery">搜索</el-button>
+        <el-button icon="el-icon-refresh" @click="resetQuery">重置</el-button>
+      </el-form-item>
+    </el-form>
+
+    <el-row :gutter="10" class="mb8">
+      <el-col :span="1.5">
+        <el-button type="primary" plain icon="el-icon-plus" size="mini" @click="handleAdd"
+                   v-hasPermi="['bpm:process-expression:create']">新增</el-button>
+      </el-col>
+      <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
+    </el-row>
+
+    <el-table v-loading="loading" :data="list">
+      <el-table-column label="编号" align="center" prop="id" />
+      <el-table-column label="名字" align="center" prop="name" />
+      <el-table-column label="状态" align="center" prop="status">
+        <template v-slot="scope">
+          <dict-tag :type="DICT_TYPE.COMMON_STATUS" :value="scope.row.status"/>
+        </template>
+      </el-table-column>
+      <el-table-column label="表达式" align="center" prop="expression" show-overflow-tooltip />
+      <el-table-column label="创建时间" align="center" prop="createTime" width="180">
+        <template v-slot="scope">
+          <span>{{ parseTime(scope.row.createTime) }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
+        <template v-slot="scope">
+          <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
+                     v-hasPermi="['bpm:process-expression:update']">编辑</el-button>
+          <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)"
+                     v-hasPermi="['bpm:process-expression:delete']">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
+    <pagination v-show="total > 0" :total="total" :page.sync="queryParams.pageNo" :limit.sync="queryParams.pageSize"
+                @pagination="getList"/>
+
+    <el-dialog :title="title" :visible.sync="open" width="500px" append-to-body>
+      <el-form ref="form" :model="form" :rules="rules" label-width="80px">
+        <el-form-item label="名字" prop="name">
+          <el-input v-model="form.name" placeholder="请输入名字" />
+        </el-form-item>
+        <el-form-item label="状态" prop="status">
+          <el-radio-group v-model="form.status">
+            <el-radio v-for="dict in getDictDatas(DICT_TYPE.COMMON_STATUS)"
+                      :key="dict.value" :label="parseInt(dict.value)">{{ dict.label }}</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="表达式" prop="expression">
+          <el-input v-model="form.expression" type="textarea" placeholder="请输入表达式" />
+        </el-form-item>
+      </el-form>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button @click="cancel">取 消</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
+
 <script>
+import {
+  createProcessExpression,
+  deleteProcessExpression,
+  getProcessExpression,
+  getProcessExpressionPage,
+  updateProcessExpression
+} from '@/api/bpm/processExpression'
+import { CommonStatusEnum } from '@/utils/constants'
+
+export default {
+  name: 'BpmProcessExpression',
+  data() {
+    return {
+      loading: true,
+      showSearch: true,
+      total: 0,
+      list: [],
+      title: '',
+      open: false,
+      queryParams: {
+        pageNo: 1,
+        pageSize: 10,
+        name: null,
+        status: null,
+        createTime: []
+      },
+      form: {},
+      rules: {
+        name: [{ required: true, message: '名字不能为空', trigger: 'blur' }],
+        status: [{ required: true, message: '状态不能为空', trigger: 'change' }],
+        expression: [{ required: true, message: '表达式不能为空', trigger: 'blur' }]
+      }
+    }
+  },
+  created() {
+    this.getList()
+  },
+  methods: {
+    getList() {
+      this.loading = true
+      getProcessExpressionPage(this.queryParams).then(response => {
+        this.list = response.data.list
+        this.total = response.data.total
+      }).finally(() => {
+        this.loading = false
+      })
+    },
+    cancel() {
+      this.open = false
+      this.reset()
+    },
+    reset() {
+      this.form = {
+        id: undefined,
+        name: undefined,
+        status: CommonStatusEnum.ENABLE,
+        expression: undefined
+      }
+      this.resetForm('form')
+    },
+    handleQuery() {
+      this.queryParams.pageNo = 1
+      this.getList()
+    },
+    resetQuery() {
+      this.resetForm('queryForm')
+      this.handleQuery()
+    },
+    handleAdd() {
+      this.reset()
+      this.open = true
+      this.title = '新增流程表达式'
+    },
+    handleUpdate(row) {
+      this.reset()
+      getProcessExpression(row.id).then(response => {
+        this.form = response.data
+        this.open = true
+        this.title = '修改流程表达式'
+      })
+    },
+    submitForm() {
+      this.$refs.form.validate(valid => {
+        if (!valid) {
+          return
+        }
+        if (this.form.id) {
+          updateProcessExpression(this.form).then(() => {
+            this.$modal.msgSuccess('修改成功')
+            this.open = false
+            this.getList()
+          })
+          return
+        }
+        createProcessExpression(this.form).then(() => {
+          this.$modal.msgSuccess('新增成功')
+          this.open = false
+          this.getList()
+        })
+      })
+    },
+    handleDelete(row) {
+      this.$modal.confirm('是否确认删除该流程表达式？').then(() => {
+        return deleteProcessExpression(row.id)
+      }).then(() => {
+        this.getList()
+        this.$modal.msgSuccess('删除成功')
+      }).catch(() => {})
+    }
+  }
+}
 </script>

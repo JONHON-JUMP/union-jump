@@ -23,6 +23,10 @@ public interface SubSystemUserRoleMapper extends BaseMapperX<SubSystemUserRoleDO
         delete(new LambdaQueryWrapper<SubSystemUserRoleDO>().eq(SubSystemUserRoleDO::getUserId, userId));
     }
 
+    default List<SubSystemUserRoleDO> selectListByRoleId(Long roleId) {
+        return selectList(SubSystemUserRoleDO::getRoleId, roleId);
+    }
+
     default Long selectCountByRoleId(Long roleId) {
         return selectCount(SubSystemUserRoleDO::getRoleId, roleId);
     }

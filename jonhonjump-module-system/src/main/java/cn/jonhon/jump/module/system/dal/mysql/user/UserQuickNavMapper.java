@@ -3,7 +3,9 @@ package cn.jonhon.jump.module.system.dal.mysql.user;
 import cn.jonhon.jump.framework.mybatis.core.mapper.BaseMapperX;
 import cn.jonhon.jump.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.jonhon.jump.module.system.dal.dataobject.user.UserQuickNavDO;
+import org.apache.ibatis.annotations.Delete;
 import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -18,17 +20,27 @@ public interface UserQuickNavMapper extends BaseMapperX<UserQuickNavDO> {
                 .orderByAsc(UserQuickNavDO::getId));
     }
 
-    default void deleteByUserId(Long userId) {
-        delete(UserQuickNavDO::getUserId, userId);
+    /**
+     * 物理删除：快捷导航每次全量重写，软删会不断积压历史行
+     */
+    @Delete("DELETE FROM system_user_quick_nav WHERE user_id = #{userId}")
+    void deleteByUserId(@Param("userId") Long userId);
+
+    default List<UserQuickNavDO> selectListByMenuId(Long menuId) {
+        return selectList(UserQuickNavDO::getMenuId, menuId);
     }
 
-    default void deleteByMenuId(Long menuId) {
-        delete(UserQuickNavDO::getMenuId, menuId);
-    }
-
-    default void deleteByMenuIds(Collection<Long> menuIds) {
-        delete(new LambdaQueryWrapperX<UserQuickNavDO>()
+    default List<UserQuickNavDO> selectListByMenuIds(Collection<Long> menuIds) {
+        return selectList(new LambdaQueryWrapperX<UserQuickNavDO>()
                 .in(UserQuickNavDO::getMenuId, menuIds));
     }
+
+    @Delete("DELETE FROM system_user_quick_nav WHERE menu_id = #{menuId}")
+    void deleteByMenuId(@Param("menuId") Long menuId);
+
+    @Delete("<script>DELETE FROM system_user_quick_nav WHERE menu_id IN "
+            + "<foreach collection='menuIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>"
+            + "</script>")
+    void deleteByMenuIds(@Param("menuIds") Collection<Long> menuIds);
 
 }

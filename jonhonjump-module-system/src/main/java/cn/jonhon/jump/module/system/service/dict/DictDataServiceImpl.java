@@ -10,6 +10,7 @@ import cn.jonhon.jump.module.system.controller.admin.dict.vo.data.DictDataSaveRe
 import cn.jonhon.jump.module.system.dal.dataobject.dict.DictDataDO;
 import cn.jonhon.jump.module.system.dal.dataobject.dict.DictTypeDO;
 import cn.jonhon.jump.module.system.dal.mysql.dict.DictDataMapper;
+import cn.jonhon.jump.module.system.dal.redis.dict.DictDataRedisDAO;
 import com.google.common.annotations.VisibleForTesting;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -44,9 +45,33 @@ public class DictDataServiceImpl implements DictDataService {
 
     @Resource
     private DictDataMapper dictDataMapper;
+    @Resource
+    private DictDataRedisDAO dictDataRedisDAO;
 
     @Override
     public List<DictDataDO> getDictDataList(Integer status, String dictType) {
+        if (CommonStatusEnum.ENABLE.getStatus().equals(status)) {
+            if (dictType != null) {
+                List<DictDataDO> cached = dictDataRedisDAO.getListByType(dictType);
+                if (cached != null) {
+                    return cached;
+                }
+                List<DictDataDO> list = loadDictDataListFromDb(status, dictType);
+                dictDataRedisDAO.setListByType(dictType, list);
+                return list;
+            }
+            List<DictDataDO> cachedAll = dictDataRedisDAO.getAll();
+            if (cachedAll != null) {
+                return cachedAll;
+            }
+            List<DictDataDO> list = loadDictDataListFromDb(status, null);
+            dictDataRedisDAO.setAll(list);
+            return list;
+        }
+        return loadDictDataListFromDb(status, dictType);
+    }
+
+    private List<DictDataDO> loadDictDataListFromDb(Integer status, String dictType) {
         List<DictDataDO> list = dictDataMapper.selectListByStatusAndDictType(status, dictType);
         list.sort(COMPARATOR_TYPE_AND_SORT);
         return list;
@@ -72,12 +97,14 @@ public class DictDataServiceImpl implements DictDataService {
         // 插入字典类型
         DictDataDO dictData = BeanUtils.toBean(createReqVO, DictDataDO.class);
         dictDataMapper.insert(dictData);
+        evictDictCache(createReqVO.getDictType());
         return dictData.getId();
     }
 
     @Override
     public void updateDictData(DictDataSaveReqVO updateReqVO) {
         // 校验自己存在
+        DictDataDO existing = dictDataMapper.selectById(updateReqVO.getId());
         validateDictDataExists(updateReqVO.getId());
         // 校验字典类型有效
         validateDictTypeExists(updateReqVO.getDictType());
@@ -87,20 +114,33 @@ public class DictDataServiceImpl implements DictDataService {
         // 更新字典类型
         DictDataDO updateObj = BeanUtils.toBean(updateReqVO, DictDataDO.class);
         dictDataMapper.updateById(updateObj);
+        evictDictCache(updateReqVO.getDictType());
+        if (existing != null && !existing.getDictType().equals(updateReqVO.getDictType())) {
+            evictDictCache(existing.getDictType());
+        }
     }
 
     @Override
     public void deleteDictData(Long id) {
         // 校验是否存在
+        DictDataDO dictData = dictDataMapper.selectById(id);
         validateDictDataExists(id);
 
         // 删除字典数据
         dictDataMapper.deleteById(id);
+        if (dictData != null) {
+            evictDictCache(dictData.getDictType());
+        }
     }
 
     @Override
     public void deleteDictDataList(List<Long> ids) {
+        List<DictDataDO> dictDataList = dictDataMapper.selectByIds(ids);
         dictDataMapper.deleteByIds(ids);
+        dictDataList.stream()
+                .map(DictDataDO::getDictType)
+                .distinct()
+                .forEach(this::evictDictCache);
     }
 
     @Override
@@ -179,6 +219,13 @@ public class DictDataServiceImpl implements DictDataService {
         List<DictDataDO> list = dictDataMapper.selectList(DictDataDO::getDictType, dictType);
         list.sort(Comparator.comparing(DictDataDO::getSort));
         return list;
+    }
+
+    private void evictDictCache(String dictType) {
+        if (dictType != null) {
+            dictDataRedisDAO.deleteByType(dictType);
+        }
+        dictDataRedisDAO.deleteAll();
     }
 
 }

@@ -14,6 +14,11 @@ public interface NoticeMapper extends BaseMapperX<NoticeDO> {
         return selectPage(reqVO, new LambdaQueryWrapperX<NoticeDO>()
                 .likeIfPresent(NoticeDO::getTitle, reqVO.getTitle())
                 .eqIfPresent(NoticeDO::getStatus, reqVO.getStatus())
+                .eqIfPresent(NoticeDO::getType, reqVO.getType())
+                .likeIfPresent(NoticeDO::getPublisherName, reqVO.getPublisherName())
+                .likeIfPresent(NoticeDO::getDeptName, reqVO.getDeptName())
+                .likeIfPresent(NoticeDO::getCreator, reqVO.getCreator())
+                .betweenIfPresent(NoticeDO::getCreateTime, reqVO.getCreateTime())
                 .orderByDesc(NoticeDO::getId));
     }
 

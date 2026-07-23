@@ -12,49 +12,34 @@ import java.util.List;
  */
 public interface NoticeService {
 
-    /**
-     * 创建通知公告
-     *
-     * @param createReqVO 通知公告
-     * @return 编号
-     */
     Long createNotice(NoticeSaveReqVO createReqVO);
 
-    /**
-     * 更新通知公告
-     *
-     * @param reqVO 通知公告
-     */
     void updateNotice(NoticeSaveReqVO reqVO);
 
     /**
-     * 删除通知公告
-     *
-     * @param id 编号
+     * 业务软删除：状态改为已删除（仍可在管理端按状态筛选查看）
      */
     void deleteNotice(Long id);
 
-    /**
-     * 批量删除通知公告
-     *
-     * @param ids 编号列表
-     */
     void deleteNoticeList(List<Long> ids);
 
     /**
-     * 获得通知公告分页列表
-     *
-     * @param reqVO 分页条件
-     * @return 部门分页列表
+     * 发布：草稿 → 已发布
      */
-    PageResult<NoticeDO> getNoticePage(NoticePageReqVO reqVO);
+    void publishNotice(Long id);
 
     /**
-     * 获得通知公告
-     *
-     * @param id 编号
-     * @return 通知公告
+     * 撤回：已发布 → 草稿
      */
+    void revokeNotice(Long id);
+
+    PageResult<NoticeDO> getNoticePage(NoticePageReqVO reqVO);
+
     NoticeDO getNotice(Long id);
+
+    /**
+     * 获得已发布的通知（工作台 / 普通用户）
+     */
+    NoticeDO getPublishedNotice(Long id);
 
 }

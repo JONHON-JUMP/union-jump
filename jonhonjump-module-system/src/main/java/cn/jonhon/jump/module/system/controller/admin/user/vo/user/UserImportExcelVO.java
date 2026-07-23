@@ -33,6 +33,21 @@ public class UserImportExcelVO {
     @ExcelProperty("手机号码")
     private String mobile;
 
+    @ExcelProperty("工号")
+    private String employeeNo;
+
+    @ExcelProperty("域账号")
+    private String domainNo;
+
+    @ExcelProperty("刷卡卡号")
+    private String cardNo;
+
+    /**
+     * ERP 账号，多个用英文逗号/中文逗号/顿号分隔，例如：erp001,erp002
+     */
+    @ExcelProperty("ERP账号")
+    private String erpNos;
+
     @ExcelProperty(value = "用户性别", converter = DictConvert.class)
     @DictFormat(DictTypeConstants.USER_SEX)
     private Integer sex;

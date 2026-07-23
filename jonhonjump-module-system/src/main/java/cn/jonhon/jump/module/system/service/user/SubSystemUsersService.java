@@ -4,6 +4,9 @@ package cn.jonhon.jump.module.system.service.user;
 
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 
+import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSystemCardLoginRespVO;
+import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSystemUserPermissionRespVO;
+import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.PortalPermContextRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
 
 
@@ -106,6 +109,16 @@ public interface SubSystemUsersService {
 
     Long createSubSystemUser(@Valid SubSystemUsersSaveReqVO createReqVO);
 
+    /**
+     * 按用户名查询外部系统用户
+     */
+    SubSystemUsersRespVO getBySubSystemIdAndUsername(Long subSystemId, String username);
+
+    /**
+     * 将主系统用户挂接到外部系统同名用户（main_user_id 可选关联）
+     */
+    Long bindMainUser(Long subSystemId, Long mainUserId);
+
 
 
     /**
@@ -167,13 +180,18 @@ public interface SubSystemUsersService {
 
 
     /**
-
      * 获得外部系统用户角色编号列表
-
      */
-
     List<Long> getSubSystemUserRoleIds(Long id);
 
+    /**
+     * 子系统刷卡校验：按 clientId 定位外部系统，按 username 查花名册
+     */
+    SubSystemCardLoginRespVO cardLogin(String clientId, String clientSecret, String username);
 
+    /**
+     * 按 clientId + username 查询花名册用户的角色、菜单、权限
+     */
+    SubSystemUserPermissionRespVO getPermissionInfo(String clientId, String clientSecret, String username);
 
 }

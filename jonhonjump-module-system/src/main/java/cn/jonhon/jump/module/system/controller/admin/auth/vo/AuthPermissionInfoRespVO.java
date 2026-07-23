@@ -83,6 +83,15 @@ public class AuthPermissionInfoRespVO {
         @Schema(description = "菜单图标,仅菜单类型为菜单或者目录时，才需要传", example = "/menu/list")
         private String icon;
 
+        @Schema(description = "菜单样式编号")
+        private Long styleId;
+
+        @Schema(description = "图标形状")
+        private String shape;
+
+        @Schema(description = "主色 HEX")
+        private String color;
+
         @Schema(description = "是否可见", requiredMode = Schema.RequiredMode.REQUIRED, example = "false")
         private Boolean visible;
 
@@ -91,6 +100,9 @@ public class AuthPermissionInfoRespVO {
 
         @Schema(description = "是否总是显示", example = "false")
         private Boolean alwaysShow;
+
+        @Schema(description = "菜单说明书文件地址")
+        private String manualUrl;
 
         /**
          * 子路由

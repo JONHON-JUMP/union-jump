@@ -7,7 +7,7 @@ import lombok.Data;
 @Data
 public class SubSystemTeamSimpleRespVO {
 
-    @Schema(description = "班组编号")
+    @Schema(description = "主键编号")
     private Long id;
 
     @Schema(description = "班组编码")

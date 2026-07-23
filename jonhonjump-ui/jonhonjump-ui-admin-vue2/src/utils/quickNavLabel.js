@@ -12,7 +12,7 @@ export function formatQuickNavMenuLabel(name, groupName) {
   return `${groupName} · ${name}`
 }
 
-export function formatQuickNavSubtitle(groupName, fallback = '快捷导航') {
+export function formatQuickNavSubtitle(groupName, fallback = '') {
   return groupName || fallback
 }
 
@@ -23,7 +23,7 @@ export function quickNavSearchText(name, groupName) {
 /**
  * 首页快捷导航：仅当菜单名重复时，用上级目录名作副标题区分
  */
-export function applyQuickNavDuplicateLabels(items, fallbackSubtitle = '快捷导航') {
+export function applyQuickNavDuplicateLabels(items) {
   if (!items || !items.length) {
     return []
   }
@@ -37,10 +37,12 @@ export function applyQuickNavDuplicateLabels(items, fallbackSubtitle = '快捷�
   return items.map(item => {
     const group = item.group || item.groupName || ''
     const isDuplicate = (nameCounts[item.name] || 0) > 1
-    const subtitle = isDuplicate && group ? group : fallbackSubtitle
+    const name = isDuplicate && group
+      ? formatQuickNavMenuLabel(item.name, group)
+      : item.name
     return {
       ...item,
-      subtitle,
+      name,
       keywords: quickNavSearchText(item.name, isDuplicate ? group : '')
     }
   })

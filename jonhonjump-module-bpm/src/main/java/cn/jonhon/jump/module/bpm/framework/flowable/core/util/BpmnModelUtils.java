@@ -97,8 +97,29 @@ public class BpmnModelUtils {
         if (flowElement == null) {
             return null;
         }
-        ExtensionElement element = CollUtil.getFirst(flowElement.getExtensionElements().get(elementName));
+        List<ExtensionElement> elements = flowElement.getExtensionElements().get(elementName);
+        if (CollUtil.isEmpty(elements)) {
+            return null;
+        }
+        // 取最后一个非空值，避免重复保存/设计器残留导致读到旧空值
+        for (int i = elements.size() - 1; i >= 0; i--) {
+            String text = elements.get(i).getElementText();
+            if (StrUtil.isNotBlank(text)) {
+                return text;
+            }
+        }
+        ExtensionElement element = CollUtil.getLast(elements);
         return element != null ? element.getElementText() : null;
+    }
+
+    /**
+     * 移除指定名称的扩展元素
+     */
+    public static void removeExtensionElements(FlowElement element, String name) {
+        if (element == null || element.getExtensionElements() == null) {
+            return;
+        }
+        element.getExtensionElements().remove(name);
     }
 
     /**
@@ -109,6 +130,8 @@ public class BpmnModelUtils {
      * @param flowElement 节点
      */
     public static void addCandidateElements(Integer candidateStrategy, String candidateParam, FlowElement flowElement) {
+        removeExtensionElements(flowElement, BpmnModelConstants.USER_TASK_CANDIDATE_STRATEGY);
+        removeExtensionElements(flowElement, BpmnModelConstants.USER_TASK_CANDIDATE_PARAM);
         addExtensionElement(flowElement, BpmnModelConstants.USER_TASK_CANDIDATE_STRATEGY,
                 candidateStrategy == null ? null : candidateStrategy.toString());
         addExtensionElement(flowElement, BpmnModelConstants.USER_TASK_CANDIDATE_PARAM, candidateParam);
@@ -123,10 +146,9 @@ public class BpmnModelUtils {
     public static Integer parseCandidateStrategy(FlowElement userTask) {
         Integer candidateStrategy = NumberUtils.parseInt(userTask.getAttributeValue(
                 BpmnModelConstants.NAMESPACE, BpmnModelConstants.USER_TASK_CANDIDATE_STRATEGY));
-        // TODO @芋艿 尝试从 ExtensionElement 取. 后续相关扩展是否都可以 存 extensionElement。 如表单权限。 按钮权限
         if (candidateStrategy == null) {
-            ExtensionElement element = CollUtil.getFirst(userTask.getExtensionElements().get(BpmnModelConstants.USER_TASK_CANDIDATE_STRATEGY));
-            candidateStrategy = element != null ? NumberUtils.parseInt(element.getElementText()) : null;
+            candidateStrategy = NumberUtils.parseInt(parseExtensionElement(userTask,
+                    BpmnModelConstants.USER_TASK_CANDIDATE_STRATEGY));
         }
         return candidateStrategy;
     }
@@ -141,8 +163,7 @@ public class BpmnModelUtils {
         String candidateParam = userTask.getAttributeValue(
                 BpmnModelConstants.NAMESPACE, BpmnModelConstants.USER_TASK_CANDIDATE_PARAM);
         if (candidateParam == null) {
-            ExtensionElement element = CollUtil.getFirst(userTask.getExtensionElements().get(BpmnModelConstants.USER_TASK_CANDIDATE_PARAM));
-            candidateParam = element != null ? element.getElementText() : null;
+            candidateParam = parseExtensionElement(userTask, BpmnModelConstants.USER_TASK_CANDIDATE_PARAM);
         }
         return candidateParam;
     }

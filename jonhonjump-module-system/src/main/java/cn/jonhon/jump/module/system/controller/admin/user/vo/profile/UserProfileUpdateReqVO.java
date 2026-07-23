@@ -1,9 +1,9 @@
 package cn.jonhon.jump.module.system.controller.admin.user.vo.profile;
 
+import cn.jonhon.jump.framework.common.validation.UserAvatar;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import org.hibernate.validator.constraints.Length;
-import org.hibernate.validator.constraints.URL;
 
 import javax.validation.constraints.Email;
 import javax.validation.constraints.Size;
@@ -29,8 +29,9 @@ public class UserProfileUpdateReqVO {
     @Schema(description = "用户性别，参见 SexEnum 枚举类", example = "1")
     private Integer sex;
 
-    @Schema(description = "角色头像", example = "https://www.iocoder.cn/1.png")
-    @URL(message = "头像地址格式不正确")
+    @Schema(description = "用户头像：空表示跟随角色默认；system:角色标识 表示系统头像；或 http(s) 自定义地址", example = "system:super_admin")
+    @UserAvatar
+    @Size(max = 255, message = "头像地址长度不能超过 255 个字符")
     private String avatar;
 
 }

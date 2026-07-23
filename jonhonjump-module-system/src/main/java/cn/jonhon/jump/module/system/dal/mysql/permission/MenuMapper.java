@@ -6,6 +6,7 @@ import cn.jonhon.jump.module.system.controller.admin.permission.vo.menu.MenuList
 import cn.jonhon.jump.module.system.dal.dataobject.permission.MenuDO;
 import org.apache.ibatis.annotations.Mapper;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
@@ -13,6 +14,12 @@ public interface MenuMapper extends BaseMapperX<MenuDO> {
 
     default MenuDO selectByParentIdAndName(Long parentId, String name) {
         return selectOne(MenuDO::getParentId, parentId, MenuDO::getName, name);
+    }
+
+    default List<MenuDO> selectListByNameAndTypes(String name, Collection<Integer> types) {
+        return selectList(new LambdaQueryWrapperX<MenuDO>()
+                .eq(MenuDO::getName, name)
+                .in(MenuDO::getType, types));
     }
 
     default Long selectCountByParentId(Long parentId) {

@@ -20,6 +20,10 @@ public class UserRespVO{
     @ExcelProperty("用户编号")
     private Long id;
 
+    @Schema(description = "跨系统唯一用户标识（U+年月日时分秒+三位流水）", example = "U20260720170405001")
+    @ExcelProperty("用户UID")
+    private String userUid;
+
     @Schema(description = "用户账号", requiredMode = Schema.RequiredMode.REQUIRED, example = "jonhonjump")
     @ExcelProperty("用户名称")
     private String username;

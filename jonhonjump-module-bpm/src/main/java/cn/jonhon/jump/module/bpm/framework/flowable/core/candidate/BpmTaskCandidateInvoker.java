@@ -58,28 +58,34 @@ public class BpmTaskCandidateInvoker {
         BpmnModel bpmnModel = BpmnModelUtils.getBpmnModel(bpmnBytes);
         assert bpmnModel != null;
         List<UserTask> userTaskList = BpmnModelUtils.getBpmnModelElements(bpmnModel, UserTask.class);
-        // 遍历所有的 UserTask，校验审批人配置
-        userTaskList.forEach(userTask -> {
-            // 1.1 非人工审批，无需校验审批人配置
-            Integer approveType = BpmnModelUtils.parseApproveType(userTask);
-            if (ObjectUtils.equalsAny(approveType,
-                    BpmUserTaskApproveTypeEnum.AUTO_APPROVE.getType(),
-                    BpmUserTaskApproveTypeEnum.AUTO_REJECT.getType())) {
-                return;
-            }
-            // 1.2 非空校验
-            Integer strategy = BpmnModelUtils.parseCandidateStrategy(userTask);
-            String param = BpmnModelUtils.parseCandidateParam(userTask);
-            if (strategy == null) {
-                throw exception(MODEL_DEPLOY_FAIL_TASK_CANDIDATE_NOT_CONFIG, userTask.getName());
-            }
-            BpmTaskCandidateStrategy candidateStrategy = getCandidateStrategy(strategy);
-            if (candidateStrategy.isParamRequired() && StrUtil.isBlank(param)) {
-                throw exception(MODEL_DEPLOY_FAIL_TASK_CANDIDATE_NOT_CONFIG, userTask.getName());
-            }
-            // 2. 具体策略校验
-            getCandidateStrategy(strategy).validateParam(param);
-        });
+        userTaskList.forEach(this::validateUserTaskCandidate);
+    }
+
+    /**
+     * 校验单个用户任务的审批人配置
+     *
+     * @param userTask 用户任务
+     */
+    public void validateUserTaskCandidate(UserTask userTask) {
+        // 1.1 非人工审批，无需校验审批人配置
+        Integer approveType = BpmnModelUtils.parseApproveType(userTask);
+        if (ObjectUtils.equalsAny(approveType,
+                BpmUserTaskApproveTypeEnum.AUTO_APPROVE.getType(),
+                BpmUserTaskApproveTypeEnum.AUTO_REJECT.getType())) {
+            return;
+        }
+        // 1.2 非空校验
+        Integer strategy = BpmnModelUtils.parseCandidateStrategy(userTask);
+        String param = BpmnModelUtils.parseCandidateParam(userTask);
+        if (strategy == null) {
+            throw exception(MODEL_DEPLOY_FAIL_TASK_CANDIDATE_NOT_CONFIG, userTask.getName());
+        }
+        BpmTaskCandidateStrategy candidateStrategy = getCandidateStrategy(strategy);
+        if (candidateStrategy.isParamRequired() && StrUtil.isBlank(param)) {
+            throw exception(MODEL_DEPLOY_FAIL_TASK_CANDIDATE_NOT_CONFIG, userTask.getName());
+        }
+        // 2. 具体策略校验
+        candidateStrategy.validateParam(param);
     }
 
     /**

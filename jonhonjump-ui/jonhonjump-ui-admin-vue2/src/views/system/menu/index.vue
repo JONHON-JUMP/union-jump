@@ -48,7 +48,7 @@
       <el-table-column prop="name" label="菜单名称" :show-overflow-tooltip="true" width="250"></el-table-column>
       <el-table-column prop="icon" label="图标" align="center" width="100">
         <template v-slot="scope">
-          <svg-icon :icon-class="scope.row.icon" />
+          <svg-icon v-if="scope.row.icon" :icon-class="scope.row.icon" />
         </template>
       </el-table-column>
       <el-table-column prop="sort" label="排序" width="60"></el-table-column>
@@ -57,17 +57,14 @@
       <el-table-column prop="componentName" label="组件名称" :show-overflow-tooltip="true" />
       <el-table-column prop="status" label="状态" width="80">
         <template v-slot="scope">
-          <dict-tag :type="DICT_TYPE.COMMON_STATUS" :value="scope.row.status"/>
+          <span>{{ statusLabelMap[scope.row.status] || scope.row.status }}</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
+      <el-table-column label="操作" align="center" width="200" class-name="small-padding fixed-width">
         <template v-slot="scope">
-          <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
-                     v-hasPermi="['system:menu:update']">修改</el-button>
-          <el-button size="mini" type="text" icon="el-icon-plus" @click="handleAdd(scope.row)"
-                     v-hasPermi="['system:menu:create']">新增</el-button>
-          <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)"
-                     v-hasPermi="['system:menu:delete']">删除</el-button>
+          <el-button v-if="canUpdateMenu" size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)">修改</el-button>
+          <el-button v-if="canCreateMenu" size="mini" type="text" icon="el-icon-plus" @click="handleAdd(scope.row)">新增</el-button>
+          <el-button v-if="canDeleteMenu" size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -102,6 +99,16 @@
               </el-popover>
             </el-form-item>
           </el-col>
+          <el-col :span="24" v-if="form.type !== 3 && isFirstLevelMenu">
+            <el-form-item label="菜单颜色">
+              <menu-style-select v-model="form.styleId" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24" v-else-if="form.type !== 3">
+            <el-form-item label="菜单颜色">
+              <menu-style-select :value="inheritedStyleId" readonly />
+            </el-form-item>
+          </el-col>
           <el-col :span="12">
             <el-form-item label="菜单名称" prop="name">
               <el-input v-model="form.name" placeholder="请输入菜单名称" />
@@ -121,6 +128,11 @@
                 路由地址
               </span>
               <el-input v-model="form.path" placeholder="请输入路由地址" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24" v-if="form.type !== 3">
+            <el-form-item label="菜单说明书">
+              <file-upload v-model="form.manualUrl" :limit="1" :file-size="20" :is-show-tip="true" />
             </el-form-item>
           </el-col>
 					<el-col :span="12">
@@ -153,7 +165,7 @@
                 菜单状态
               </span>
               <el-radio-group v-model="form.status">
-                <el-radio v-for="dict in this.getDictDatas(DICT_TYPE.COMMON_STATUS)"
+                <el-radio v-for="dict in statusDictDatas"
                           :key="dict.value" :label="parseInt(dict.value)">{{dict.label}}</el-radio>
               </el-radio-group>
             </el-form-item>
@@ -215,14 +227,18 @@ import { listMenu, getMenu, delMenu, addMenu, updateMenu, delMenuList } from "@/
 import Treeselect from "@riophae/vue-treeselect";
 import "@riophae/vue-treeselect/dist/vue-treeselect.css";
 import IconSelect from "@/components/IconSelect";
+import MenuStyleSelect from "@/components/MenuStyleSelect";
+import FileUpload from '@/components/FileUpload';
 
 import { SystemMenuTypeEnum, CommonStatusEnum } from '@/utils/constants'
-import { getDictDatas, DICT_TYPE } from '@/utils/dict'
+import { DICT_TYPE } from '@/utils/dict'
+import { checkPermi } from '@/utils/permission'
 import {isExternal} from "@/utils/validate";
+import { flattenMenuTree, inheritedStyleId as resolveInheritedStyleId, isFirstLevelMenu as checkFirstLevelMenu } from '@/utils/menuStyleInherit'
 
 export default {
   name: "SystemMenu",
-  components: { Treeselect, IconSelect },
+  components: { Treeselect, IconSelect, MenuStyleSelect, FileUpload },
   data() {
     return {
       // 遮罩层
@@ -268,13 +284,45 @@ export default {
 
       // 枚举
       MenuTypeEnum: SystemMenuTypeEnum,
-      CommonStatusEnum: CommonStatusEnum,
-      // 数据字典
-      menuTypeDictDatas: getDictDatas(DICT_TYPE.SYSTEM_MENU_TYPE),
-      statusDictDatas: getDictDatas(DICT_TYPE.COMMON_STATUS)
+      CommonStatusEnum: CommonStatusEnum
     };
   },
+  computed: {
+    menuTypeDictDatas() {
+      return this.$store.getters.dict_datas[DICT_TYPE.SYSTEM_MENU_TYPE] || []
+    },
+    statusDictDatas() {
+      return this.$store.getters.dict_datas[DICT_TYPE.COMMON_STATUS] || []
+    },
+    statusLabelMap() {
+      const map = {}
+      this.statusDictDatas.forEach(dict => {
+        map[parseInt(dict.value)] = dict.label
+      })
+      return map
+    },
+    canCreateMenu() {
+      return checkPermi(['system:menu:create'])
+    },
+    canUpdateMenu() {
+      return checkPermi(['system:menu:update'])
+    },
+    canDeleteMenu() {
+      return checkPermi(['system:menu:delete'])
+    },
+    isFirstLevelMenu() {
+      return checkFirstLevelMenu(this.form.parentId)
+    },
+    inheritedStyleId() {
+      const flatMenus = flattenMenuTree(this.menuList)
+      return resolveInheritedStyleId(flatMenus, this.form.parentId)
+    }
+  },
   created() {
+    this.$store.dispatch('dict/loadDictTypes', [
+      DICT_TYPE.SYSTEM_MENU_TYPE,
+      DICT_TYPE.COMMON_STATUS
+    ])
     this.getList();
   },
   methods: {
@@ -286,9 +334,14 @@ export default {
     getList() {
       this.loading = true;
       listMenu(this.queryParams).then(response => {
-        this.menuList = this.handleTree(response.data, "id");
-        this.loading = false;
-      });
+        const list = (response && response.data) || []
+        this.menuList = Array.isArray(list) && list.length ? this.handleTree(list, 'id') : []
+      }).catch(() => {
+        this.menuList = []
+        this.$message.error('加载菜单列表失败，请检查权限或稍后重试')
+      }).finally(() => {
+        this.loading = false
+      })
     },
     /** 转换菜单数据结构 */
     normalizer(node) {
@@ -322,12 +375,14 @@ export default {
         parentId: 0,
         name: undefined,
         icon: undefined,
+        styleId: undefined,
         type: SystemMenuTypeEnum.DIR,
         sort: undefined,
         status: CommonStatusEnum.ENABLE,
         visible: true,
         keepAlive: true,
         alwaysShow: true,
+        manualUrl: undefined,
       };
       this.resetForm("form");
     },
@@ -391,15 +446,21 @@ export default {
             }
           }
 
+          this.warnDuplicateMenuName()
+
           // 提交
-          if (this.form.id !== undefined) {
-            updateMenu(this.form).then(response => {
+          const payload = { ...this.form }
+          if (!checkFirstLevelMenu(payload.parentId)) {
+            payload.styleId = null
+          }
+          if (payload.id !== undefined) {
+            updateMenu(payload).then(response => {
               this.$modal.msgSuccess("修改成功");
               this.open = false;
               this.getList();
             });
           } else {
-            addMenu(this.form).then(response => {
+            addMenu(payload).then(response => {
               this.$modal.msgSuccess("新增成功");
               this.open = false;
               this.getList();
@@ -407,6 +468,26 @@ export default {
           }
         }
       });
+    },
+    /** 菜单重名提醒（不拦截保存） */
+    warnDuplicateMenuName() {
+      const { name, type, parentId, id } = this.form
+      if (!name) {
+        return
+      }
+      const flatMenus = flattenMenuTree(this.menuList)
+      const duplicate = flatMenus.some(menu => {
+        if (menu.id === id || menu.name !== name) {
+          return false
+        }
+        if (type === SystemMenuTypeEnum.BUTTON) {
+          return menu.type === type && menu.parentId === parentId
+        }
+        return menu.type === SystemMenuTypeEnum.DIR || menu.type === SystemMenuTypeEnum.MENU
+      })
+      if (duplicate) {
+        this.$modal.msgWarning('主系统已存在同名菜单，请注意区分')
+      }
     },
     /** 删除按钮操作 */
     handleDelete(row) {

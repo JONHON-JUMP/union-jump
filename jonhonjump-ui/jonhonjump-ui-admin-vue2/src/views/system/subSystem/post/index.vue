@@ -13,7 +13,7 @@
             style="margin-bottom: 20px"
           />
         </div>
-        <div class="head-container sub-system-list">
+        <div class="head-container sub-system-list" v-loading="clientsLoading">
           <div
             v-for="item in filteredClientList"
             :key="item.id"
@@ -27,12 +27,20 @@
               <el-tag size="mini" type="info">{{ item.postCount || 0 }} 岗位</el-tag>
             </div>
           </div>
-          <el-empty v-if="filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
         </div>
       </el-col>
 
       <!-- 岗位数据 -->
-      <el-col :span="20" :xs="24">
+      <el-col :span="20" :xs="24" v-loading="clientsLoading">
+        <el-alert
+          v-if="showSubSystemBindHint"
+          title="请先在左侧选择已登记的外部系统；关联系统信息后，才可新增/导入该系统下的岗位"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="mb8"
+        />
         <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
           <el-form-item label="岗位编码" prop="code">
             <el-input v-model="queryParams.code" placeholder="请输入岗位编码" clearable style="width: 240px"
@@ -57,6 +65,10 @@
           <el-col :span="1.5">
             <el-button type="primary" plain icon="el-icon-plus" size="mini" @click="handleAdd"
                        v-hasPermi="['sub-system:post:create']">新增</el-button>
+          </el-col>
+          <el-col :span="1.5">
+            <el-button type="info" plain icon="el-icon-upload2" size="mini" @click="handleImport"
+                       v-hasPermi="['sub-system:post:create']">导入</el-button>
           </el-col>
           <el-col :span="1.5">
             <el-button
@@ -131,6 +143,42 @@
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
+
+    <el-dialog :title="upload.title" :visible.sync="upload.open" width="400px" append-to-body>
+      <el-alert
+        :title="'当前系统：' + (selectedClient ? (selectedClient.name + ' (' + selectedClient.clientId + ')') : '未选择')"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+      <el-upload
+        ref="upload"
+        :limit="1"
+        accept=".xlsx, .xls"
+        :headers="upload.headers"
+        :action="uploadAction"
+        :disabled="upload.isUploading"
+        :on-progress="handleFileUploadProgress"
+        :on-success="handleFileSuccess"
+        :auto-upload="false"
+        drag
+      >
+        <i class="el-icon-upload"></i>
+        <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+        <div class="el-upload__tip text-center" slot="tip">
+          <div class="el-upload__tip">
+            <el-checkbox v-model="upload.updateSupport" /> 是否更新已存在的岗位（按岗位编码）
+          </div>
+          <span>仅允许 xls/xlsx。须先选择并确认关联外部系统。</span>
+          <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
+        </div>
+      </el-upload>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" @click="submitFileForm">确 定</el-button>
+        <el-button @click="upload.open = false">取 消</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -142,13 +190,17 @@ import {
   getSubSystemClientSimpleList,
   getSubSystemPost,
   getSubSystemPostPage,
+  importSubSystemPostTemplate,
   updateSubSystemPost
 } from '@/api/system/subSystemPost'
 import { CommonStatusEnum } from '@/utils/constants'
 import { DICT_TYPE, getDictDatas } from '@/utils/dict'
+import { getBaseHeader } from '@/utils/request'
+import subSystemImportGate from '@/utils/subSystemImportGate'
 
 export default {
   name: 'SubSystemPost',
+  mixins: [subSystemImportGate],
   data() {
     return {
       loading: false,
@@ -161,6 +213,13 @@ export default {
       title: '',
       open: false,
       checkedIds: [],
+      upload: {
+        open: false,
+        title: '',
+        isUploading: false,
+        updateSupport: false,
+        headers: getBaseHeader()
+      },
       queryParams: {
         pageNo: 1,
         pageSize: 10,
@@ -179,6 +238,13 @@ export default {
     }
   },
   computed: {
+    uploadAction() {
+      const id = this.selectedClient && this.selectedClient.id
+      const update = this.upload.updateSupport ? 'true' : 'false'
+      return process.env.VUE_APP_BASE_API + '/admin-api/system/sub-system-post/import'
+        + '?subSystemId=' + (id || '')
+        + '&updateSupport=' + update
+    },
     filteredClientList() {
       const keyword = (this.clientKeyword || '').trim().toLowerCase()
       if (!keyword) {
@@ -195,11 +261,16 @@ export default {
   },
   methods: {
     loadClientList() {
-      getSubSystemClientSimpleList().then(res => {
-        this.clientList = res.data || []
-        if (!this.selectedClient && this.clientList.length > 0) {
-          this.handleClientClick(this.clientList[0])
-        }
+      return this.withClientsLoading(() => {
+        return getSubSystemClientSimpleList().then(res => {
+          this.clientList = res.data || []
+          if (this.syncSelectedClientFromList()) {
+            return
+          }
+          if (!this.selectedClient && this.clientList.length > 0) {
+            this.handleClientClick(this.clientList[0])
+          }
+        })
       })
     },
     handleClientClick(item) {
@@ -252,13 +323,52 @@ export default {
       this.resetFormData()
     },
     handleAdd() {
-      if (!this.selectedClient) {
-        this.$modal.msgWarning('请先在左侧选择外部系统')
+      this.ensureSubSystemBoundBeforeAction('新增岗位', { requireConfirm: false }).then(() => {
+        this.resetFormData()
+        this.open = true
+        this.title = '添加外部系统岗位'
+      }).catch(() => {})
+    },
+    handleImport() {
+      this.ensureSubSystemBoundBeforeAction('导入').then(() => {
+        this.upload.title = '导入外部系统岗位 — ' + (this.selectedClient.name || '')
+        this.upload.open = true
+        this.upload.headers = getBaseHeader()
+      }).catch(() => {})
+    },
+    importTemplate() {
+      importSubSystemPostTemplate().then(response => {
+        this.$download.excel(response, '外部系统岗位导入模板.xls')
+      })
+    },
+    handleFileUploadProgress() {
+      this.upload.isUploading = true
+    },
+    handleFileSuccess(response) {
+      this.upload.open = false
+      this.upload.isUploading = false
+      if (this.$refs.upload) {
+        this.$refs.upload.clearFiles()
+      }
+      if (response.code !== 0) {
+        this.$modal.msgError(response.msg || '导入失败')
         return
       }
-      this.resetFormData()
-      this.open = true
-      this.title = '添加外部系统岗位'
+      const data = response.data || {}
+      let text = '新建：' + ((data.createKeys && data.createKeys.length) || 0)
+      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      text += '<br />更新：' + ((data.updateKeys && data.updateKeys.length) || 0)
+      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      const failMap = data.failureKeys || {}
+      const failKeys = Object.keys(failMap)
+      text += '<br />失败：' + failKeys.length
+      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + k + '：' + failMap[k] })
+      this.$alert(text, '导入结果', { dangerouslyUseHTMLString: true })
+      this.getList()
+      this.loadClientList()
+    },
+    submitFileForm() {
+      this.$refs.upload.submit()
     },
     handleUpdate(row) {
       this.resetFormData()

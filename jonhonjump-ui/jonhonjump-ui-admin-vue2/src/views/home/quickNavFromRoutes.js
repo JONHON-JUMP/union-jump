@@ -1,183 +1,86 @@
-import path from 'path'
-import { isExternal } from '@/utils/validate'
+import { resolveMenuIconFields } from '@/utils/menuIcon'
+import { resolveMenuColors } from '@/utils/menuIconStyle'
 
-const ICON_COLORS = [
-  '#4a90e2', '#52c41a', '#fa8c16', '#722ed1', '#13c2c2', '#eb2f96',
-  '#f5222d', '#2f54eb', '#fa541c', '#a0d911', '#1890ff', '#597ef7'
-]
-
-export { ICON_COLORS }
-
-const SKIP_TOP_PATHS = new Set([
-  '/redirect', '/login', '/sso', '/social-login', '/404', '/401',
-  '/user', '/dict', '/job', '/codegen'
-])
-
-function resolveRoutePath(routePath, basePath = '') {
-  if (isExternal(routePath)) {
-    return routePath
-  }
-  if (isExternal(basePath)) {
-    return basePath
-  }
-  if (!routePath) {
-    return basePath
-  }
-  return path.resolve(basePath, routePath)
+function isExternal(path) {
+  return typeof path === 'string' && /^(https?:|mailto:|tel:)/.test(path)
 }
 
-function isHomeAffixRoute(route) {
-  return route.meta && route.meta.affix && (route.path === 'index' || route.meta.title === '首页')
+function resolveRoutePath(basePath, routePath) {
+  if (!routePath) return basePath || '/'
+  if (isExternal(routePath) || routePath.charAt(0) === '/') return routePath
+  return `${basePath}/${routePath}`.replace(/\/+/g, '/')
 }
 
-function isPortalHomeRoute(route) {
-  return route.meta && route.meta.portalHome
-}
-
-import { resolvePortalMenuIcon } from '@/utils/portalMenuIcon'
-
-function toQuickNavItem(route, fullPath, color, group) {
-  const rawIcon = route.meta.icon || route.icon || ''
-  const resolved = resolvePortalMenuIcon(rawIcon, {
-    name: route.meta.title,
-    path: fullPath || route.path
-  })
-  const menuId = route.id || route.meta.menuId
-  return {
-    menuId,
-    name: route.meta.title,
-    group: group || '',
-    path: fullPath,
-    color,
-    external: isExternal(fullPath),
-    hasIcon: resolved.hasIcon,
-    svgIcon: resolved.svgIcon,
-    icon: resolved.icon
-  }
-}
-
-function isRouteDirectory(route) {
-  return !!(route.children && route.children.length)
-}
-
-/** ParentView 常与叶子同名，此类中间层不覆盖上级目录名 */
-function resolveNextGroup(route, currentGroup) {
-  if (!isRouteDirectory(route)) {
-    return currentGroup
-  }
+function toQuickNavItem(route, fullPath, group) {
   const title = route.meta && route.meta.title
-  if (!title) {
-    return currentGroup
+  const iconFields = resolveMenuIconFields((route.meta && route.meta.icon) || '', {
+    title,
+    path: fullPath
+  })
+  const { color, shape } = resolveMenuColors(route.meta || {})
+  return {
+    menuId: route.meta && route.meta.menuId,
+    manualUrl: route.meta && route.meta.manualUrl,
+    name: title,
+    subtitle: '',
+    path: fullPath,
+    svgIcon: iconFields.svgIcon,
+    icon: iconFields.icon,
+    color,
+    shape,
+    keywords: `${title} ${group}`,
+    external: isExternal(fullPath)
   }
-  const visibleChildren = route.children.filter(child => !child.hidden && child.meta && child.meta.title)
-  if (visibleChildren.length === 1) {
-    const child = visibleChildren[0]
-    if (child.meta.title === title && isRouteDirectory(child)) {
-      return currentGroup
-    }
-  }
-  return title
 }
 
-function collectMenuItems(routes, basePath = '', colorStart = 0, group = '') {
+function collectMenuItems(routes, basePath = '', group = '') {
   const items = []
-  if (!routes || !routes.length) {
-    return { items, nextColorIndex: colorStart }
-  }
-
-  let colorIndex = colorStart
+  if (!Array.isArray(routes)) return items
   routes.forEach(route => {
-    if (route.hidden || !route.meta || !route.meta.title) {
-      return
+    if (!route || route.hidden || route.path === '*' || route.path === '/404') return
+    const title = route.meta && route.meta.title
+    const fullPath = resolveRoutePath(basePath, route.path)
+    const hasChildren = route.children && route.children.length > 0
+    const nextGroup = title || group
+    if (title && fullPath !== '/index' && route.redirect !== 'noRedirect' && !hasChildren) {
+      items.push(toQuickNavItem(route, fullPath, group))
     }
-
-    const fullPath = resolveRoutePath(route.path, basePath)
-    if (isRouteDirectory(route)) {
-      const nextGroup = resolveNextGroup(route, group)
-      const childResult = collectMenuItems(route.children, fullPath, colorIndex, nextGroup)
-      items.push(...childResult.items)
-      colorIndex = childResult.nextColorIndex
-      return
+    if (hasChildren) {
+      items.push(...collectMenuItems(route.children, fullPath, nextGroup))
     }
-
-    if (isHomeAffixRoute(route) || isPortalHomeRoute(route)) {
-      return
-    }
-
-    items.push(toQuickNavItem(route, fullPath, ICON_COLORS[colorIndex % ICON_COLORS.length], group))
-    colorIndex++
   })
-
-  return { items, nextColorIndex: colorIndex }
-}
-
-function buildAllQuickNavItems(sidebarRouters) {
-  const items = []
-  if (!sidebarRouters || !sidebarRouters.length) {
-    return items
-  }
-
-  let colorIndex = 0
-  sidebarRouters.forEach(route => {
-    if (route.hidden) {
-      return
-    }
-
-    const topPath = route.path || ''
-    if (SKIP_TOP_PATHS.has(topPath)) {
-      return
-    }
-
-    if (topPath === '' && route.children && route.children.every(child => child.hidden || isHomeAffixRoute(child))) {
-      return
-    }
-
-    const basePath = topPath === '' ? '/' : topPath
-    const moduleGroup = route.meta && route.meta.title ? route.meta.title : ''
-    const result = collectMenuItems(route.children, basePath, colorIndex, moduleGroup)
-    items.push(...result.items)
-    colorIndex = result.nextColorIndex
-  })
-
   return items
 }
 
-/**
- * 根据用户已选 menuIds 构建扁平快捷导航列表（无分组）
- */
-export function buildQuickNavItems(sidebarRouters, menuIds) {
-  if (!menuIds || !menuIds.length) {
-    return []
-  }
-
-  const orderMap = new Map(menuIds.map((id, index) => [Number(id), index]))
-  return buildAllQuickNavItems(sidebarRouters)
-    .filter(item => item.menuId != null && orderMap.has(Number(item.menuId)))
-    .sort((a, b) => orderMap.get(Number(a.menuId)) - orderMap.get(Number(b.menuId)))
+export function buildQuickNavItems(routes, menuIds) {
+  const ids = Array.isArray(menuIds) ? menuIds : []
+  if (!ids.length) return []
+  const idSet = new Set(ids.map(id => Number(id)))
+  const all = collectMenuItems(routes)
+  const byId = new Map(all.filter(item => item.menuId != null).map(item => [Number(item.menuId), item]))
+  return ids.map(id => byId.get(Number(id))).filter(Boolean)
 }
 
-/**
- * 根据侧边栏菜单构建全部可快捷入口（用于门户首页切换子系统后的快捷应用）
- */
-export function buildSidebarQuickApps(sidebarRouters) {
-  return buildAllQuickNavItems(sidebarRouters)
+export function buildSidebarQuickApps(routes) {
+  return collectMenuItems(routes).slice(0, 12)
 }
 
-/**
- * 构建外部系统快捷导航列表
- */
-export function buildExternalNavItems(list) {
-  if (!list || !list.length) {
-    return []
-  }
-  return list.map((item, index) => ({
-    id: item.id,
-    subSystemId: item.subSystemId,
-    clientId: item.clientId,
-    name: item.clientName || item.clientId,
-    path: item.ssoUrl,
-    logo: item.logo,
-    color: ICON_COLORS[index % ICON_COLORS.length],
-    sso: true
-  }))
+export function buildExternalNavItems(items) {
+  if (!Array.isArray(items)) return []
+  return items.map((item, index) => {
+    const { color, shape } = resolveMenuColors(item)
+    return {
+      menuId: `external-${item.id != null ? item.id : index}`,
+      name: item.name || item.systemName || '外部系统',
+      subtitle: item.subtitle || '',
+      path: item.url || item.path || '',
+      svgIcon: null,
+      icon: item.icon || 'link',
+      color,
+      shape,
+      logo: item.logo,
+      keywords: item.name || '',
+      external: true
+    }
+  })
 }

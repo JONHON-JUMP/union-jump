@@ -3,37 +3,28 @@ package cn.jonhon.jump.module.system.controller.admin.user;
 
 
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
-
 import cn.jonhon.jump.framework.common.pojo.PageResult;
-
+import cn.jonhon.jump.framework.excel.core.util.ExcelUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
-
+import cn.jonhon.jump.module.system.service.user.SubSystemUserImportService;
 import cn.jonhon.jump.module.system.service.user.SubSystemUsersService;
-
 import io.swagger.v3.oas.annotations.Operation;
-
 import io.swagger.v3.oas.annotations.Parameter;
-
+import io.swagger.v3.oas.annotations.Parameters;
 import io.swagger.v3.oas.annotations.tags.Tag;
-
 import org.springframework.security.access.prepost.PreAuthorize;
-
 import org.springframework.validation.annotation.Validated;
-
 import org.springframework.web.bind.annotation.*;
-
-
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
-
+import javax.servlet.http.HttpServletResponse;
 import javax.validation.Valid;
-
+import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 
-
-
 import static cn.jonhon.jump.framework.common.pojo.CommonResult.success;
-
 import static cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
 
 
@@ -51,8 +42,10 @@ public class SubSystemUsersController {
 
 
     @Resource
-
     private SubSystemUsersService subSystemUsersService;
+
+    @Resource
+    private SubSystemUserImportService subSystemUserImportService;
 
 
 
@@ -95,6 +88,54 @@ public class SubSystemUsersController {
     public CommonResult<SubSystemUsersRespVO> getSubSystemUser(@RequestParam("id") Long id) {
 
         return success(subSystemUsersService.getSubSystemUser(id));
+
+    }
+
+
+
+    @GetMapping("/get-by-username")
+
+    @Operation(summary = "按用户名获得外部系统用户")
+
+    @Parameters({
+
+            @Parameter(name = "subSystemId", description = "外部系统编号", required = true),
+
+            @Parameter(name = "username", description = "子系统用户名", required = true)
+
+    })
+
+    @PreAuthorize("@ss.hasPermission('sub-system:user:list')")
+
+    public CommonResult<SubSystemUsersRespVO> getByUsername(@RequestParam("subSystemId") Long subSystemId,
+
+                                                            @RequestParam("username") String username) {
+
+        return success(subSystemUsersService.getBySubSystemIdAndUsername(subSystemId, username));
+
+    }
+
+
+
+    @PostMapping("/bind-main-user")
+
+    @Operation(summary = "挂接主系统用户到外部系统同名用户")
+
+    @Parameters({
+
+            @Parameter(name = "subSystemId", description = "外部系统编号", required = true),
+
+            @Parameter(name = "mainUserId", description = "主系统用户编号", required = true)
+
+    })
+
+    @PreAuthorize("@ss.hasPermission('sub-system:user:create')")
+
+    public CommonResult<Long> bindMainUser(@RequestParam("subSystemId") Long subSystemId,
+
+                                           @RequestParam("mainUserId") Long mainUserId) {
+
+        return success(subSystemUsersService.bindMainUser(subSystemId, mainUserId));
 
     }
 
@@ -282,6 +323,41 @@ public class SubSystemUsersController {
     public CommonResult<List<SubSystemPortalMenuRespVO>> getMyPortalMenus(
             @RequestParam("subSystemId") Long subSystemId) {
         return success(subSystemUsersService.getMyPortalMenus(getLoginUserId(), subSystemId));
+    }
+
+    @GetMapping("/get-import-template")
+    @Operation(summary = "下载子系统用户导入模板")
+    @PreAuthorize("@ss.hasPermission('sub-system:user:create')")
+    public void importTemplate(HttpServletResponse response) throws IOException {
+        List<SubSystemUserImportExcelVO> list = Arrays.asList(
+                SubSystemUserImportExcelVO.builder()
+                        .username("zhangsan")
+                        .nickname("张三")
+                        .workshopId("WS01")
+                        .teamId("T01")
+                        .roleCodes("common")
+                        .status("0")
+                        .remark("示例：按用户名导入子系统花名册，可不关联主系统用户")
+                        .build()
+        );
+        ExcelUtils.write(response, "子系统用户导入模板.xls", "用户花名册", SubSystemUserImportExcelVO.class, list);
+    }
+
+    @PostMapping("/import")
+    @Operation(summary = "导入子系统用户（须先选择已登记外部系统）")
+    @Parameters({
+            @Parameter(name = "subSystemId", description = "已登记外部系统编号", required = true),
+            @Parameter(name = "file", description = "Excel 文件", required = true),
+            @Parameter(name = "updateSupport", description = "是否更新已绑定用户", example = "false")
+    })
+    @PreAuthorize("@ss.hasPermission('sub-system:user:create')")
+    public CommonResult<SubSystemUserImportRespVO> importExcel(
+            @RequestParam("subSystemId") Long subSystemId,
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "updateSupport", required = false, defaultValue = "false") Boolean updateSupport
+    ) throws Exception {
+        List<SubSystemUserImportExcelVO> list = ExcelUtils.read(file, SubSystemUserImportExcelVO.class);
+        return success(subSystemUserImportService.importUserList(subSystemId, list, Boolean.TRUE.equals(updateSupport)));
     }
 
 }

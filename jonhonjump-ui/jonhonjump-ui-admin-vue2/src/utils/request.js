@@ -3,7 +3,8 @@ import {Message, MessageBox, Notification} from 'element-ui'
 import store from '@/store'
 import {getAccessToken, getRefreshToken, getTenantId, setToken, getVisitTenantId} from '@/utils/auth'
 import errorCode from '@/utils/errorCode'
-import {getPath, getTenantEnable} from "@/utils/ruoyi";
+import {getTenantEnable} from "@/utils/ruoyi";
+import { redirectToLogin } from "@/utils/switchUser";
 import {refreshToken} from "@/api/login";
 import { ApiEncrypt } from '@/utils/encrypt'
 
@@ -33,6 +34,10 @@ const service = axios.create({
 })
 // request拦截器
 service.interceptors.request.use(config => {
+  // 是否静默失败（工作台等场景：无权限时不弹全局错误）
+  if ((config.headers || {}).isSilent === true) {
+    config.isSilent = true
+  }
   // 是否需要设置 token
   const isToken = (config.headers || {}).isToken === false
   if (getAccessToken() && !isToken) {
@@ -191,7 +196,7 @@ service.interceptors.response.use(async res => {
   } else if (code !== 200) {
     if (msg === '无效的刷新令牌') { // hard coding：忽略这个提示，直接登出
       console.log(msg)
-    } else {
+    } else if (!res.config.isSilent) {
       Notification.error({
         title: msg
       })
@@ -210,11 +215,13 @@ service.interceptors.response.use(async res => {
     } else if (message.includes("Request failed with status code")) {
       message = "系统接口" + message.substr(message.length - 3) + "异常";
     }
-    Message({
-      message: message,
-      type: 'error',
-      duration: 5 * 1000
-    })
+    if (!(error.config && error.config.isSilent)) {
+      Message({
+        message: message,
+        type: 'error',
+        duration: 5 * 1000
+      })
+    }
     return Promise.reject(error)
   }
 )
@@ -244,7 +251,7 @@ function handleAuthorized() {
     ).then(() => {
       isRelogin.show = false;
       store.dispatch('LogOut').then(() => {
-        location.href = getPath('/index');
+        redirectToLogin(window.location.pathname + window.location.search);
       })
     }).catch(() => {
       isRelogin.show = false;

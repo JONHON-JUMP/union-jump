@@ -72,6 +72,10 @@ public class MenuDO extends BaseDO {
      */
     private String icon;
     /**
+     * 菜单样式编号，关联 system_menu_style.id
+     */
+    private Long styleId;
+    /**
      * 组件路径
      */
     private String component;
@@ -105,5 +109,10 @@ public class MenuDO extends BaseDO {
      * 如果为 false 时，当该菜单只有一个子菜单时，不展示自己，直接展示子菜单
      */
     private Boolean alwaysShow;
+
+    /**
+     * 菜单说明书文件地址（可选）
+     */
+    private String manualUrl;
 
 }

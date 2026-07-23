@@ -174,3 +174,32 @@ export function normalizeSubsystemIframeLink(link, clientId) {
   }
   return link
 }
+
+/**
+ * pathLinkMap 中菜单 canonical 路径以 /index 结尾，无 /index 的为别名。
+ * 访问别名时重定向到 canonical，保证 PortalFrame 与 iframe 链接一致。
+ */
+export function shouldNormalizePortalPath(path, pathLinkMap) {
+  if (!path || !pathLinkMap || !pathLinkMap[path]) {
+    return false
+  }
+  if (path.endsWith('/index')) {
+    return false
+  }
+  const canonical = `${path.replace(/\/$/, '')}/index`
+  return !!pathLinkMap[canonical]
+}
+
+export function resolveCanonicalPortalPath(path, pathLinkMap) {
+  if (!path) {
+    return path
+  }
+  if (path.endsWith('/index') && pathLinkMap && pathLinkMap[path]) {
+    return path
+  }
+  const canonical = `${path.replace(/\/$/, '')}/index`
+  if (pathLinkMap && pathLinkMap[canonical]) {
+    return canonical
+  }
+  return path
+}

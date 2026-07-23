@@ -21,22 +21,19 @@ public class SubSystemUsersPageReqVO extends PageParam {
     @Schema(description = "主数据人员 ID", example = "1")
     private Long mainUserId;
 
+    @Schema(description = "用户名", example = "zhangsan")
+    private String username;
+
     @Schema(description = "车间编号", example = "WS01")
     private String workshopId;
 
     @Schema(description = "班组名称", example = "一车间甲班")
     private String teamName;
 
-    @Schema(description = "用户昵称", example = "张三")
+    @Schema(description = "用户姓名", example = "张三")
     private String nickname;
 
-    @Schema(description = "工号", example = "E001234")
-    private String employeeNo;
-
-    @Schema(description = "域账号", example = "zhangsan")
-    private String domainNo;
-
-    @Schema(description = "状态（0正常 1禁用）", example = "0")
+    @Schema(description = "展示状态：unlinked未关联 / 0正常 / 1禁用（未关联按 main_user_id 为空判断）", example = "0")
     private String status;
 
     @Schema(description = "创建时间")

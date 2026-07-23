@@ -1,8 +1,9 @@
 import router from './router'
 import store from './store'
 import { Message } from 'element-ui'
-import { parsePortalClientId, parseLegacyPortalSubSystemId, resolvePortalFrameRoute, isPortalSubSystemHomePath, isSubSystemAllowedPath } from '@/utils/portalRoute'
+import { parsePortalClientId, parseLegacyPortalSubSystemId, resolvePortalFrameRoute, isPortalSubSystemHomePath, isSubSystemAllowedPath, isMainBusinessPath, resolveCanonicalPortalPath, shouldNormalizePortalPath } from '@/utils/portalRoute'
 import { syncPortalIframeView } from '@/utils/portalIframe'
+import { loadMenuStyleDefault } from '@/utils/menuIconStyle'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
 import { getAccessToken } from '@/utils/auth'
@@ -12,6 +13,16 @@ NProgress.configure({ showSpinner: false })
 
 // 增加三方登陆 update by 芋艿
 const whiteList = ['/login', '/social-login',  '/auth-redirect', '/bind', '/register', '/oauthLogin/gitee']
+
+function isLoginPath(path) {
+  return path === '/login' || path === '/login/' || path.indexOf('/login/') === 0
+}
+
+function redirectToStaticLogin(fullPath) {
+  const redirect = encodeURIComponent(fullPath)
+  window.location.href = `/login/?redirect=${redirect}`
+  NProgress.done()
+}
 
 
 function tryRedirectLegacyPortalPath(to, next) {
@@ -38,35 +49,60 @@ function tryRedirectLegacyPortalPath(to, next) {
   return store.dispatch('portal/loadSystemList').then(() => redirect())
 }
 
+function finishPortalNavigation(to, next) {
+  if (isPortalSubSystemHomePath(to.path)) {
+    next({ path: '/index', replace: true })
+    return true
+  }
+  const pathLinkMap = store.state.portal.pathLinkMap
+  if (shouldNormalizePortalPath(to.path, pathLinkMap)) {
+    next({
+      path: resolveCanonicalPortalPath(to.path, pathLinkMap),
+      query: to.query,
+      hash: to.hash,
+      replace: true
+    })
+    return true
+  }
+  next()
+  return true
+}
+
 function ensurePortalAccess(to, next) {
   const clientId = parsePortalClientId(to.path)
   if (!clientId) {
     return Promise.resolve(false)
   }
   const portalState = store.state.portal
-  const finish = () => {
-    if (isPortalSubSystemHomePath(to.path)) {
-      next({ path: '/index', replace: true })
-      return true
-    }
-    next()
-    return true
+  const menusReady = !!portalState.loadedSubSystems[clientId]
+  const enter = () => {
+    return store.dispatch('portal/ensureSubSystemReady', clientId).then(() => {
+      // 菜单加载期间若用户已切到其他系统，取消进入，避免抢壳
+      if (store.state.portal.currentSystem !== clientId) {
+        next({ path: '/index', replace: true })
+        return true
+      }
+      return finishPortalNavigation(to, next)
+    })
   }
-  if (portalState.loadedSubSystems[clientId] && portalState.currentSystem === clientId) {
-    return store.dispatch('portal/activateSubSystem', clientId).then(() => finish()).catch(err => {
+  if (menusReady) {
+    return enter().catch(err => {
       Message.error(typeof err === 'string' ? err : (err.message || '无法进入外部系统'))
       next('/index')
       return true
     })
   }
-  return store.dispatch('portal/enterSubSystem', { clientId, navigate: false }).then(() => {
-    if (isPortalSubSystemHomePath(to.path)) {
-      next({ path: '/index', replace: true })
-      return true
-    }
-    next({ ...to, replace: true })
+  const loading = Message({
+    message: '加载子系统菜单，请稍候…',
+    type: 'info',
+    duration: 0,
+    showClose: false
+  })
+  return enter().then(() => {
+    loading.close()
     return true
   }).catch(err => {
+    loading.close()
     Message.error(typeof err === 'string' ? err : (err.message || '无法进入外部系统'))
     next('/index')
     return true
@@ -147,7 +183,22 @@ function enforceSystemScope(to, next) {
   if (isSubSystemAllowedPath(to.path, currentSystem)) {
     return Promise.resolve(false)
   }
-  Message.warning('当前为子系统模式，请从门户首页选择应用进入')
+  if (isMainBusinessPath(to.path)) {
+    return store.dispatch('portal/switchSystem', {
+      system: 'main',
+      skipNavigate: true
+    }).then(() => {
+      next({ ...to, replace: true })
+      NProgress.done()
+      return Promise.resolve(true)
+    }).catch(err => {
+      Message.error(typeof err === 'string' ? err : (err.message || '切换主系统失败'))
+      next({ path: '/index', replace: true })
+      NProgress.done()
+      return Promise.resolve(true)
+    })
+  }
+      Message.warning('当前为子系统模式，请从门户首页选择应用进入')
   next({ path: '/index', replace: true })
   NProgress.done()
   return Promise.resolve(true)
@@ -158,6 +209,7 @@ function ensurePortalBootstrap() {
 }
 
 function continueNavigation(to, from, next) {
+  // 必须等 bootstrap 切壳完成后再放行，避免先按错误系统渲染再跳
   ensurePortalBootstrap().then(() => {
     clearDockOnPortalHome(to, from).then(() => {
       return enforceSystemScope(to, next)
@@ -185,35 +237,46 @@ router.beforeEach((to, from, next) => {
     const portalRoute = resolvePortalFrameRoute(to, store.state.portal.pathLinkMap)
     portalRoute.meta.title && store.dispatch('settings/setTitle', portalRoute.meta.title)
     /* has token*/
-    if (to.path === '/login') {
-      next({ path: '/' })
+    if (isLoginPath(to.path)) {
+      window.location.href = to.query.redirect ? decodeURIComponent(to.query.redirect) : '/'
       NProgress.done()
     } else {
       if (store.getters.roles.length === 0) {
         isRelogin.show = true
-        // 获取字典数据 add by 芋艿
-        store.dispatch('dict/loadDictDatas')
         // 判断当前用户是否已拉取完 user_info 信息
-        store.dispatch('GetInfo').then(userInfo => {
+        // 轻量 GetInfo（无主菜单树）→ 先进门户；主菜单仅进主系统或后台 Redis 预热
+        store.dispatch('GetInfo', { includeMenus: false }).then(() => {
+          loadMenuStyleDefault()
           isRelogin.show = false
-          // 触发 GenerateRoutes 事件时，将 menus 菜单树传递进去
-          store.dispatch('GenerateRoutes', userInfo.menus).then(accessRoutes => {
-            // 根据 roles 权限生成可访问的路由表
-            router.addRoutes(accessRoutes) // 动态添加可访问路由表
-            store.dispatch('portal/ensureMainSidebarCached')
-            store.dispatch('portal/bootstrapAfterAuth').then(() => {
+
+          const finishNavigation = () => {
+            enforceSystemScope(to, next).then(scopeHandled => {
+              if (scopeHandled) {
+                return
+              }
               portalNavigation(to, next).then(handled => {
                 if (!handled) {
-                  next({ ...to, replace: true }) // hack方法 确保addRoutes已完成
+                  next({ ...to, replace: true })
                 }
               })
             })
+          }
+
+          // 先等壳切换完成再放行，避免快捷导航先按错误系统渲染再跳
+          ensurePortalBootstrap().finally(() => {
+            const needMainMenusNow = isMainBusinessPath(to.path) && !parsePortalClientId(to.path)
+            if (needMainMenusNow) {
+              // 刷新落在主业务页：必须现在拉主菜单（可打库）
+              store.dispatch('LoadMainMenus', { redisOnly: false }).then(() => finishNavigation()).catch(() => finishNavigation())
+            } else {
+              finishNavigation()
+            }
           })
         }).catch(err => {
           isRelogin.show = false
           store.dispatch('LogOut').then(() => {
             Message.error(typeof err === 'string' ? err : '登录状态异常，请重新登录')
-            next({ path: '/login', replace: true })
+            redirectToStaticLogin(to.fullPath)
           })
         })
       } else {
@@ -222,13 +285,14 @@ router.beforeEach((to, from, next) => {
     }
   } else {
     // 没有token
-    if (whiteList.indexOf(to.path) !== -1) {
-      // 在免登录白名单，直接进入
+    if (isLoginPath(to.path) || whiteList.indexOf(to.path) !== -1) {
+      // 进登录页清门户会话，避免未走 LogOut 时残留 last_system，登录后跳过星标默认
+      if (isLoginPath(to.path)) {
+        store.commit('portal/RESET_PORTAL')
+      }
       next()
     } else {
-      const redirect = encodeURIComponent(to.fullPath) // 编码 URI，保证参数跳转回去后，可以继续带上
-      next(`/login?redirect=${redirect}`) // 否则全部重定向到登录页
-      NProgress.done()
+      redirectToStaticLogin(to.fullPath)
     }
   }
 })
@@ -237,6 +301,17 @@ router.afterEach((to) => {
   if (store.state.portal.iframeSyncSuspended) {
     NProgress.done()
     return
+  }
+  const clientId = parsePortalClientId(to.path)
+  if (clientId && (to.name === 'PortalFrame' || to.name === 'PortalFrameLegacy')) {
+    const pathLinkMap = store.state.portal.pathLinkMap
+    if (shouldNormalizePortalPath(to.path, pathLinkMap)) {
+      router.replace({
+        path: resolveCanonicalPortalPath(to.path, pathLinkMap),
+        query: to.query,
+        hash: to.hash
+      }).catch(() => {})
+    }
   }
   const route = resolvePortalFrameRoute(to, store.state.portal.pathLinkMap)
   syncPortalIframeView(store, to)

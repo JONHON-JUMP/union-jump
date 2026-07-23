@@ -86,3 +86,12 @@ export function assignSubSystemRoleDataScope(data) {
     data: data
   })
 }
+
+/** 下载外部系统角色导入模板 */
+export function importSubSystemRoleTemplate() {
+  return request({
+    url: '/system/sub-system-role/get-import-template',
+    method: 'get',
+    responseType: 'blob'
+  })
+}

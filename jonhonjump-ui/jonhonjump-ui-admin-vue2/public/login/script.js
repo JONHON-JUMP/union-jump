@@ -1,32 +1,58 @@
 /**
- * login_mian 登录页脚本 — 对接 JUMP 后端
+ * login 静态登录页 — 对接 JUMP 后端（与 Vue auth 存储键一致）
+ * 现场模式：Token 使用 sessionStorage，关闭浏览器即失效
  */
 (function () {
-  var STORAGE_ACCOUNT = 'USERNAME'
-  var STORAGE_PASSWORD = 'PASSWORD'
-  var STORAGE_REMEMBER = 'REMEMBER_ME'
   var STORAGE_TOKEN = 'ACCESS_TOKEN'
   var STORAGE_REFRESH = 'REFRESH_TOKEN'
   var STORAGE_TENANT = 'TENANT_ID'
+  var tokenStorage = window.sessionStorage
 
   var config = window.LOGIN_CONFIG || {}
   var params = new URLSearchParams(window.location.search)
-  var apiBase = config.apiBase || params.get('api') || ''
   var portalUrl = config.portalUrl || params.get('redirect') || '/'
 
   var state = { loading: false, showPassword: false }
 
-  document.addEventListener('DOMContentLoaded', function () {
-    var particleCanvas = document.getElementById('particle-canvas')
-    if (particleCanvas && window.ParticleNetwork) {
-      new window.ParticleNetwork(particleCanvas, particleCanvas.parentElement)
+  function getApiBase() {
+    if (config.apiBase) {
+      return String(config.apiBase).replace(/\/$/, '')
     }
+    var qsApi = params.get('api')
+    if (qsApi) {
+      return qsApi.replace(/\/$/, '')
+    }
+    var loc = window.location
+    var isLocalHost = loc.hostname === 'localhost' || loc.hostname === '127.0.0.1'
+    if (isLocalHost && (loc.port === '80' || loc.port === '' || loc.port === '8080')) {
+      return 'http://localhost:48080'
+    }
+    return loc.origin
+  }
+
+  function resolveApiUrl(path) {
+    return getApiBase() + path
+  }
+
+  ;['ACCESS_TOKEN', 'REFRESH_TOKEN', 'PASSWORD', 'REMEMBER_ME'].forEach(function (key) {
+    localStorage.removeItem(key)
+  })
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (tokenStorage.getItem(STORAGE_TOKEN)) {
+      // 已登录误进登录页：直接回门户，勿清 portal_last_system（否则刷新保持被毁掉）
+      window.location.href = portalUrl
+      return
+    }
+    // 真正要重新登录：清门户会话，首进走星标默认
+    ;['portal_last_system', 'portal_subsystem_cache', 'portal_sso_done', 'portal_quick_nav_cache_v1'].forEach(function (key) {
+      try { sessionStorage.removeItem(key) } catch (e) { /* ignore */ }
+    })
 
     var els = {
       form: document.getElementById('login-form'),
       account: document.getElementById('username'),
       password: document.getElementById('password'),
-      rememberMe: document.getElementById('remember'),
       errorBox: document.getElementById('error-box'),
       loginBtn: document.getElementById('login-btn'),
       btnText: document.querySelector('#login-btn .btn-text'),
@@ -34,8 +60,7 @@
       toggleBtn: document.getElementById('toggle-password')
     }
 
-    localStorage.setItem(STORAGE_TENANT, '1')
-    restoreRemembered(els)
+    sessionStorage.setItem(STORAGE_TENANT, '1')
 
     if (els.toggleBtn) {
       els.toggleBtn.addEventListener('click', function () {
@@ -64,24 +89,18 @@
         hasError = true
       }
       if (hasError) {
-        showError('请输入用户名/工号/域账号和密码')
+        showError('请输入工号/域账号和密码')
         return
       }
       setLoading(true)
       loginRequest(account, password).then(function (token) {
         saveToken(token)
-        persistRemembered(els, account, password)
         window.location.href = portalUrl
       }).catch(function (error) {
         setLoading(false)
-        showError(error.message || '登录失败')
+        showError(error.message || '登录失败，请检查账号和密码')
       })
     })
-
-    function resolveApiUrl(path) {
-      var base = apiBase || window.location.origin
-      return base.replace(/\/$/, '') + path
-    }
 
     function showError(message) {
       if (!els.errorBox) return
@@ -109,50 +128,56 @@
       setTimeout(function () { group.classList.remove('shake') }, 500)
     }
 
-    function restoreRemembered(els) {
-      var remembered = localStorage.getItem(STORAGE_REMEMBER) === 'true'
-      els.rememberMe.checked = remembered
-      if (remembered) {
-        els.account.value = localStorage.getItem(STORAGE_ACCOUNT) || ''
-      }
-    }
-
-    function persistRemembered(els, account) {
-      if (els.rememberMe.checked) {
-        localStorage.setItem(STORAGE_REMEMBER, 'true')
-        localStorage.setItem(STORAGE_ACCOUNT, account)
-      } else {
-        localStorage.removeItem(STORAGE_REMEMBER)
-        localStorage.removeItem(STORAGE_ACCOUNT)
-        localStorage.removeItem(STORAGE_PASSWORD)
-      }
-    }
-
     function saveToken(data) {
-      localStorage.setItem(STORAGE_TOKEN, data.accessToken)
-      localStorage.setItem(STORAGE_REFRESH, data.refreshToken)
+      tokenStorage.setItem(STORAGE_TOKEN, data.accessToken)
+      tokenStorage.setItem(STORAGE_REFRESH, data.refreshToken)
     }
 
     function loginRequest(account, password) {
-      return fetch(resolveApiUrl('/admin-api/system/auth/login'), {
+      var controller = typeof AbortController !== 'undefined' ? new AbortController() : null
+      var timer = null
+      var fetchPromise = fetch(resolveApiUrl('/admin-api/system/auth/login'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'tenant-id': localStorage.getItem(STORAGE_TENANT) || '1'
+          'tenant-id': sessionStorage.getItem(STORAGE_TENANT) || '1'
         },
         body: JSON.stringify({
           loginType: 'auto',
           username: account,
           password: password,
           captchaVerification: ''
-        })
+        }),
+        signal: controller ? controller.signal : undefined
       }).then(function (response) {
-        return response.json().then(function (result) {
+        return response.text().then(function (text) {
+          var result
+          try {
+            result = JSON.parse(text)
+          } catch (e) {
+            throw new Error('无法连接登录服务，请确认后端已启动且 API 代理配置正确')
+          }
           if (!response.ok || result.code !== 0) {
             throw new Error(result.msg || '登录失败，请检查账号和密码')
           }
           return result.data
         })
+      })
+      if (!controller) {
+        return fetchPromise
+      }
+      var timeoutPromise = new Promise(function (_, reject) {
+        timer = setTimeout(function () {
+          try { controller.abort() } catch (e) { /* ignore */ }
+          reject(new Error('登录超时（15秒），请检查网络或后端是否正常'))
+        }, 15000)
+      })
+      return Promise.race([fetchPromise, timeoutPromise]).then(function (data) {
+        if (timer) clearTimeout(timer)
+        return data
+      }, function (err) {
+        if (timer) clearTimeout(timer)
+        throw err
       })
     }
   })

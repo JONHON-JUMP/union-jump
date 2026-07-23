@@ -17,6 +17,21 @@ public interface AdminUserMapper extends BaseMapperX<AdminUserDO> {
         return selectOne(AdminUserDO::getUsername, username);
     }
 
+    default AdminUserDO selectByUserUid(String userUid) {
+        return selectOne(AdminUserDO::getUserUid, userUid);
+    }
+
+    /**
+     * 取某秒前缀下最大的 user_uid，用于同秒三位流水递增
+     */
+    default String selectMaxUserUidByPrefix(String prefix) {
+        List<AdminUserDO> list = selectList(new LambdaQueryWrapperX<AdminUserDO>()
+                .likeRight(AdminUserDO::getUserUid, prefix)
+                .orderByDesc(AdminUserDO::getUserUid)
+                .last("LIMIT 1"));
+        return list == null || list.isEmpty() ? null : list.get(0).getUserUid();
+    }
+
     default AdminUserDO selectByEmail(String email) {
         return selectOne(AdminUserDO::getEmail, email);
     }
@@ -36,7 +51,8 @@ public interface AdminUserMapper extends BaseMapperX<AdminUserDO> {
     default PageResult<AdminUserDO> selectPage(UserPageReqVO reqVO, Collection<Long> deptIds, Collection<Long> userIds) {
         return selectPage(reqVO, new LambdaQueryWrapperX<AdminUserDO>()
                 .likeIfPresent(AdminUserDO::getUsername, reqVO.getUsername())
-                .likeIfPresent(AdminUserDO::getMobile, reqVO.getMobile())
+                .likeIfPresent(AdminUserDO::getEmployeeNo, reqVO.getEmployeeNo())
+                .likeIfPresent(AdminUserDO::getDomainNo, reqVO.getDomainNo())
                 .eqIfPresent(AdminUserDO::getStatus, reqVO.getStatus())
                 .betweenIfPresent(AdminUserDO::getCreateTime, reqVO.getCreateTime())
                 .inIfPresent(AdminUserDO::getDeptId, deptIds)

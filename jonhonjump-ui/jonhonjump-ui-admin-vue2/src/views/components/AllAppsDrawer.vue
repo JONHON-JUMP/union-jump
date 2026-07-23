@@ -2,7 +2,7 @@
   <el-drawer
     :visible="visible"
     direction="btt"
-    size="82%"
+    size="100%"
     :append-to-body="true"
     :with-header="false"
     :close-on-press-escape="!activeFolder"
@@ -19,7 +19,6 @@
           <span class="drawer-heading__mark"><i class="el-icon-menu" /></span>
           <div>
             <h2>全部应用</h2>
-            <p>按业务分类查看当前账号的授权入口</p>
           </div>
         </div>
 
@@ -31,7 +30,7 @@
               v-model.trim="keyword"
               type="search"
               aria-label="搜索应用"
-              placeholder="搜索一级、二级或三级菜单"
+              placeholder="搜索应用"
               @keydown.esc.stop="handleEscape"
             >
             <button
@@ -85,25 +84,58 @@
           <div class="content-heading">
             <div>
               <h3>{{ contentTitle }}</h3>
-              <p>{{ contentDescription }}</p>
             </div>
             <span>{{ displayedItems.length }} 个入口</span>
           </div>
 
           <div
             v-if="displayedItems.length"
-            class="apps-grid"
+            :class="keyword ? 'search-results' : 'apps-grid'"
           >
-            <div
-              v-for="item in displayedItems"
-              :key="item.key"
-              class="app-tile-wrap"
-              :class="{ 'is-folder': item.type === 'folder' }"
-            >
+            <template v-if="keyword">
+              <button
+                v-for="item in displayedItems"
+                :key="item.key"
+                type="button"
+                class="search-result"
+                @click="openLeaf(item)"
+                @mousedown="handleItemPressStart($event, item)"
+                @touchstart.passive="handleItemPressStart($event, item)"
+                @touchmove.passive="handleItemPressMove"
+                @touchend="handleItemPressEnd"
+                @touchcancel="handleItemPressEnd"
+                @contextmenu.prevent
+              >
+                <span
+                  class="search-result__icon"
+                  :style="iconStyle(item)"
+                >
+                  <svg-icon :icon-class="item.icon" />
+                </span>
+                <span class="search-result__copy">
+                  <strong>{{ item.name }}</strong>
+                  <small>{{ item.subtitle || item.groupName || '授权应用' }}</small>
+                </span>
+                <i class="el-icon-arrow-right" />
+              </button>
+            </template>
+            <template v-else>
+              <div
+                v-for="item in displayedItems"
+                :key="item.key"
+                class="app-tile-wrap"
+                :class="{ 'is-folder': item.type === 'folder' }"
+              >
               <button
                 type="button"
                 class="app-tile"
                 @click="activateItem(item, $event)"
+                @mousedown="handleLeafPressStart($event, item)"
+                @touchstart.passive="handleLeafPressStart($event, item)"
+                @touchmove.passive="handleItemPressMove"
+                @touchend="handleItemPressEnd"
+                @touchcancel="handleItemPressEnd"
+                @contextmenu.prevent
               >
                 <span
                   v-if="item.type === 'folder'"
@@ -132,20 +164,20 @@
                   <svg-icon :icon-class="item.icon" />
                 </span>
                 <strong>{{ item.name }}</strong>
-                <small>{{ item.type === 'folder' ? '文件夹 · ' + item.children.length + ' 项' : '授权应用' }}</small>
               </button>
               <button
-                v-if="item.type !== 'folder'"
+                v-if="item.type !== 'folder' && item.menuId != null && !(isInQuickNav(item) && isQuickNavLocked(item))"
                 class="pin-app"
-                :class="{ pinned: isPinned(item) }"
+                :class="{ pinned: isInQuickNav(item) }"
                 type="button"
-                :aria-label="isPinned(item) ? '取消固定' + item.name : '固定' + item.name + '到首页'"
-                :title="isPinned(item) ? '取消固定到首页' : '固定到首页'"
-                @click.stop="togglePin(item)"
+                :aria-label="isInQuickNav(item) ? '取消快捷导航：' + item.name : '加入快捷导航：' + item.name"
+                :title="isInQuickNav(item) ? '取消快捷导航' : '加入快捷导航'"
+                @click.stop="toggleQuickNav(item)"
               >
-                <i :class="isPinned(item) ? 'el-icon-star-on' : 'el-icon-star-off'" />
+                <i :class="isInQuickNav(item) ? 'el-icon-star-on' : 'el-icon-star-off'" />
               </button>
             </div>
+            </template>
           </div>
 
           <div
@@ -216,6 +248,12 @@
                   type="button"
                   class="folder-leaf"
                   @click="openLeaf(leaf)"
+                  @mousedown="handleItemPressStart($event, leaf)"
+                  @touchstart.passive="handleItemPressStart($event, leaf)"
+                  @touchmove.passive="handleItemPressMove"
+                  @touchend="handleItemPressEnd"
+                  @touchcancel="handleItemPressEnd"
+                  @contextmenu.prevent
                 >
                   <span
                     class="folder-leaf__icon"
@@ -227,19 +265,37 @@
                   <strong>{{ leaf.name }}</strong>
                 </button>
                 <button
+                  v-if="leaf.menuId != null && !(isInQuickNav(leaf) && isQuickNavLocked(leaf))"
                   class="pin-app pin-app--folder"
-                  :class="{ pinned: isPinned(leaf) }"
+                  :class="{ pinned: isInQuickNav(leaf) }"
                   type="button"
-                  :aria-label="isPinned(leaf) ? '取消固定' + leaf.name : '固定' + leaf.name + '到首页'"
-                  @click.stop="togglePin(leaf)"
+                  :aria-label="isInQuickNav(leaf) ? '取消快捷导航：' + leaf.name : '加入快捷导航：' + leaf.name"
+                  :title="isInQuickNav(leaf) ? '取消快捷导航' : '加入快捷导航'"
+                  @click.stop="toggleQuickNav(leaf)"
                 >
-                  <i :class="isPinned(leaf) ? 'el-icon-star-on' : 'el-icon-star-off'" />
+                  <i :class="isInQuickNav(leaf) ? 'el-icon-star-on' : 'el-icon-star-off'" />
                 </button>
               </div>
             </div>
           </section>
         </div>
       </transition>
+
+      <quick-nav-context-menu
+        :visible="contextMenu.visible"
+        :menu-style="contextMenuStyle"
+        :show-subscribe="contextMenuShowSubscribe"
+        :show-unsubscribe="contextMenuShowUnsubscribe"
+        :unsubscribe-disabled="contextMenu.item && isQuickNavLocked(contextMenu.item)"
+        :manual-visible.sync="manualDialogVisible"
+        :manual-title="manualDialogTitle"
+        :manual-content="manualDialogContent"
+        @close="closeContextMenu"
+        @subscribe="handleContextSubscribe"
+        @unsubscribe="handleContextUnsubscribe"
+        @view-manual="handleContextViewManual"
+        @manual-closed="manualDialogItem = null"
+      />
     </section>
   </el-drawer>
 </template>
@@ -251,23 +307,18 @@ const {
   folderPreviewStyle
 } = require('./allAppsMenu')
 import {
-  getCachedPinnedApps,
-  loadPinnedApps,
-  togglePinnedApp
-} from '@/utils/portalPinnedApps'
-
-const APP_COLORS = [
-  ['linear-gradient(145deg, #2597f4, #086fd8)', 'rgba(8, 111, 216, .26)'],
-  ['linear-gradient(145deg, #12a9c4, #087d9f)', 'rgba(8, 125, 159, .24)'],
-  ['linear-gradient(145deg, #12aeb5, #08768c)', 'rgba(8, 118, 140, .24)'],
-  ['linear-gradient(145deg, #13ad80, #087a59)', 'rgba(8, 122, 89, .24)'],
-  ['linear-gradient(145deg, #f39a13, #d76700)', 'rgba(215, 103, 0, .24)'],
-  ['linear-gradient(145deg, #6289b2, #315d91)', 'rgba(49, 93, 145, .22)'],
-  ['linear-gradient(145deg, #7e78c7, #51489b)', 'rgba(81, 72, 155, .22)']
-]
+  isMenuInQuickNav,
+  isQuickNavMenuLocked,
+  toggleQuickNavMenu
+} from '@/utils/portalQuickNavToggle'
+import { buildIconStyle } from '@/utils/menuIconStyle'
+import QuickNavContextMenu from '@/components/QuickNavContextMenu.vue'
+import quickNavLongPressMixin from '@/mixins/quickNavLongPressMixin'
 
 export default {
   name: 'AllAppsDrawer',
+  components: { QuickNavContextMenu },
+  mixins: [quickNavLongPressMixin],
   props: {
     visible: {
       type: Boolean,
@@ -276,6 +327,30 @@ export default {
     routes: {
       type: Array,
       default: () => []
+    },
+    quickNavMenuIds: {
+      type: Array,
+      default: () => []
+    },
+    quickNavLockedMenuIds: {
+      type: Array,
+      default: () => []
+    },
+    quickNavConfigured: {
+      type: Boolean,
+      default: false
+    },
+    subSystemId: {
+      type: Number,
+      default: 0
+    },
+    systemKey: {
+      type: String,
+      default: 'main'
+    },
+    systemLabel: {
+      type: String,
+      default: ''
     }
   },
   data() {
@@ -284,8 +359,11 @@ export default {
       activeGroupKey: '',
       activeFolder: null,
       folderTrigger: null,
-      pinnedApps: getCachedPinnedApps(),
-      pinSaving: false
+      quickNavSaving: false,
+      // 本地副本：保证星标随 props / 操作即时刷新（勿直接读 session 缓存，无响应式）
+      localQuickNavMenuIds: [],
+      localQuickNavLockedMenuIds: [],
+      localQuickNavConfigured: false
     }
   },
   computed: {
@@ -302,15 +380,54 @@ export default {
       return this.keyword ? this.searchResults : (this.activeGroup ? this.activeGroup.children : [])
     },
     contentTitle() {
-      return this.keyword ? `“${this.keyword}”的搜索结果` : (this.activeGroup ? this.activeGroup.name : '全部应用')
+      if (this.keyword) {
+        const scope = this.systemLabel ? ` · ${this.systemLabel}` : ''
+        return `“${this.keyword}”的搜索结果${scope}`
+      }
+      return this.activeGroup ? this.activeGroup.name : '全部应用'
     },
-    contentDescription() {
-      return this.keyword
-        ? '搜索结果覆盖所有业务分类和菜单层级'
-        : '选择应用直接进入，选择文件夹查看其中全部入口'
+    contextMenuShowSubscribe() {
+      const item = this.contextMenu.item
+      return Boolean(item && !this.isInQuickNav(item))
+    },
+    contextMenuShowUnsubscribe() {
+      const item = this.contextMenu.item
+      return Boolean(item && this.isInQuickNav(item))
     }
   },
   watch: {
+    quickNavMenuIds: {
+      immediate: true,
+      handler(ids) {
+        // 保存中勿被过期 props 打断乐观/权威结果
+        if (this.quickNavSaving) {
+          return
+        }
+        this.localQuickNavMenuIds = [...(ids || [])]
+      }
+    },
+    quickNavLockedMenuIds: {
+      immediate: true,
+      handler(ids) {
+        if (this.quickNavSaving) {
+          return
+        }
+        this.localQuickNavLockedMenuIds = [...(ids || [])]
+      }
+    },
+    quickNavConfigured: {
+      immediate: true,
+      handler(val) {
+        if (this.quickNavSaving) {
+          return
+        }
+        this.localQuickNavConfigured = !!val
+      }
+    },
+    systemKey() {
+      this.keyword = ''
+      this.closeFolder(false)
+    },
     menuGroups: {
       immediate: true,
       handler(groups) {
@@ -335,8 +452,13 @@ export default {
     visible(isVisible) {
       if (isVisible) {
         this.resetTransientState(false)
+        // 打开时对齐最新 props（首页可能已改过快捷导航）
+        this.localQuickNavMenuIds = [...(this.quickNavMenuIds || [])]
+        this.localQuickNavLockedMenuIds = [...(this.quickNavLockedMenuIds || [])]
+        this.localQuickNavConfigured = !!this.quickNavConfigured
         document.addEventListener('keydown', this.handleDocumentKeydown)
       } else {
+        this.closeContextMenu()
         this.resetTransientState(false)
         document.removeEventListener('keydown', this.handleDocumentKeydown)
       }
@@ -344,7 +466,6 @@ export default {
   },
   mounted() {
     if (this.visible) document.addEventListener('keydown', this.handleDocumentKeydown)
-    this.loadPinnedApps()
   },
   beforeDestroy() {
     document.removeEventListener('keydown', this.handleDocumentKeydown)
@@ -358,25 +479,104 @@ export default {
         if (searchInput && typeof searchInput.focus === 'function') searchInput.focus()
       })
     },
-    isPinned(item) {
-      return this.pinnedApps.some(app => app.path === item.path)
+    isInQuickNav(item) {
+      return isMenuInQuickNav(item.menuId, this.localQuickNavMenuIds)
     },
-    async loadPinnedApps() {
-      this.pinnedApps = await loadPinnedApps()
-      this.$emit('pinned-change', this.pinnedApps)
+    isQuickNavLocked(item) {
+      return isQuickNavMenuLocked(item.menuId, this.localQuickNavLockedMenuIds)
     },
-    async togglePin(item) {
-      if (this.pinSaving) return
-      this.pinSaving = true
+    handleLeafPressStart(event, item) {
+      if (!item || item.type === 'folder') {
+        return
+      }
+      this.handleItemPressStart(event, item)
+    },
+    async handleContextSubscribe() {
+      const item = this.contextMenu.item
+      if (!item) {
+        return
+      }
+      this.closeContextMenu()
+      if (this.isInQuickNav(item)) {
+        return
+      }
+      await this.toggleQuickNav(item)
+    },
+    async handleContextUnsubscribe() {
+      const item = this.contextMenu.item
+      if (!item) {
+        return
+      }
+      if (this.isQuickNavLocked(item)) {
+        this.$message.warning('该入口为角色默认快捷导航，不可取消订阅')
+        return
+      }
+      this.closeContextMenu()
+      if (!this.isInQuickNav(item)) {
+        return
+      }
+      await this.toggleQuickNav(item)
+    },
+    async toggleQuickNav(item) {
+      if (this.quickNavSaving || item.menuId == null) return
+      const wasInQuickNav = this.isInQuickNav(item)
+      if (wasInQuickNav && this.isQuickNavLocked(item)) {
+        this.$message.warning('该入口为角色默认快捷导航，不可移除')
+        return
+      }
+      this.quickNavSaving = true
+      const prevMenuIds = [...this.localQuickNavMenuIds]
+      const prevLocked = [...this.localQuickNavLockedMenuIds]
+      const prevConfigured = this.localQuickNavConfigured
       try {
-        this.pinnedApps = await togglePinnedApp(item, this.pinnedApps)
-        const pinned = this.isPinned(item)
-        this.$message.success(pinned ? `已将“${item.name}”固定到首页` : `已取消固定“${item.name}”`)
-        this.$emit('pinned-change', this.pinnedApps)
+        const baseMenuIds = [...this.localQuickNavMenuIds]
+        const configured = this.localQuickNavConfigured
+        const lockedMenuIds = [...this.localQuickNavLockedMenuIds]
+        // 先乐观更新星标，避免等接口才变
+        const optimisticId = Number(item.menuId)
+        if (wasInQuickNav) {
+          this.localQuickNavMenuIds = baseMenuIds.filter(id => Number(id) !== optimisticId)
+        } else {
+          this.localQuickNavMenuIds = [...baseMenuIds, optimisticId]
+        }
+        // 以保存接口回写为准（含锁定合并），不再二次 GET，避免旧 list 盖掉新数据
+        const config = await toggleQuickNavMenu(
+          item.menuId,
+          baseMenuIds,
+          this.subSystemId,
+          lockedMenuIds,
+          configured,
+          baseMenuIds
+        )
+        this.$store.dispatch('portal/applyQuickNavConfig', {
+          subSystemId: this.subSystemId,
+          config
+        })
+        const menuIds = (config && config.menuIds) || []
+        const nextLocked = (config && config.lockedMenuIds) || lockedMenuIds
+        const nextConfigured = !!(config && config.configured)
+        const nextApps = (config && config.apps) || []
+        this.localQuickNavMenuIds = [...menuIds]
+        this.localQuickNavLockedMenuIds = [...nextLocked]
+        this.localQuickNavConfigured = nextConfigured
+        this.$message.success(wasInQuickNav ? `已取消“${item.name}”的快捷导航` : `已将“${item.name}”加入快捷导航`)
+        this.$emit('quick-nav-change', {
+          menuIds,
+          lockedMenuIds: [...nextLocked],
+          configured: nextConfigured,
+          apps: nextApps
+        })
       } catch (error) {
-        this.$message.error('首页快捷应用保存失败')
+        this.localQuickNavMenuIds = prevMenuIds
+        this.localQuickNavLockedMenuIds = prevLocked
+        this.localQuickNavConfigured = prevConfigured
+        if (error && error.message === 'ROLE_QUICK_NAV_LOCKED') {
+          this.$message.warning('该入口为角色默认快捷导航，不可移除')
+        } else {
+          this.$message.error('快捷导航保存失败')
+        }
       } finally {
-        this.pinSaving = false
+        this.quickNavSaving = false
       }
     },
     selectGroup(group) {
@@ -385,6 +585,10 @@ export default {
       this.closeFolder()
     },
     activateItem(item, event) {
+      if (this.suppressNextItemClick || this.contextMenu.visible) {
+        this.suppressNextItemClick = false
+        return
+      }
       if (item.type === 'folder') {
         this.folderTrigger = event && event.currentTarget
         this.activeFolder = item
@@ -394,6 +598,10 @@ export default {
       this.openLeaf(item)
     },
     openLeaf(leaf) {
+      if (this.suppressNextItemClick || this.contextMenu.visible) {
+        this.suppressNextItemClick = false
+        return
+      }
       this.closeFolder(false)
       this.$emit('open', leaf)
       if (this.visible) this.$emit('update:visible', false)
@@ -418,10 +626,13 @@ export default {
     },
     resetTransientState(restoreFocus = false) {
       this.keyword = ''
+      this.closeContextMenu()
       this.closeFolder(restoreFocus)
     },
     handleEscape() {
-      if (this.activeFolder) {
+      if (this.contextMenu.visible) {
+        this.closeContextMenu()
+      } else if (this.activeFolder) {
         this.closeFolder()
       } else if (this.keyword) {
         this.keyword = ''
@@ -477,17 +688,7 @@ export default {
       return null
     },
     iconStyle(item) {
-      const key = String(item && (item.key || item.name) || '')
-      let hash = 0
-      for (let index = 0; index < key.length; index += 1) {
-        hash = ((hash << 5) - hash) + key.charCodeAt(index)
-        hash |= 0
-      }
-      const palette = APP_COLORS[Math.abs(hash) % APP_COLORS.length]
-      return {
-        background: palette[0],
-        boxShadow: `0 12px 22px ${palette[1]}`
-      }
+      return buildIconStyle(item)
     },
     folderStyle(folder) {
       const preview = folderPreviewStyle(folder.children.length)
@@ -815,6 +1016,70 @@ button {
   row-gap: 30px;
 }
 
+.search-results {
+  display: flex;
+  margin-top: 18px;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.search-result {
+  display: flex;
+  width: 100%;
+  padding: 10px 12px;
+  align-items: center;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.search-result:hover,
+.search-result:focus-visible {
+  outline: none;
+  background: #edf6fd;
+}
+
+.search-result__icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 18px;
+}
+
+.search-result__copy {
+  display: flex;
+  min-width: 0;
+  margin-left: 12px;
+  flex: 1;
+  flex-direction: column;
+}
+
+.search-result__copy strong {
+  overflow: hidden;
+  font-size: 15px;
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.search-result__copy small {
+  margin-top: 2px;
+  color: $muted;
+  font-size: 12px;
+}
+
+.search-result > .el-icon-arrow-right {
+  flex: 0 0 auto;
+  margin-left: 8px;
+  color: #7790aa;
+}
+
 .app-tile-wrap {
   position: relative;
   min-width: 0;
@@ -872,7 +1137,6 @@ button {
   overflow: hidden;
   place-items: center;
   border-radius: 22px;
-  color: #fff;
   font-size: 43px;
   transition: transform .2s cubic-bezier(.16, 1, .3, 1), filter .2s ease;
 }
@@ -1453,10 +1717,12 @@ button {
 
 <style lang="scss">
 .all-apps-drawer {
+  top: 0 !important;
+  height: 100% !important;
   overflow: hidden;
-  border-radius: 16px 16px 0 0;
+  border-radius: 0;
   background: #eaf4fc;
-  box-shadow: 0 -12px 34px rgba(31, 70, 105, .2);
+  box-shadow: none;
 }
 
 .all-apps-drawer .el-drawer__body {
@@ -1466,14 +1732,14 @@ button {
 
 @media (max-width: 820px) {
   .all-apps-drawer {
-    height: 88% !important;
+    height: 100% !important;
   }
 }
 
 @media (max-width: 560px) {
   .all-apps-drawer {
-    height: 94% !important;
-    border-radius: 14px 14px 0 0;
+    height: 100% !important;
+    border-radius: 0;
   }
 }
 </style>

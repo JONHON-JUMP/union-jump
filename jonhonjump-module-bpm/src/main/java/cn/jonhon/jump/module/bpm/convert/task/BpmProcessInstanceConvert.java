@@ -24,6 +24,7 @@ import cn.jonhon.jump.module.bpm.dal.dataobject.definition.BpmProcessDefinitionI
 import cn.jonhon.jump.module.bpm.api.event.BpmProcessInstanceStatusEvent;
 import cn.jonhon.jump.module.bpm.enums.task.BpmTaskStatusEnum;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.enums.BpmnVariableConstants;
+import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmBooleanUtils;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmnModelUtils;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.FlowableUtils;
 import cn.jonhon.jump.module.bpm.service.message.dto.BpmMessageSendWhenProcessInstanceApproveReqDTO;
@@ -119,8 +120,9 @@ public interface BpmProcessInstanceConvert {
         return respVO;
     }
 
-    @Mapping(source = "from.id", target = "to.id", ignore = true)
-    void copyTo(BpmProcessDefinitionInfoDO from, @MappingTarget BpmProcessDefinitionRespVO to);
+    default void copyTo(BpmProcessDefinitionInfoDO from, @MappingTarget BpmProcessDefinitionRespVO to) {
+        BpmProcessDefinitionConvert.INSTANCE.copyTo(from, to);
+    }
 
     default BpmProcessInstanceStatusEvent buildProcessInstanceStatusEvent(Object source, ProcessInstance instance,
                                                                           Integer status, String reason) {

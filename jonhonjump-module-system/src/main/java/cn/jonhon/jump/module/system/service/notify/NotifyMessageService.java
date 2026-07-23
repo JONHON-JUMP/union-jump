@@ -3,6 +3,7 @@ package cn.jonhon.jump.module.system.service.notify;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.module.system.controller.admin.notify.vo.message.NotifyMessageMyPageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.notify.vo.message.NotifyMessagePageReqVO;
+import cn.jonhon.jump.module.system.controller.admin.notify.vo.message.NotifyMessageDetailRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.notify.NotifyMessageDO;
 import cn.jonhon.jump.module.system.dal.dataobject.notify.NotifyTemplateDO;
 
@@ -55,6 +56,16 @@ public interface NotifyMessageService {
      * @return 站内信
      */
     NotifyMessageDO getNotifyMessage(Long id);
+
+    /**
+     * 获得【我的】站内信详情
+     *
+     * @param id 编号
+     * @param userId 用户编号
+     * @param userType 用户类型
+     * @return 站内信详情
+     */
+    NotifyMessageDetailRespVO getMyNotifyMessageDetail(Long id, Long userId, Integer userType);
 
     /**
      * 获得【我的】未读站内信列表

@@ -1,5 +1,13 @@
 <template>
-  <div class="my-process-designer">
+  <div class="my-process-designer my-process-viewer">
+    <div class="my-process-viewer__toolbar">
+      <el-button-group>
+        <el-button size="mini" icon="el-icon-zoom-out" :disabled="defaultZoom <= 0.3" @click="processZoomOut" />
+        <el-button size="mini" disabled>{{ zoomPercent }}</el-button>
+        <el-button size="mini" icon="el-icon-zoom-in" :disabled="defaultZoom >= 3.9" @click="processZoomIn" />
+        <el-button size="mini" icon="el-icon-full-screen" @click="processReZoom" />
+      </el-button-group>
+    </div>
     <div class="my-process-designer__container">
       <div class="my-process-designer__canvas" ref="bpmn-canvas"></div>
     </div>
@@ -8,6 +16,7 @@
 
 <script>
 import BpmnViewer from "bpmn-js/lib/Viewer";
+import MoveCanvasModule from "diagram-js/lib/navigation/movecanvas";
 import DefaultEmptyXML from "./plugins/defaultEmpty";
 
 export default {
@@ -39,7 +48,13 @@ export default {
       activityList: [],
       processInstance: undefined,
       taskList: [],
+      defaultZoom: 1,
     };
+  },
+  computed: {
+    zoomPercent() {
+      return `${Math.round(this.defaultZoom * 100)}%`
+    }
   },
   mounted() {
     this.xml = this.value;
@@ -78,6 +93,9 @@ export default {
       if (this.bpmnModeler) return;
       this.bpmnModeler = new BpmnViewer({
         container: this.$refs["bpmn-canvas"],
+        additionalModules: [
+          MoveCanvasModule
+        ],
         bpmnRenderer: {
         }
       })
@@ -96,12 +114,56 @@ export default {
         }
         // 高亮流程图
         await this.highlightDiagram();
-        const canvas = this.bpmnModeler.get('canvas');
-        canvas.zoom("fit-viewport", "auto");
+        this.fitViewport();
       } catch (e) {
         console.error(e);
         // console.error(`[Process Designer Warn]: ${e?.message || e}`);
       }
+    },
+    fitViewport() {
+      if (!this.bpmnModeler) {
+        return;
+      }
+      this.$nextTick(() => {
+        const canvas = this.bpmnModeler.get('canvas');
+        if (!canvas) {
+          return;
+        }
+        try {
+          canvas.zoom('fit-viewport', 'auto');
+          this.defaultZoom = canvas.zoom() || 1;
+        } catch (e) {
+          canvas.zoom(1);
+          this.defaultZoom = 1;
+        }
+      });
+    },
+    processReZoom() {
+      this.fitViewport();
+    },
+    processZoomIn(zoomStep = 0.1) {
+      const canvas = this.bpmnModeler && this.bpmnModeler.get('canvas');
+      if (!canvas) {
+        return;
+      }
+      const newZoom = Math.floor(this.defaultZoom * 100 + zoomStep * 100) / 100;
+      if (newZoom > 4) {
+        return;
+      }
+      this.defaultZoom = newZoom;
+      canvas.zoom(this.defaultZoom);
+    },
+    processZoomOut(zoomStep = 0.1) {
+      const canvas = this.bpmnModeler && this.bpmnModeler.get('canvas');
+      if (!canvas) {
+        return;
+      }
+      const newZoom = Math.floor(this.defaultZoom * 100 - zoomStep * 100) / 100;
+      if (newZoom < 0.2) {
+        return;
+      }
+      this.defaultZoom = newZoom;
+      canvas.zoom(this.defaultZoom);
     },
     /* 高亮流程图 */
     // TODO 芋艿：如果多个 endActivity 的话，目前的逻辑可能有一定的问题。https://www.jdon.com/workflow/multi-events.html
@@ -334,6 +396,34 @@ export default {
   }
 };
 </script>
+
+<style lang="scss" scoped>
+.my-process-viewer {
+  position: relative;
+  min-height: 360px;
+
+  .my-process-designer__container {
+    display: block;
+    height: 100%;
+  }
+
+  .my-process-designer__canvas {
+    overflow: hidden;
+    cursor: grab;
+  }
+
+  .my-process-designer__canvas:active {
+    cursor: grabbing;
+  }
+}
+
+.my-process-viewer__toolbar {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+}
+</style>
 
 <style>
 

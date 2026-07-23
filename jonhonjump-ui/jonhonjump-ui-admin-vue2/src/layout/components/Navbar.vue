@@ -45,7 +45,7 @@
           <el-dropdown-item @click.native="setting = true">
             <span>布局设置</span>
           </el-dropdown-item>
-          <el-dropdown-item divided @click.native="logout">
+          <el-dropdown-item divided @click.native="handleLogout">
             <span>退出登录</span>
           </el-dropdown-item>
         </el-dropdown-menu>
@@ -66,7 +66,8 @@ import RuoYiGit from '@/components/RuoYi/Git'
 import RuoYiDoc from '@/components/RuoYi/Doc'
 import NotifyMessage from '@/layout/components/Message'
 import TenantVisit from '@/components/TenantVisit'
-import {getPath, getTenantEnable} from "@/utils/ruoyi";
+import {getTenantEnable} from "@/utils/ruoyi";
+import { confirmLogout } from '@/utils/switchUser'
 
 export default {
   components: {
@@ -112,12 +113,11 @@ export default {
     toggleSideBar() {
       this.$store.dispatch('app/toggleSideBar')
     },
+    handleLogout() {
+      confirmLogout(this.$store, this.$route.fullPath)
+    },
     async logout() {
-      this.$modal.confirm('确定注销并退出系统吗？', '提示').then(() => {
-        this.$store.dispatch('LogOut').then(() => {
-          location.href = getPath('/index');
-        })
-      }).catch(() => {});
+      this.handleLogout()
     },
     checkPermi(permissions) {
       return this.$auth.hasPermi(permissions)
@@ -203,6 +203,7 @@ export default {
           width: 35px;
           height: 35px;
           border-radius: 50%;
+          object-fit: cover;
         }
         .user-nickname{
           margin-left: 5px;

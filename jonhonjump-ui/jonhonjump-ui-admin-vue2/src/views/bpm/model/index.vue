@@ -20,7 +20,7 @@
       </el-form-item>
       <el-form-item label="流程分类" prop="category">
         <el-select v-model="queryParams.category" placeholder="流程分类" clearable style="width: 240px">
-          <el-option v-for="dict in categoryDictDatas" :key="parseInt(dict.value)" :label="dict.label" :value="parseInt(dict.value)"/>
+          <el-option v-for="category in categoryList" :key="category.code" :label="category.name" :value="category.code"/>
         </el-select>
       </el-form-item>
       <el-form-item>
@@ -37,7 +37,7 @@
       </el-col>
       <el-col :span="1.5">
         <el-button type="info" icon="el-icon-upload2" size="mini" @click="handleImport"
-                   v-hasPermi="['bpm:model:import']">导入流程</el-button>
+                   v-hasPermi="['bpm:model:create']">导入流程</el-button>
       </el-col>
       <right-toolbar :showSearch.sync="showSearch" @queryTable="getList"></right-toolbar>
     </el-row>
@@ -52,9 +52,9 @@
           </el-button>
         </template>
       </el-table-column>
-      <el-table-column label="流程分类" align="center" prop="category" width="100">
+      <el-table-column label="流程分类" align="center" prop="categoryName" width="100">
         <template v-slot="scope">
-          <dict-tag :type="DICT_TYPE.BPM_MODEL_CATEGORY" :value="scope.row.category" />
+          <span>{{ scope.row.categoryName || scope.row.category || '-' }}</span>
         </template>
       </el-table-column>
       <el-table-column label="表单信息" align="center" prop="formType" width="200">
@@ -140,8 +140,11 @@
         </el-form-item>
         <el-form-item v-if="form.id" label="流程分类" prop="category">
           <el-select v-model="form.category" placeholder="请选择流程分类" clearable style="width: 100%">
-            <el-option v-for="dict in categoryDictDatas" :key="dict.value" :label="dict.label" :value="dict.value"/>
+            <el-option v-for="category in categoryList" :key="category.code" :label="category.name" :value="category.code"/>
           </el-select>
+          <div v-if="categoryList.length === 0" style="color: #F56C6C; font-size: 12px; line-height: 1.5; margin-top: 4px;">
+            暂无流程分类，请先在「工作流程 → 流程分类」中新增
+          </div>
         </el-form-item>
         <el-form-item label="流程描述" prop="description">
           <el-input type="textarea" v-model="form.description" clearable />
@@ -180,35 +183,34 @@
     </el-dialog>
 
     <!-- 用户导入对话框 -->
-    <el-dialog title="导入流程" :visible.sync="upload.open" width="400px" append-to-body>
+    <el-dialog title="导入流程" :visible.sync="upload.open" width="450px" append-to-body @close="uploadClose">
       <el-upload ref="upload" :limit="1" accept=".bpmn, .xml" :headers="upload.headers" :action="upload.url"
         :disabled="upload.isUploading" :on-progress="handleFileUploadProgress" :on-success="handleFileSuccess"
-        :auto-upload="false" name="bpmnFile" :data="upload.form" drag>
+        :on-error="handleFileError" :auto-upload="false" name="bpmnFile" :data="upload.form" drag>
         <i class="el-icon-upload"></i>
         <div class="el-upload__text">
           将文件拖到此处，或
           <em>点击上传</em>
         </div>
-        <div class="el-upload__tip" style="color:red" slot="tip">提示：仅允许导入“bpm”或“xml”格式文件！</div>
-        <div class="el-upload__tip" slot="tip">
-          <el-form ref="uploadForm" size="mini" label-width="90px" :model="upload.form" :rules="upload.rules" @submit.native.prevent>
-            <el-form-item label="流程标识" prop="key">
-              <el-input v-model="upload.form.key" placeholder="请输入流标标识" style="width: 250px;" />
-              <el-tooltip class="item" effect="light" content="新建后，流程标识不可修改！" placement="top">
-                <i style="padding-left: 5px;" class="el-icon-question" />
-              </el-tooltip>
-            </el-form-item>
-            <el-form-item label="流程名称" prop="name">
-              <el-input v-model="upload.form.name" placeholder="请输入流程名称" clearable />
-            </el-form-item>
-            <el-form-item label="流程描述" prop="description">
-              <el-input type="textarea" v-model="upload.form.description" clearable />
-            </el-form-item>
-          </el-form>
-        </div>
+        <div class="el-upload__tip" style="color:red" slot="tip">提示：仅允许导入 bpmn 或 xml 格式文件！</div>
       </el-upload>
+      <el-form ref="uploadForm" size="mini" label-width="90px" :model="upload.form" :rules="upload.rules"
+               style="margin-top: 16px" @submit.native.prevent>
+        <el-form-item label="流程标识" prop="key">
+          <el-input v-model="upload.form.key" placeholder="如 oa_leave（小写）" />
+          <el-tooltip class="item" effect="light" content="新建后，流程标识不可修改！OA 请假示例请填 oa_leave" placement="top">
+            <i style="padding-left: 5px;" class="el-icon-question" />
+          </el-tooltip>
+        </el-form-item>
+        <el-form-item label="流程名称" prop="name">
+          <el-input v-model="upload.form.name" placeholder="请输入流程名称" clearable />
+        </el-form-item>
+        <el-form-item label="流程描述" prop="description">
+          <el-input type="textarea" v-model="upload.form.description" clearable />
+        </el-form-item>
+      </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitFileForm">确 定</el-button>
+        <el-button type="primary" :loading="upload.isUploading" @click="submitFileForm">确 定</el-button>
         <el-button @click="uploadClose">取 消</el-button>
       </div>
     </el-dialog>
@@ -228,6 +230,7 @@ import {
   createModel,
   updateModel
 } from "@/api/bpm/model";
+import {getCategorySimpleList} from "@/api/bpm/category";
 import {DICT_TYPE, getDictDatas} from "@/utils/dict";
 import {getForm, getSimpleForms} from "@/api/bpm/form";
 import {decodeFields} from "@/utils/formGenerator";
@@ -237,6 +240,11 @@ import taskAssignRuleDialog from "../taskAssignRule/taskAssignRuleDialog";
 
 import Treeselect from "@riophae/vue-treeselect";
 import "@riophae/vue-treeselect/dist/vue-treeselect.css";
+import { mapGetters } from "vuex";
+
+// 与 Vue3 constants 保持一致
+const BPM_MODEL_TYPE_BPMN = 10;
+const BPM_MODEL_FORM_TYPE_NORMAL = 10;
 
 export default {
   name: "BpmModel",
@@ -244,6 +252,9 @@ export default {
     Parser,
     Treeselect,
     taskAssignRuleDialog
+  },
+  computed: {
+    ...mapGetters(["userId"])
   },
   data() {
     return {
@@ -300,7 +311,11 @@ export default {
         // 上传的地址
         url: process.env.VUE_APP_BASE_API + '/admin-api' + "/bpm/model/import",
         // 表单
-        form: {},
+        form: {
+          key: '',
+          name: '',
+          description: ''
+        },
         // 校验规则
         rules: {
           key: [{ required: true, message: "流程标识不能为空", trigger: "blur" }],
@@ -310,13 +325,15 @@ export default {
       // 流程表单的下拉框的数据
       forms: [],
 
+      // 流程分类列表（bpm_category 表，非字典）
+      categoryList: [],
       // 数据字典
-      categoryDictDatas: getDictDatas(DICT_TYPE.BPM_MODEL_CATEGORY),
       modelFormTypeDictDatas: getDictDatas(DICT_TYPE.BPM_MODEL_FORM_TYPE),
       taskAssignRuleDictDatas: getDictDatas(DICT_TYPE.BPM_TASK_ASSIGN_RULE_TYPE),
     };
   },
   created() {
+    this.loadCategoryList();
     this.getList();
     // 获得流程表单的下拉框的数据
     getSimpleForms().then(response => {
@@ -324,20 +341,61 @@ export default {
     })
   },
   methods: {
+    /** 加载流程分类 */
+    loadCategoryList() {
+      getCategorySimpleList().then(response => {
+        this.categoryList = response.data || [];
+      });
+    },
     /** 查询流程模型列表 */
     getList() {
       this.loading = true;
-      getModelPage(this.queryParams).then(response => {
-          this.list = response.data.list;
-          this.total = response.data.total;
-          this.loading = false;
+      getModelPage({ name: this.queryParams.name }).then(response => {
+        let list = response.data || [];
+        if (this.queryParams.key) {
+          const key = this.queryParams.key.trim();
+          list = list.filter(item => item.key && item.key.indexOf(key) !== -1);
         }
-      );
+        if (this.queryParams.category !== undefined && this.queryParams.category !== null && this.queryParams.category !== '') {
+          list = list.filter(item => String(item.category) === String(this.queryParams.category));
+        }
+        this.total = list.length;
+        const start = (this.queryParams.pageNo - 1) * this.queryParams.pageSize;
+        this.list = list.slice(start, start + this.queryParams.pageSize);
+      }).finally(() => {
+        this.loading = false;
+      });
     },
     /** 取消按钮 */
     cancel() {
       this.open = false;
       this.reset();
+    },
+    /** 新建模型时的默认字段（后端 BpmModelSaveReqVO 必填） */
+    getCreateModelDefaults() {
+      return {
+        type: BPM_MODEL_TYPE_BPMN,
+        formType: BPM_MODEL_FORM_TYPE_NORMAL,
+        visible: true,
+        managerUserIds: this.userId ? [this.userId] : []
+      };
+    },
+    /** 构建保存/创建请求体 */
+    buildModelPayload() {
+      const defaults = this.getCreateModelDefaults();
+      const managerUserIds = (this.form.managerUserIds && this.form.managerUserIds.length)
+        ? this.form.managerUserIds
+        : defaults.managerUserIds;
+      return {
+        ...this.form,
+        type: this.form.type != null ? this.form.type : defaults.type,
+        formType: this.form.formType != null ? this.form.formType : defaults.formType,
+        visible: this.form.visible != null ? this.form.visible : defaults.visible,
+        managerUserIds,
+        formId: this.form.formType === 10 ? this.form.formId : undefined,
+        formCustomCreatePath: this.form.formType === 20 ? this.form.formCustomCreatePath : undefined,
+        formCustomViewPath: this.form.formType === 20 ? this.form.formCustomViewPath : undefined
+      };
     },
     // 表单重置
     reset() {
@@ -347,7 +405,7 @@ export default {
         name: undefined,
         description: undefined,
         category: undefined,
-        formType: undefined,
+        ...this.getCreateModelDefaults(),
         formId: undefined,
         formCustomCreatePath: undefined,
         formCustomViewPath: undefined
@@ -398,14 +456,10 @@ export default {
         if (!valid) {
           return;
         }
+        const payload = this.buildModelPayload();
         // 更新
         if (this.form.id) {
-          updateModel({
-            ...this.form,
-            formId: this.form.formType === 10 ? this.form.formId : undefined,
-            formCustomCreatePath: this.form.formType === 20 ? this.form.formCustomCreatePath : undefined,
-            formCustomViewPath: this.form.formType === 20 ? this.form.formCustomViewPath : undefined,
-          }).then(response => {
+          updateModel(payload).then(response => {
             this.$modal.msgSuccess("修改模型成功");
             this.open = false;
             this.getList();
@@ -413,7 +467,7 @@ export default {
           return;
         }
         // 创建
-        createModel(this.form).then(response => {
+        createModel(payload).then(response => {
           this.open = false;
           this.getList();
           this.$alert('<strong>新建模型成功！</strong>后续需要执行如下 4 个步骤：' +
@@ -502,7 +556,19 @@ export default {
     },
     /** 导入按钮操作 */
     handleImport() {
+      this.upload.form = {
+        key: '',
+        name: '',
+        description: ''
+      };
+      this.upload.isUploading = false;
       this.upload.open = true;
+      this.$nextTick(() => {
+        this.resetForm("uploadForm");
+        if (this.$refs.upload) {
+          this.$refs.upload.clearFiles();
+        }
+      });
     },
     // 文件上传中处理
     handleFileUploadProgress(event, file, fileList) {
@@ -510,34 +576,50 @@ export default {
     },
     // 文件上传成功处理
     handleFileSuccess(response, file, fileList) {
+      this.upload.isUploading = false;
       if (response.code !== 0) {
-        this.$modal.msgError(response.msg)
+        this.$modal.msgError(response.msg);
         return;
       }
       // 重置表单
       this.uploadClose();
       // 提示，并刷新
-      this.$modal.msgSuccess("导入流程成功！请点击【设计流程】按钮，进行编辑保存后，才可以进行【发布流程】");
+      this.$modal.msgSuccess("导入流程成功！请点击【修改流程】配置表单与审批人，再【发布流程】");
       this.getList();
+    },
+    handleFileError(err, file, fileList) {
+      this.upload.isUploading = false;
+      this.$modal.msgError("导入失败，请稍后重试");
     },
     uploadClose() {
       // 关闭弹窗
       this.upload.open = false;
       // 重置上传状态和文件
       this.upload.isUploading = false;
-      this.$refs.upload.clearFiles();
+      if (this.$refs.upload) {
+        this.$refs.upload.clearFiles();
+      }
       // 重置表单
-      this.upload.form = {};
+      this.upload.form = {
+        key: '',
+        name: '',
+        description: ''
+      };
       this.resetForm("uploadForm");
     },
     /** 提交上传文件 */
     submitFileForm() {
-      this.$refs["uploadForm"].validate(valid => {
+      const uploadRef = this.$refs.upload;
+      if (!uploadRef || !uploadRef.uploadFiles || uploadRef.uploadFiles.length === 0) {
+        this.$modal.msgError("请先上传 BPMN 文件");
+        return;
+      }
+      this.$refs.uploadForm.validate(valid => {
         if (!valid) {
           return;
         }
-        this.$refs.upload.submit();
-      })
+        uploadRef.submit();
+      });
     },
     /** 处理任务分配规则列表的按钮操作 */
     handleAssignRule(row) {

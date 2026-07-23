@@ -29,6 +29,7 @@
         <module>jonhonjump-spring-boot-starter-biz-tenant</module>
         <module>jonhonjump-spring-boot-starter-biz-data-permission</module>
         <module>jonhonjump-spring-boot-starter-biz-ip</module>
+        <module>portal-subsystem-client</module>
     </modules>
 
     <artifactId>jonhonjump-framework</artifactId>

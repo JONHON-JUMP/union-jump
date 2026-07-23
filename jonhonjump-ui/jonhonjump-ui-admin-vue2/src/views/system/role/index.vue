@@ -78,6 +78,8 @@
                      v-hasPermi="['system:role:update']">修改</el-button>
           <el-button size="mini" type="text" icon="el-icon-circle-check" @click="handleMenu(scope.row)"
                      v-hasPermi="['system:permission:assign-role-menu']">菜单权限</el-button>
+          <el-button size="mini" type="text" icon="el-icon-menu" @click="handleQuickNav(scope.row)"
+                     v-hasPermi="['system:permission:assign-role-menu']">快捷导航</el-button>
           <el-button size="mini" type="text" icon="el-icon-circle-check" @click="handleDataScope(scope.row)"
                      v-hasPermi="['system:permission:assign-role-data-scope']">数据权限</el-button>
           <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)"
@@ -174,6 +176,17 @@
         <el-button @click="cancelMenu">取 消</el-button>
       </div>
     </el-dialog>
+
+    <role-quick-nav-dialog
+      :visible.sync="openQuickNav"
+      :role-name="quickNavForm.name"
+      :role-code="quickNavForm.code"
+      :menu-tree="quickNavMenuTree"
+      :leaf-menu-ids="quickNavLeafMenuIds"
+      :menu-ids="quickNavMenuIds"
+      :saving="quickNavSaving"
+      @save="submitQuickNav"
+    />
   </div>
 </template>
 
@@ -190,12 +203,16 @@ import {
 } from "@/api/system/role";
 import {listSimpleMenus} from "@/api/system/menu";
 import {assignRoleMenu, listRoleMenus, assignRoleDataScope} from "@/api/system/permission";
+import { getRoleQuickNavList, saveRoleQuickNav } from "@/api/system/roleQuickNav";
+import { buildMainRoleQuickNavCheckTree, getMainQuickNavLeafIds } from "@/utils/roleQuickNavMenus";
+import RoleQuickNavDialog from "@/views/system/components/RoleQuickNavDialog.vue";
 import {listSimpleDepts} from "@/api/system/dept";
 import {CommonStatusEnum, SystemDataScopeEnum} from "@/utils/constants";
-import {DICT_TYPE, getDictDatas} from "@/utils/dict";
+import {DICT_TYPE, ensureDictDatas, getDictDatas} from "@/utils/dict";
 
 export default {
   name: "SystemRole",
+  components: { RoleQuickNavDialog },
   data() {
     return {
       // 遮罩层
@@ -216,6 +233,12 @@ export default {
       openDataScope: false,
       // 是否显示弹出层（菜单权限）
       openMenu: false,
+      openQuickNav: false,
+      quickNavSaving: false,
+      quickNavForm: {},
+      quickNavMenuTree: [],
+      quickNavLeafMenuIds: [],
+      quickNavMenuIds: [],
       menuExpand: false,
       menuNodeAll: false,
       deptExpand: true,
@@ -257,15 +280,29 @@ export default {
 
       // 枚举
       SysCommonStatusEnum: CommonStatusEnum,
-      SysDataScopeEnum: SystemDataScopeEnum,
-      // 数据字典
-      roleTypeDictDatas: getDictDatas(DICT_TYPE.SYSTEM_ROLE_TYPE),
-      statusDictDatas: getDictDatas(DICT_TYPE.COMMON_STATUS),
-      dataScopeDictDatas: getDictDatas(DICT_TYPE.SYSTEM_DATA_SCOPE)
+      SysDataScopeEnum: SystemDataScopeEnum
     };
   },
+  computed: {
+    // 字典懒加载：必须用 computed，避免 data() 固化空数组导致下拉「无数据」
+    roleTypeDictDatas() {
+      return getDictDatas(DICT_TYPE.SYSTEM_ROLE_TYPE);
+    },
+    statusDictDatas() {
+      return getDictDatas(DICT_TYPE.COMMON_STATUS);
+    },
+    dataScopeDictDatas() {
+      return getDictDatas(DICT_TYPE.SYSTEM_DATA_SCOPE);
+    }
+  },
   created() {
-    this.getList();
+    Promise.all([
+      ensureDictDatas(DICT_TYPE.COMMON_STATUS),
+      ensureDictDatas(DICT_TYPE.SYSTEM_ROLE_TYPE),
+      ensureDictDatas(DICT_TYPE.SYSTEM_DATA_SCOPE)
+    ]).finally(() => {
+      this.getList();
+    });
   },
   methods: {
     /** 查询角色列表 */
@@ -415,6 +452,41 @@ export default {
         })
       });
 
+    },
+    /** 配置角色默认快捷导航 */
+    handleQuickNav(row) {
+      this.quickNavForm = {
+        id: row.id,
+        name: row.name,
+        code: row.code
+      }
+      this.quickNavMenuTree = []
+      this.quickNavLeafMenuIds = []
+      this.quickNavMenuIds = []
+      this.openQuickNav = true
+      Promise.all([
+        listSimpleMenus(),
+        listRoleMenus(row.id),
+        getRoleQuickNavList(row.id)
+      ]).then(([menuRes, roleMenuRes, quickNavRes]) => {
+        const allMenus = menuRes.data || []
+        const roleMenuIds = roleMenuRes.data || []
+        this.quickNavMenuTree = buildMainRoleQuickNavCheckTree(allMenus, roleMenuIds)
+        this.quickNavLeafMenuIds = getMainQuickNavLeafIds(allMenus, roleMenuIds)
+        this.quickNavMenuIds = (quickNavRes.data && quickNavRes.data.menuIds) || []
+      })
+    },
+    submitQuickNav(menuIds) {
+      this.quickNavSaving = true
+      saveRoleQuickNav({
+        roleId: this.quickNavForm.id,
+        menuIds: menuIds || []
+      }).then(() => {
+        this.$modal.msgSuccess('保存成功')
+        this.openQuickNav = false
+      }).finally(() => {
+        this.quickNavSaving = false
+      })
     },
     /** 分配数据权限操作 */
     handleDataScope(row) {

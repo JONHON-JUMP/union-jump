@@ -29,12 +29,40 @@ function routeIcon(route) {
   return (route.meta && route.meta.icon) || DEFAULT_ICON
 }
 
+function routeMenuStyle(route) {
+  const meta = (route && route.meta) || {}
+  return {
+    color: meta.color,
+    shape: meta.shape
+  }
+}
+
 function menuKey(type, path, name) {
   return `${type}:${path}:${name}`
 }
 
 function isOpenableRoute(route) {
   return Boolean(route.path) && route.redirect !== 'noRedirect'
+}
+
+function resolveMenuId(route) {
+  if (!route) {
+    return null
+  }
+  if (route.id != null) {
+    return route.id
+  }
+  return route.meta && route.meta.menuId != null ? route.meta.menuId : null
+}
+
+function resolveManualUrl(route) {
+  if (!route) {
+    return null
+  }
+  if (route.manualUrl) {
+    return route.manualUrl
+  }
+  return route.meta && route.meta.manualUrl ? route.meta.manualUrl : null
 }
 
 function createLeaf(route, path) {
@@ -44,7 +72,10 @@ function createLeaf(route, path) {
     key: menuKey('leaf', path, name),
     name,
     icon: routeIcon(route),
-    path
+    path,
+    menuId: resolveMenuId(route),
+    manualUrl: resolveManualUrl(route),
+    ...routeMenuStyle(route)
   }
 }
 
@@ -88,6 +119,7 @@ function collectGroupChildren(routes, basePath) {
         key: menuKey('folder', path, title),
         name: title,
         icon: routeIcon(route),
+        ...routeMenuStyle(route),
         children: descendants
       })
     } else if (isOpenableRoute(route)) {
@@ -124,6 +156,7 @@ function normalizeTopRoutes(routes, basePath) {
       key: menuKey('group', path, title),
       name: title,
       icon: routeIcon(route),
+      ...routeMenuStyle(route),
       children
     })
   })
@@ -143,26 +176,40 @@ function searchMenus(groups, keyword) {
   const matchedKeys = new Set()
   const groupList = groups || []
 
-  function addMatch(item) {
-    if (!matchedKeys.has(item.key)) {
-      matchedKeys.add(item.key)
-      matches.push(item)
+  function addLeaf(leaf) {
+    if (!matchedKeys.has(leaf.key)) {
+      matchedKeys.add(leaf.key)
+      matches.push(leaf)
+    }
+  }
+
+  function leafWithContext(leaf, group, folderName) {
+    return {
+      ...leaf,
+      subtitle: folderName || group.name,
+      groupName: group.name
     }
   }
 
   groupList.forEach(group => {
+    const groupMatches = String(group.name).toLowerCase().includes(query)
     const children = group.children || []
-    if (String(group.name).toLowerCase().includes(query)) {
-      children.forEach(addMatch)
-      return
-    }
 
     children.forEach(item => {
-      if (String(item.name).toLowerCase().includes(query)) addMatch(item)
       if (item.type === 'folder') {
+        const folderMatches = String(item.name).toLowerCase().includes(query)
         item.children.forEach(leaf => {
-          if (String(leaf.name).toLowerCase().includes(query)) addMatch(leaf)
+          const leafMatches = String(leaf.name).toLowerCase().includes(query)
+          if (groupMatches || folderMatches || leafMatches) {
+            addLeaf(leafWithContext(leaf, group, item.name))
+          }
         })
+        return
+      }
+
+      const leafMatches = String(item.name).toLowerCase().includes(query)
+      if (groupMatches || leafMatches) {
+        addLeaf(leafWithContext(item, group))
       }
     })
   })

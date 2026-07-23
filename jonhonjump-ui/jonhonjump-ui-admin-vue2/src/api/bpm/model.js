@@ -1,11 +1,16 @@
 import request from '@/utils/request'
 
-export function getModelPage(query) {
+export function getModelList(query) {
   return request({
-    url: '/bpm/model/page',
+    url: '/bpm/model/list',
     method: 'get',
     params: query
   })
+}
+
+// 兼容旧调用名；后端已改为 /list 全量返回，分页在前端处理
+export function getModelPage(query) {
+  return getModelList(query)
 }
 
 export function getModel(id) {

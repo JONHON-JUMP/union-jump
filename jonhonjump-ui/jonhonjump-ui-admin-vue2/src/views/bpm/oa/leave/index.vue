@@ -13,10 +13,10 @@
         <el-date-picker v-model="queryParams.createTime" style="width: 240px" value-format="yyyy-MM-dd HH:mm:ss" type="daterange"
                         range-separator="-" start-placeholder="开始日期" end-placeholder="结束日期" :default-time="['00:00:00', '23:59:59']" />
       </el-form-item>
-      <el-form-item label="结果" prop="result">
-        <el-select v-model="queryParams.result" placeholder="请选择流结果" clearable>
-          <el-option v-for="dict in this.getDictDatas(DICT_TYPE.BPM_PROCESS_INSTANCE_RESULT)"
-                     :key="dict.value" :label="dict.label" :value="dict.value"/>
+      <el-form-item label="审批结果" prop="status">
+        <el-select v-model="queryParams.status" placeholder="请选择审批结果" clearable>
+          <el-option v-for="dict in this.getDictDatas(DICT_TYPE.BPM_PROCESS_INSTANCE_STATUS)"
+                     :key="dict.value" :label="dict.label" :value="parseInt(dict.value)"/>
         </el-select>
       </el-form-item>
       <el-form-item label="原因" prop="reason">
@@ -40,9 +40,9 @@
     <!-- 列表 -->
     <el-table v-loading="loading" :data="list">
       <el-table-column label="申请编号" align="center" prop="id" />
-      <el-table-column label="状态" align="center" prop="result">
+      <el-table-column label="审批结果" align="center" prop="status">
         <template v-slot="scope">
-          <dict-tag :type="DICT_TYPE.BPM_PROCESS_INSTANCE_RESULT" :value="scope.row.result"/>
+          <dict-tag :type="DICT_TYPE.BPM_PROCESS_INSTANCE_STATUS" :value="scope.row.status"/>
         </template>
       </el-table-column>
       <el-table-column label="开始时间" align="center" prop="startTime" width="180">
@@ -69,7 +69,7 @@
       <el-table-column label="操作" align="center" class-name="small-padding fixed-width" width="200">
         <template v-slot="scope">
           <el-button size="mini" type="text" icon="el-icon-delete" @click="handleCancel(scope.row)"
-                     v-hasPermi="['bpm:oa-leave:create']" v-if="scope.row.result === 1">取消请假</el-button>
+                     v-hasPermi="['bpm:oa-leave:create']" v-if="scope.row.status === 1">取消请假</el-button>
           <el-button size="mini" type="text" icon="el-icon-view" @click="handleDetail(scope.row)"
                      v-hasPermi="['bpm:oa-leave:query']">详情</el-button>
           <el-button size="mini" type="text" icon="el-icon-edit" @click="handleProcessDetail(scope.row)">审批进度</el-button>
@@ -106,14 +106,14 @@ export default {
       queryParams: {
         pageNo: 1,
         pageSize: 10,
-        result: null,
+        status: null,
         type: null,
         reason: null,
         createTime: []
       },
 
       leaveTypeDictData: getDictDatas(DICT_TYPE.BPM_OA_LEAVE_TYPE),
-      leaveResultData: getDictDatas(DICT_TYPE.BPM_PROCESS_INSTANCE_RESULT),
+      leaveStatusData: getDictDatas(DICT_TYPE.BPM_PROCESS_INSTANCE_STATUS),
     };
   },
   created() {

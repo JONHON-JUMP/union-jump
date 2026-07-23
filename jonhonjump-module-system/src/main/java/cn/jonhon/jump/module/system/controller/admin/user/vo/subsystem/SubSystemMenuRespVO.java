@@ -80,6 +80,12 @@ public class SubSystemMenuRespVO {
 
 
 
+    @Schema(description = "菜单样式编号")
+
+    private Long styleId;
+
+
+
     @Schema(description = "组件路径")
 
     private String component;
@@ -113,6 +119,12 @@ public class SubSystemMenuRespVO {
     @Schema(description = "是否总是显示")
 
     private Boolean alwaysShow;
+
+
+
+    @Schema(description = "菜单说明书文件地址")
+
+    private String manualUrl;
 
 
 

@@ -22,8 +22,12 @@
             <el-input v-model="queryParams.username" placeholder="请输入用户名称" clearable style="width: 240px"
                       @keyup.enter.native="handleQuery"/>
           </el-form-item>
-          <el-form-item label="手机号码" prop="mobile">
-            <el-input v-model="queryParams.mobile" placeholder="请输入手机号码" clearable style="width: 240px"
+          <el-form-item label="工号" prop="employeeNo">
+            <el-input v-model="queryParams.employeeNo" placeholder="请输入工号" clearable style="width: 240px"
+                      @keyup.enter.native="handleQuery"/>
+          </el-form-item>
+          <el-form-item label="域账号" prop="domainNo">
+            <el-input v-model="queryParams.domainNo" placeholder="请输入域账号" clearable style="width: 240px"
                       @keyup.enter.native="handleQuery"/>
           </el-form-item>
           <el-form-item label="状态" prop="status">
@@ -70,47 +74,47 @@
           <right-toolbar :showSearch.sync="showSearch" @queryTable="getList" :columns="columns"></right-toolbar>
         </el-row>
 
-        <el-table v-loading="loading" :data="userList" @selection-change="handleRowCheckboxChange">
+        <el-table
+          v-loading="loading"
+          :data="userList"
+          class="user-list-table"
+          @row-click="handleRowClick"
+          @selection-change="handleRowCheckboxChange"
+        >
           <el-table-column type="selection" width="55"/>
-          <el-table-column label="用户编号" align="center" key="id" prop="id" v-if="columns[0].visible" />
-          <el-table-column label="用户名称" align="center" key="username" prop="username" v-if="columns[1].visible" :show-overflow-tooltip="true">
+          <el-table-column label="用户名称" align="center" key="username" prop="username" v-if="columns[0].visible" :show-overflow-tooltip="true" />
+          <el-table-column label="用户昵称" align="center" key="nickname" prop="nickname" v-if="columns[1].visible" :show-overflow-tooltip="true" />
+          <el-table-column label="工号" align="center" key="employeeNo" prop="employeeNo" v-if="columns[2].visible" width="100" :show-overflow-tooltip="true" />
+          <el-table-column label="域账号" align="center" key="domainNo" prop="domainNo" v-if="columns[3].visible" width="120" :show-overflow-tooltip="true" />
+          <el-table-column label="刷卡卡号" align="center" key="cardNo" prop="cardNo" v-if="columns[4].visible" width="120" :show-overflow-tooltip="true" />
+          <el-table-column label="ERP账号" align="center" key="erpNos" v-if="columns[5].visible" width="120" :show-overflow-tooltip="true">
             <template v-slot="scope">
-              <el-link
-                v-if="scope.row.subSystemCount > 0"
-                type="primary"
-                :underline="false"
-                @click="handleViewSubSystem(scope.row)"
-              >{{ scope.row.username }}</el-link>
-              <span v-else>{{ scope.row.username }}</span>
+              <span>{{ formatErpNos(scope.row.erpNos) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="用户昵称" align="center" key="nickname" prop="nickname" v-if="columns[2].visible" :show-overflow-tooltip="true" />
-          <el-table-column label="部门" align="center" key="deptName" prop="dept.name" v-if="columns[3].visible" :show-overflow-tooltip="true" />
-          <el-table-column label="手机号码" align="center" key="mobile" prop="mobile" v-if="columns[4].visible" width="120" />
-          <el-table-column label="状态" key="status" v-if="columns[5].visible" align="center">
+          <el-table-column label="部门" align="center" key="deptName" v-if="columns[6].visible" :show-overflow-tooltip="true">
             <template v-slot="scope">
-              <el-switch v-model="scope.row.status" :active-value="0" :inactive-value="1" @change="handleStatusChange(scope.row)" />
+              <span>{{ scope.row.deptName || (scope.row.dept && scope.row.dept.name) || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="创建时间" align="center" prop="createTime" v-if="columns[6].visible" width="160">
+          <el-table-column label="状态" key="status" v-if="columns[7].visible" align="center" width="80">
+            <template v-slot="scope">
+              <el-switch v-model="scope.row.status" :active-value="0" :inactive-value="1" @click.native.stop @change="handleStatusChange(scope.row)" />
+            </template>
+          </el-table-column>
+          <el-table-column label="创建时间" align="center" prop="createTime" v-if="columns[8].visible" width="160">
             <template v-slot="scope">
               <span>{{ parseTime(scope.row.createTime) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" align="center" width="200" class-name="small-padding fixed-width">
+          <el-table-column label="操作" align="center" width="180" class-name="small-padding fixed-width">
             <template v-slot="scope">
-              <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
+              <el-button size="mini" type="text" icon="el-icon-view" @click.stop="handleDetail(scope.row)">详情</el-button>
+              <el-button size="mini" type="text" icon="el-icon-edit" @click.stop="handleUpdate(scope.row)"
                          v-hasPermi="['system:user:update']">修改</el-button>
-              <el-button
-                v-if="scope.row.subSystemCount > 0"
-                size="mini"
-                type="text"
-                icon="el-icon-connection"
-                @click="handleViewSubSystem(scope.row)"
-              >子系统</el-button>
               <el-dropdown  @command="(command) => handleCommand(command, scope.$index, scope.row)"
                             v-hasPermi="['system:user:delete', 'system:user:update-password', 'system:permission:assign-user-role']">
-                <el-button size="mini" type="text" icon="el-icon-d-arrow-right">更多</el-button>
+                <el-button size="mini" type="text" icon="el-icon-d-arrow-right" @click.stop>更多</el-button>
                 <el-dropdown-menu slot="dropdown">
                   <el-dropdown-item command="handleDelete" v-if="scope.row.id !== 1" size="mini" type="text" icon="el-icon-delete"
                                     v-hasPermi="['system:user:delete']">删除</el-dropdown-item>
@@ -130,8 +134,8 @@
     </el-row>
 
     <!-- 添加或修改参数配置对话框 -->
-    <el-dialog :title="title" :visible.sync="open" width="600px" append-to-body>
-      <el-form ref="form" :model="form" :rules="rules" label-width="80px">
+    <el-dialog :title="title" :visible.sync="open" width="720px" append-to-body>
+      <el-form ref="form" :model="form" :rules="rules" label-width="90px">
         <el-row>
           <el-col :span="12">
             <el-form-item label="用户昵称" prop="nickname">
@@ -151,11 +155,6 @@
               <el-input v-model="form.mobile" placeholder="请输入手机号码" maxlength="11" />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="邮箱" prop="email">
-              <el-input v-model="form.email" placeholder="请输入邮箱" maxlength="50" />
-            </el-form-item>
-          </el-col>
         </el-row>
         <el-row>
           <el-col :span="12">
@@ -171,15 +170,41 @@
         </el-row>
         <el-row>
           <el-col :span="12">
+            <el-form-item label="工号" prop="employeeNo">
+              <el-input v-model="form.employeeNo" placeholder="请输入工号" maxlength="20" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="域账号" prop="domainNo">
+              <el-input v-model="form.domainNo" placeholder="请输入域账号" maxlength="32" />
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="12">
+            <el-form-item label="刷卡卡号" prop="cardNo">
+              <el-input v-model="form.cardNo" placeholder="请输入刷卡卡号" maxlength="20" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item label="ERP账号" prop="erpNos">
+              <el-select v-model="form.erpNos" multiple filterable allow-create default-first-option
+                         placeholder="输入后回车添加，可多个" style="width: 100%">
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-row>
+          <el-col :span="12">
             <el-form-item label="用户性别">
-              <el-select v-model="form.sex" placeholder="请选择">
+              <el-select v-model="form.sex" placeholder="请选择" style="width: 100%">
                 <el-option v-for="dict in sexDictDatas" :key="parseInt(dict.value)" :label="dict.label" :value="parseInt(dict.value)"/>
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="岗位">
-              <el-select v-model="form.postIds" multiple placeholder="请选择">
+              <el-select v-model="form.postIds" multiple placeholder="请选择" style="width: 100%">
                 <el-option
                     v-for="item in postOptions"
                     :key="item.id"
@@ -222,32 +247,6 @@
       <div slot="footer" class="dialog-footer">
         <el-button type="primary" @click="submitFileForm">确 定</el-button>
         <el-button @click="upload.open = false">取 消</el-button>
-      </div>
-    </el-dialog>
-
-    <!-- 子系统用户信息 -->
-    <el-dialog :title="'子系统信息 - ' + (subSystemUser.username || '')" :visible.sync="openSubSystem" width="800px" append-to-body>
-      <el-table v-loading="subSystemLoading" :data="subSystemList" border>
-        <el-table-column label="外部系统" prop="clientName" min-width="120" />
-        <el-table-column label="子系统名称" prop="clientName" min-width="140" :show-overflow-tooltip="true" />
-        <el-table-column label="车间编号" prop="workshopId" min-width="100" />
-        <el-table-column label="班组编号" prop="teamId" min-width="100" />
-        <el-table-column label="状态" prop="status" width="80" align="center">
-          <template v-slot="scope">
-            <el-tag :type="scope.row.status === '1' ? 'danger' : 'success'" size="mini">
-              {{ scope.row.status === '1' ? '禁用' : '正常' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="备注" prop="remark" min-width="120" :show-overflow-tooltip="true" />
-        <el-table-column label="创建时间" prop="createTime" width="160" align="center">
-          <template v-slot="scope">
-            <span>{{ parseTime(scope.row.createTime) }}</span>
-          </template>
-        </el-table-column>
-      </el-table>
-      <div slot="footer" class="dialog-footer">
-        <el-button @click="openSubSystem = false">关 闭</el-button>
       </div>
     </el-dialog>
 
@@ -294,7 +293,6 @@ import {
   delUserList
 } from "@/api/system/user";
 
-import {getSubSystemUsersByMainUserId} from "@/api/system/subSystemUsers";
 import Treeselect from "@riophae/vue-treeselect";
 import "@riophae/vue-treeselect/dist/vue-treeselect.css";
 
@@ -306,6 +304,7 @@ import {DICT_TYPE, getDictDatas} from "@/utils/dict";
 import {assignUserRole, listUserRoles} from "@/api/system/permission";
 import {listSimpleRoles} from "@/api/system/role";
 import {getBaseHeader} from "@/utils/request";
+import { formatErpNos } from "@/utils/userFieldDisplay";
 
 export default {
   name: "SystemUser",
@@ -364,20 +363,23 @@ export default {
         pageNo: 1,
         pageSize: 10,
         username: undefined,
-        mobile: undefined,
+        employeeNo: undefined,
+        domainNo: undefined,
         status: undefined,
         deptId: undefined,
         createTime: []
       },
       // 列信息
       columns: [
-        { key: 0, label: `用户编号`, visible: true },
-        { key: 1, label: `用户名称`, visible: true },
-        { key: 2, label: `用户昵称`, visible: true },
-        { key: 3, label: `部门`, visible: true },
-        { key: 4, label: `手机号码`, visible: true },
-        { key: 5, label: `状态`, visible: true },
-        { key: 6, label: `创建时间`, visible: true }
+        { key: 0, label: `用户名称`, visible: true },
+        { key: 1, label: `用户昵称`, visible: true },
+        { key: 2, label: `工号`, visible: true },
+        { key: 3, label: `域账号`, visible: true },
+        { key: 4, label: `刷卡卡号`, visible: true },
+        { key: 5, label: `ERP账号`, visible: true },
+        { key: 6, label: `部门`, visible: true },
+        { key: 7, label: `状态`, visible: true },
+        { key: 8, label: `创建时间`, visible: true }
       ],
       // 表单校验
       rules: {
@@ -390,13 +392,6 @@ export default {
         password: [
           { required: true, message: "用户密码不能为空", trigger: "blur" }
         ],
-        email: [
-          {
-            type: "email",
-            message: "'请输入正确的邮箱地址",
-            trigger: ["blur", "change"]
-          }
-        ],
         mobile: [
           {
             pattern: /^(?:(?:\+|00)86)?1(?:3[\d]|4[5-79]|5[0-35-9]|6[5-7]|7[0-8]|8[\d]|9[189])\d{8}$/,
@@ -407,10 +402,6 @@ export default {
       },
       // 是否显示弹出层（角色权限）
       openRole: false,
-      openSubSystem: false,
-      subSystemLoading: false,
-      subSystemList: [],
-      subSystemUser: {},
 
       // 枚举
       SysCommonStatusEnum: CommonStatusEnum,
@@ -435,6 +426,26 @@ export default {
     // });
   },
   methods: {
+    formatErpNos,
+    handleDetail(row) {
+      if (!row || !row.id) {
+        return
+      }
+      this.$router.push({
+        name: 'SystemUserDetail',
+        query: { userId: row.id }
+      }).catch(() => {})
+    },
+    handleRowClick(row, column, event) {
+      if (!row || !row.id) {
+        return
+      }
+      const target = event && event.target
+      if (target && target.closest('.el-switch, .el-button, .el-link, .el-checkbox, .el-dropdown')) {
+        return
+      }
+      this.handleDetail(row)
+    },
     // 更多操作
     handleCommand(command, index, row) {
       switch (command) {
@@ -518,10 +529,13 @@ export default {
         nickname: undefined,
         password: undefined,
         mobile: undefined,
-        email: undefined,
         sex: undefined,
         status: "0",
         remark: undefined,
+        employeeNo: undefined,
+        domainNo: undefined,
+        cardNo: undefined,
+        erpNos: [],
         postIds: [],
         roleIds: []
       };
@@ -553,7 +567,10 @@ export default {
       this.getTreeselect();
       const id = row.id;
       getUser(id).then(response => {
-        this.form = response.data;
+        this.form = {
+          ...response.data,
+          erpNos: Array.isArray(response.data.erpNos) ? response.data.erpNos : []
+        };
         this.open = true;
         this.title = "修改用户";
       });
@@ -568,18 +585,6 @@ export default {
             this.$modal.msgSuccess("修改成功，新密码是：" + value);
           });
         }).catch(() => {});
-    },
-    /** 查看子系统用户信息 */
-    handleViewSubSystem(row) {
-      this.subSystemUser = row
-      this.openSubSystem = true
-      this.subSystemLoading = true
-      this.subSystemList = []
-      getSubSystemUsersByMainUserId(row.id).then(response => {
-        this.subSystemList = response.data || []
-      }).finally(() => {
-        this.subSystemLoading = false
-      })
     },
     /** 分配用户角色操作 */
     handleRole(row) {
@@ -732,3 +737,9 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+.user-list-table ::v-deep .el-table__row {
+  cursor: pointer;
+}
+</style>

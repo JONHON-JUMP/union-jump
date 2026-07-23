@@ -17,7 +17,9 @@ import cn.jonhon.jump.module.system.dal.mysql.permission.UserRoleMapper;
 import cn.jonhon.jump.module.system.dal.redis.RedisKeyConstants;
 import cn.jonhon.jump.module.system.enums.permission.DataScopeEnum;
 import cn.jonhon.jump.module.system.service.dept.DeptService;
+import cn.jonhon.jump.module.system.service.auth.AuthPermissionInfoService;
 import cn.jonhon.jump.module.system.service.user.AdminUserService;
+import cn.jonhon.jump.module.system.service.user.UserQuickNavService;
 import com.baomidou.dynamic.datasource.annotation.DSTransactional;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Suppliers;
@@ -26,6 +28,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.cache.annotation.Caching;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -58,6 +61,12 @@ public class PermissionServiceImpl implements PermissionService {
     private DeptService deptService;
     @Resource
     private AdminUserService userService;
+    @Resource
+    @Lazy
+    private AuthPermissionInfoService authPermissionInfoService;
+    @Resource
+    @Lazy
+    private UserQuickNavService userQuickNavService;
 
     @Override
     public boolean hasAnyPermissions(Long userId, String... permissions) {
@@ -157,6 +166,7 @@ public class PermissionServiceImpl implements PermissionService {
         if (CollUtil.isNotEmpty(deleteMenuIds)) {
             roleMenuMapper.deleteListByRoleIdAndMenuIds(roleId, deleteMenuIds);
         }
+        authPermissionInfoService.evictUsersByRoleId(roleId);
     }
 
     @Override
@@ -172,12 +182,17 @@ public class PermissionServiceImpl implements PermissionService {
         userRoleMapper.deleteListByRoleId(roleId);
         // 标记删除 RoleMenu
         roleMenuMapper.deleteListByRoleId(roleId);
+        authPermissionInfoService.evictUsersByRoleId(roleId);
     }
 
     @Override
     @CacheEvict(value = RedisKeyConstants.MENU_ROLE_ID_LIST, key = "#menuId")
     public void processMenuDeleted(Long menuId) {
+        Set<Long> roleIds = convertSet(roleMenuMapper.selectListByMenuId(menuId), RoleMenuDO::getRoleId);
         roleMenuMapper.deleteListByMenuId(menuId);
+        if (CollUtil.isNotEmpty(roleIds)) {
+            roleIds.forEach(authPermissionInfoService::evictUsersByRoleId);
+        }
     }
 
     @Override
@@ -225,6 +240,8 @@ public class PermissionServiceImpl implements PermissionService {
         if (!CollectionUtil.isEmpty(deleteMenuIds)) {
             userRoleMapper.deleteListByUserIdAndRoleIdIds(userId, deleteMenuIds);
         }
+        authPermissionInfoService.evictUser(userId);
+        userQuickNavService.syncUserQuickNavFromRoles(userId);
     }
 
     @Override

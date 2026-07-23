@@ -47,3 +47,12 @@ export function deleteSubSystemPostList(ids) {
     method: 'delete'
   })
 }
+
+/** 下载外部系统岗位导入模板 */
+export function importSubSystemPostTemplate() {
+  return request({
+    url: '/system/sub-system-post/get-import-template',
+    method: 'get',
+    responseType: 'blob'
+  })
+}

@@ -1,7 +1,6 @@
 package cn.jonhon.jump.module.system.controller.admin.user;
 
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.UserQuickNavCandidateRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.UserQuickNavRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.UserQuickNavSaveReqVO;
 import cn.jonhon.jump.module.system.service.user.UserQuickNavService;
@@ -12,7 +11,6 @@ import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
 import javax.validation.Valid;
-import java.util.List;
 
 import static cn.jonhon.jump.framework.common.pojo.CommonResult.success;
 import static cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
@@ -32,16 +30,16 @@ public class UserQuickNavController {
         return success(userQuickNavService.getUserQuickNav(getLoginUserId()));
     }
 
-    @GetMapping("/candidate-list")
-    @Operation(summary = "获得当前用户主系统可选的快捷导航候选菜单")
-    public CommonResult<List<UserQuickNavCandidateRespVO>> getCandidateList() {
-        return success(userQuickNavService.getCandidateList(getLoginUserId()));
-    }
-
     @PutMapping("/save")
     @Operation(summary = "保存当前用户的主系统快捷导航配置")
-    public CommonResult<Boolean> saveUserQuickNav(@Valid @RequestBody UserQuickNavSaveReqVO reqVO) {
-        userQuickNavService.saveUserQuickNav(getLoginUserId(), reqVO.getMenuIds());
+    public CommonResult<UserQuickNavRespVO> saveUserQuickNav(@Valid @RequestBody UserQuickNavSaveReqVO reqVO) {
+        return success(userQuickNavService.saveUserQuickNav(getLoginUserId(), reqVO.getMenuIds()));
+    }
+
+    @PostMapping("/sync-from-role")
+    @Operation(summary = "按当前用户角色默认快捷导航，同步到数据库")
+    public CommonResult<Boolean> syncUserQuickNavFromRole() {
+        userQuickNavService.syncUserQuickNavFromRoles(getLoginUserId());
         return success(true);
     }
 

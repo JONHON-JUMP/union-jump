@@ -25,6 +25,7 @@ import cn.jonhon.jump.module.bpm.enums.task.BpmTaskSignTypeEnum;
 import cn.jonhon.jump.module.bpm.enums.task.BpmTaskStatusEnum;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.enums.BpmTaskCandidateStrategyEnum;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.enums.BpmnVariableConstants;
+import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmBooleanUtils;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmHttpRequestUtils;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmnModelUtils;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.FlowableUtils;
@@ -1264,7 +1265,7 @@ public class BpmTaskServiceImpl implements BpmTaskService {
         // 1.3 判断此流程是否允许撤回
         BpmProcessDefinitionInfoDO processDefinitionInfo = bpmProcessDefinitionService.getProcessDefinitionInfo(
                 processInstance.getProcessDefinitionId());
-        if (ObjUtil.isNull(processDefinitionInfo) || !Boolean.TRUE.equals(processDefinitionInfo.getAllowWithdrawTask())) {
+        if (ObjUtil.isNull(processDefinitionInfo) || !BpmBooleanUtils.isTrue(processDefinitionInfo.getAllowWithdrawTask())) {
             throw exception(TASK_WITHDRAW_FAIL_NOT_ALLOW);
         }
         // 1.4 判断下一个节点是否被审批过，如果是则无法撤回

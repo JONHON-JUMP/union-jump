@@ -1,8 +1,8 @@
 <template>
   <div class="app-wrapper portal-shell" :style="{'--current-color': theme}">
     <div class="main-container">
-      <app-main v-if="isPortalHome" />
-      <portal-shell v-else>
+      <!-- 始终使用同一套壳，避免首页/业务页顶栏拆装造成闪屏 -->
+      <portal-shell>
         <app-main />
       </portal-shell>
     </div>
@@ -26,10 +26,7 @@ export default {
       theme: state => state.settings.theme
     }),
     variables() {
-      return variables;
-    },
-    isPortalHome() {
-      return this.$route.path === '/index'
+      return variables
     }
   }
 }

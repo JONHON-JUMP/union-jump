@@ -5,6 +5,7 @@ import cn.hutool.core.lang.Assert;
 import cn.hutool.core.util.ObjectUtil;
 import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
+import cn.jonhon.jump.framework.common.util.cache.CacheUtils;
 import cn.jonhon.jump.framework.common.util.collection.CollectionUtils;
 import cn.jonhon.jump.framework.common.util.date.DateUtils;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
@@ -30,6 +31,8 @@ import cn.jonhon.jump.module.system.service.tenant.handler.TenantInfoHandler;
 import cn.jonhon.jump.module.system.service.tenant.handler.TenantMenuHandler;
 import cn.jonhon.jump.module.system.service.user.AdminUserService;
 import com.baomidou.dynamic.datasource.annotation.DSTransactional;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Lazy;
@@ -37,8 +40,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
 
 import javax.annotation.Resource;
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -74,6 +79,18 @@ public class TenantServiceImpl implements TenantService {
     @Resource
     private PermissionService permissionService;
 
+    /**
+     * 登录页按名称查租户：短缓存，避免每次打开登录页都打库（实测可到数百毫秒）。
+     */
+    private final LoadingCache<String, Optional<TenantDO>> tenantByNameCache = CacheUtils.buildCache(
+            Duration.ofMinutes(5),
+            new CacheLoader<String, Optional<TenantDO>>() {
+                @Override
+                public Optional<TenantDO> load(String name) {
+                    return Optional.ofNullable(tenantMapper.selectByName(name));
+                }
+            });
+
     @Override
     public List<Long> getTenantIdList() {
         List<TenantDO> tenants = tenantMapper.selectList();
@@ -108,6 +125,7 @@ public class TenantServiceImpl implements TenantService {
         // 创建租户
         TenantDO tenant = BeanUtils.toBean(createReqVO, TenantDO.class);
         tenantMapper.insert(tenant);
+        tenantByNameCache.invalidateAll();
         // 创建租户的管理员
         TenantUtils.execute(tenant.getId(), () -> {
             // 创建角色
@@ -154,6 +172,7 @@ public class TenantServiceImpl implements TenantService {
         // 更新租户
         TenantDO updateObj = BeanUtils.toBean(updateReqVO, TenantDO.class);
         tenantMapper.updateById(updateObj);
+        tenantByNameCache.invalidateAll();
         // 如果套餐发生变化，则修改其角色的权限
         if (ObjectUtil.notEqual(tenant.getPackageId(), updateReqVO.getPackageId())) {
             updateTenantRoleMenu(tenant.getId(), tenantPackage.getMenuIds());
@@ -220,6 +239,7 @@ public class TenantServiceImpl implements TenantService {
         validateUpdateTenant(id);
         // 删除
         tenantMapper.deleteById(id);
+        tenantByNameCache.invalidateAll();
     }
 
     @Override
@@ -229,6 +249,7 @@ public class TenantServiceImpl implements TenantService {
 
         // 2. 批量删除
         tenantMapper.deleteByIds(ids);
+        tenantByNameCache.invalidateAll();
     }
 
     private TenantDO validateUpdateTenant(Long id) {
@@ -255,7 +276,10 @@ public class TenantServiceImpl implements TenantService {
 
     @Override
     public TenantDO getTenantByName(String name) {
-        return tenantMapper.selectByName(name);
+        if (name == null) {
+            return null;
+        }
+        return tenantByNameCache.getUnchecked(name).orElse(null);
     }
 
     @Override

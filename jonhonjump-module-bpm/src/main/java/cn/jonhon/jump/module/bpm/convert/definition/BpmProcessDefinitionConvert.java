@@ -1,5 +1,7 @@
 package cn.jonhon.jump.module.bpm.convert.definition;
 
+import cn.hutool.core.bean.BeanUtil;
+import cn.hutool.core.bean.copier.CopyOptions;
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.map.MapUtil;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
@@ -10,6 +12,7 @@ import cn.jonhon.jump.module.bpm.dal.dataobject.definition.BpmCategoryDO;
 import cn.jonhon.jump.module.bpm.dal.dataobject.definition.BpmFormDO;
 import cn.jonhon.jump.module.bpm.dal.dataobject.definition.BpmProcessDefinitionInfoDO;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmnModelUtils;
+import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmBooleanUtils;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.common.engine.impl.db.SuspensionState;
 import org.flowable.engine.repository.Deployment;
@@ -93,7 +96,15 @@ public interface BpmProcessDefinitionConvert {
         return respVO;
     }
 
-    @Mapping(source = "from.id", target = "to.id", ignore = true)
-    void copyTo(BpmProcessDefinitionInfoDO from, @MappingTarget BpmProcessDefinitionRespVO to);
+    default void copyTo(BpmProcessDefinitionInfoDO from, @MappingTarget BpmProcessDefinitionRespVO to) {
+        if (from == null) {
+            return;
+        }
+        BeanUtil.copyProperties(from, to, CopyOptions.create()
+                .setIgnoreProperties("id", "visible", "allowCancelRunningProcess", "allowWithdrawTask"));
+        to.setVisible(BpmBooleanUtils.toBoolean(from.getVisible()));
+        to.setAllowCancelRunningProcess(BpmBooleanUtils.toBoolean(from.getAllowCancelRunningProcess()));
+        to.setAllowWithdrawTask(BpmBooleanUtils.toBoolean(from.getAllowWithdrawTask()));
+    }
 
 }

@@ -6,11 +6,6 @@
     <meta name="description" content="JUMP - Jonhon Uniform Manufacturing Platform | 中航光电统一制造平台">
     <title>JUMP — 中航光电统一制造平台</title>
 
-    <!-- Google Fonts: 科技感字体 -->
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;600;700;800;900&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -19,9 +14,6 @@
 
         <!-- ========== 左侧品牌视觉区 ========== -->
         <div class="brand-section">
-            <!-- 粒子连接器动效画布 -->
-            <canvas id="particle-canvas"></canvas>
-
             <!-- 品牌信息覆盖层 -->
             <div class="brand-overlay">
                 <!-- JUMP 系统名称 -->
@@ -59,7 +51,7 @@
                             </svg>
                         </div>
                         <input type="text" id="username" name="username" placeholder=" " required>
-                        <label for="username">用户名 / 工号 / 域账号</label>
+                        <label for="username">工号 / 域账号</label>
                         <div class="input-highlight"></div>
                     </div>
 
@@ -87,8 +79,8 @@
                         </button>
                     </div>
 
-                    <!-- 记住我 -->
-                    <div class="form-options">
+                    <!-- 现场模式：不展示「记住我」 -->
+                    <div class="form-options" hidden>
                         <label class="remember-me">
                             <input type="checkbox" id="remember" name="remember">
                             <span class="checkmark"></span>
@@ -119,7 +111,6 @@
 
     </div>
 
-    <script src="particle.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

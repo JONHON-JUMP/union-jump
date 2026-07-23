@@ -1,10 +1,11 @@
 import request from '@/utils/request'
 
-export function getTodoTaskPage(query) {
+export function getTodoTaskPage(query, silent = false) {
   return request({
     url: '/bpm/task/todo-page',
     method: 'get',
-    params: query
+    params: query,
+    headers: silent ? { isSilent: true } : {}
   })
 }
 
@@ -16,12 +17,16 @@ export function getDoneTaskPage(query) {
   })
 }
 
-export function completeTask(data) {
+export function getTaskManagerPage(query) {
   return request({
-    url: '/bpm/task/complete',
-    method: 'PUT',
-    data: data
+    url: '/bpm/task/manager-page',
+    method: 'get',
+    params: query
   })
+}
+
+export function completeTask(data) {
+  return approveTask(data)
 }
 
 export function approveTask(data) {
@@ -40,16 +45,12 @@ export function rejectTask(data) {
   })
 }
 export function backTask(data) {
-  return request({
-    url: '/bpm/task/back',
-    method: 'PUT',
-    data: data
-  })
+  return returnTask(data)
 }
 
 export function updateTaskAssignee(data) {
   return request({
-    url: '/bpm/task/update-assignee',
+    url: '/bpm/task/transfer',
     method: 'PUT',
     data: data
   })
@@ -64,7 +65,7 @@ export function getTaskListByProcessInstanceId(processInstanceId) {
 
 export function getReturnList(taskId) {
   return request({
-    url: '/bpm/task/return-list?taskId='+ taskId,
+    url: '/bpm/task/list-by-return?id=' + taskId,
     method: 'get',
   })
 }

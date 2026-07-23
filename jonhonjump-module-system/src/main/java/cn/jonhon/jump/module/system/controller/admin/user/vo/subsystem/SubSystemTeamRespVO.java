@@ -9,7 +9,7 @@ import java.time.LocalDateTime;
 @Data
 public class SubSystemTeamRespVO {
 
-    @Schema(description = "班组编号")
+    @Schema(description = "主键编号")
     private Long id;
 
     @Schema(description = "外部系统 ID")

@@ -129,9 +129,9 @@ public class BpmProcessDefinitionInfoDO extends BaseDO {
     /**
      * 是否可见
      *
-     * 目的：如果 false 不可见，则不展示在“发起流程”的列表里
+     * 目的：如果 0 不可见，则不展示在“发起流程”的列表里
      */
-    private Boolean visible;
+    private Integer visible;
     /**
      * 排序值
      */
@@ -170,12 +170,12 @@ public class BpmProcessDefinitionInfoDO extends BaseDO {
     /**
      * 是否允许撤销审批中的申请
      */
-    private Boolean allowCancelRunningProcess;
+    private Integer allowCancelRunningProcess;
 
     /**
      * 是否允许审批人撤回任务
      */
-    private Boolean allowWithdrawTask;
+    private Integer allowWithdrawTask;
 
     /**
      * 流程 ID 规则

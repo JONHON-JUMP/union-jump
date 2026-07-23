@@ -1,9 +1,8 @@
 (function () {
-  var STORAGE_ACCOUNT = 'JUMP_LOGIN_ACCOUNT'
-  var STORAGE_REMEMBER = 'JUMP_LOGIN_REMEMBER'
   var STORAGE_TOKEN = 'ACCESS_TOKEN'
   var STORAGE_REFRESH = 'REFRESH_TOKEN'
   var STORAGE_TENANT = 'TENANT_ID'
+  var tokenStorage = window.sessionStorage
 
   var config = window.LOGIN_CONFIG || {}
   var params = new URLSearchParams(window.location.search)
@@ -16,11 +15,24 @@
     form: document.getElementById('loginForm'),
     account: document.getElementById('account'),
     password: document.getElementById('password'),
-    rememberMe: document.getElementById('rememberMe'),
     errorBox: document.getElementById('errorBox'),
     submitBtn: document.getElementById('submitBtn'),
     btnText: document.querySelector('.btn-text'),
     btnLoading: document.querySelector('.btn-loading')
+  }
+
+  ;['ACCESS_TOKEN', 'REFRESH_TOKEN', 'PASSWORD', 'REMEMBER_ME', 'JUMP_LOGIN_REMEMBER', 'JUMP_LOGIN_ACCOUNT'].forEach(function (key) {
+    localStorage.removeItem(key)
+  })
+
+  if (tokenStorage.getItem(STORAGE_TOKEN)) {
+    // 已登录误进登录页：回门户，保留当前系统会话
+    window.location.href = portalUrl
+  } else {
+    // 真正重新登录：清门户会话，首进走星标默认
+    ;['portal_last_system', 'portal_subsystem_cache', 'portal_sso_done', 'portal_quick_nav_cache_v1'].forEach(function (key) {
+      try { sessionStorage.removeItem(key) } catch (e) { /* ignore */ }
+    })
   }
 
   function resolveApiUrl(path) {
@@ -45,36 +57,19 @@
     els.btnLoading.hidden = !loading
   }
 
-  function restoreRemembered() {
-    var remembered = localStorage.getItem(STORAGE_REMEMBER) === 'true'
-    els.rememberMe.checked = remembered
-    if (remembered) {
-      els.account.value = localStorage.getItem(STORAGE_ACCOUNT) || ''
-    }
-    localStorage.setItem(STORAGE_TENANT, '1')
-  }
-
-  function persistRemembered(account, password) {
-    if (els.rememberMe.checked) {
-      localStorage.setItem(STORAGE_REMEMBER, 'true')
-      localStorage.setItem(STORAGE_ACCOUNT, account)
-    } else {
-      localStorage.removeItem(STORAGE_REMEMBER)
-      localStorage.removeItem(STORAGE_ACCOUNT)
-    }
-  }
-
   function saveToken(data) {
-    localStorage.setItem(STORAGE_TOKEN, data.accessToken)
-    localStorage.setItem(STORAGE_REFRESH, data.refreshToken)
+    tokenStorage.setItem(STORAGE_TOKEN, data.accessToken)
+    tokenStorage.setItem(STORAGE_REFRESH, data.refreshToken)
   }
+
+  sessionStorage.setItem(STORAGE_TENANT, '1')
 
   async function loginRequest(account, password) {
     var response = await fetch(resolveApiUrl('/admin-api/system/auth/login'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'tenant-id': localStorage.getItem(STORAGE_TENANT) || '1'
+        'tenant-id': sessionStorage.getItem(STORAGE_TENANT) || '1'
       },
       body: JSON.stringify({
         loginType: 'auto',
@@ -97,7 +92,7 @@
     var account = els.account.value.trim()
     var password = els.password.value
     if (!account) {
-      showError('请输入用户名/工号/域账号')
+      showError('请输入工号/域账号')
       return
     }
     if (!password) {
@@ -110,13 +105,10 @@
     try {
       var token = await loginRequest(account, password)
       saveToken(token)
-      persistRemembered(account, password)
       window.location.href = portalUrl
     } catch (error) {
       showError(error.message || '登录失败')
       setLoading(false)
     }
   })
-
-  restoreRemembered()
 })()

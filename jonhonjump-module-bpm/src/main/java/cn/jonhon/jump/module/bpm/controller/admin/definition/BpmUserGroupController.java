@@ -73,7 +73,7 @@ public class BpmUserGroupController {
         return success(BeanUtils.toBean(pageResult, BpmUserGroupRespVO.class));
     }
 
-    @GetMapping("/simple-list")
+    @GetMapping({"/list-all-simple", "/simple-list"})
     @Operation(summary = "获取用户组精简信息列表", description = "只包含被开启的用户组，主要用于前端的下拉选项")
     public CommonResult<List<BpmUserGroupRespVO>> getUserGroupSimpleList() {
         List<BpmUserGroupDO> list = userGroupService.getUserGroupListByStatus(CommonStatusEnum.ENABLE.getStatus());

@@ -7,6 +7,7 @@ import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
 import cn.jonhon.jump.module.system.controller.admin.notify.vo.message.NotifyMessageMyPageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.notify.vo.message.NotifyMessagePageReqVO;
+import cn.jonhon.jump.module.system.controller.admin.notify.vo.message.NotifyMessageDetailRespVO;
 import cn.jonhon.jump.module.system.controller.admin.notify.vo.message.NotifyMessageRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.notify.NotifyMessageDO;
 import cn.jonhon.jump.module.system.service.notify.NotifyMessageService;
@@ -60,6 +61,14 @@ public class NotifyMessageController {
         PageResult<NotifyMessageDO> pageResult = notifyMessageService.getMyMyNotifyMessagePage(pageVO,
                 getLoginUserId(), UserTypeEnum.ADMIN.getValue());
         return success(BeanUtils.toBean(pageResult, NotifyMessageRespVO.class));
+    }
+
+    @GetMapping("/my-get")
+    @Operation(summary = "获得我的站内信详情")
+    @Parameter(name = "id", description = "编号", required = true, example = "1024")
+    public CommonResult<NotifyMessageDetailRespVO> getMyNotifyMessageDetail(@RequestParam("id") Long id) {
+        return success(notifyMessageService.getMyNotifyMessageDetail(id,
+                getLoginUserId(), UserTypeEnum.ADMIN.getValue()));
     }
 
     @PutMapping("/update-read")

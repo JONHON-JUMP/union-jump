@@ -19,6 +19,15 @@ export function getMyNotifyMessagePage(query) {
   })
 }
 
+// 获得我的站内信详情
+export function getMyNotifyMessageDetail(id) {
+  return request({
+    url: '/system/notify-message/my-get',
+    method: 'get',
+    params: { id }
+  })
+}
+
 // 批量标记已读
 export function updateNotifyMessageRead(ids) {
   return request({

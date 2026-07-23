@@ -81,6 +81,15 @@ public class DictDataController {
         return success(BeanUtils.toBean(list, DictDataSimpleRespVO.class));
     }
 
+    @GetMapping("/type/{dictType}")
+    @Operation(summary = "获得指定字典类型的字典数据列表")
+    public CommonResult<List<DictDataSimpleRespVO>> getDictDataListByType(
+            @PathVariable("dictType") String dictType) {
+        List<DictDataDO> list = dictDataService.getDictDataList(
+                CommonStatusEnum.ENABLE.getStatus(), dictType);
+        return success(BeanUtils.toBean(list, DictDataSimpleRespVO.class));
+    }
+
     @GetMapping("/page")
     @Operation(summary = "获得字典类型的分页")
     @PreAuthorize("@ss.hasPermission('system:dict:query')")

@@ -1,23 +1,15 @@
 package cn.jonhon.jump.module.system.controller.admin.auth;
 
-import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
-import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
 import cn.jonhon.jump.framework.common.enums.UserTypeEnum;
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.framework.datapermission.core.annotation.DataPermission;
 import cn.jonhon.jump.framework.security.config.SecurityProperties;
 import cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils;
 import cn.jonhon.jump.module.system.controller.admin.auth.vo.*;
-import cn.jonhon.jump.module.system.convert.auth.AuthConvert;
-import cn.jonhon.jump.module.system.dal.dataobject.permission.MenuDO;
-import cn.jonhon.jump.module.system.dal.dataobject.permission.RoleDO;
-import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 import cn.jonhon.jump.module.system.enums.logger.LoginLogTypeEnum;
 import cn.jonhon.jump.module.system.service.auth.AdminAuthService;
-import cn.jonhon.jump.module.system.service.permission.MenuService;
-import cn.jonhon.jump.module.system.service.permission.PermissionService;
-import cn.jonhon.jump.module.system.service.permission.RoleService;
+import cn.jonhon.jump.module.system.service.auth.AuthPermissionInfoService;
 import cn.jonhon.jump.module.system.service.social.SocialClientService;
 import cn.jonhon.jump.module.system.service.user.AdminUserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -27,17 +19,12 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-
 import javax.annotation.Resource;
 import javax.annotation.security.PermitAll;
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
-import java.util.Collections;
-import java.util.List;
-import java.util.Set;
 
 import static cn.jonhon.jump.framework.common.pojo.CommonResult.success;
-import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertSet;
 import static cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
 
 @Tag(name = "管理后台 - 认证")
@@ -50,13 +37,7 @@ public class AuthController {
     @Resource
     private AdminAuthService authService;
     @Resource
-    private AdminUserService userService;
-    @Resource
-    private RoleService roleService;
-    @Resource
-    private MenuService menuService;
-    @Resource
-    private PermissionService permissionService;
+    private AuthPermissionInfoService authPermissionInfoService;
     @Resource
     private SocialClientService socialClientService;
 
@@ -93,28 +74,12 @@ public class AuthController {
     @GetMapping("/get-permission-info")
     @Operation(summary = "获取登录用户的权限信息")
     @DataPermission(enable = false) // 忽略数据权限，避免因为过滤，导致无法查询用户。类似：https://t.zsxq.com/LHnrp
-    public CommonResult<AuthPermissionInfoRespVO> getPermissionInfo() {
-        // 1.1 获得用户信息
-        AdminUserDO user = userService.getUser(getLoginUserId());
-        if (user == null) {
-            return success(null);
-        }
-
-        // 1.2 获得角色列表
-        Set<Long> roleIds = permissionService.getUserRoleIdListByUserId(getLoginUserId());
-        if (CollUtil.isEmpty(roleIds)) {
-            return success(AuthConvert.INSTANCE.convert(user, Collections.emptyList(), Collections.emptyList()));
-        }
-        List<RoleDO> roles = roleService.getRoleList(roleIds);
-        roles.removeIf(role -> !CommonStatusEnum.ENABLE.getStatus().equals(role.getStatus())); // 移除禁用的角色
-
-        // 1.3 获得菜单列表
-        Set<Long> menuIds = permissionService.getRoleMenuListByRoleId(convertSet(roles, RoleDO::getId));
-        List<MenuDO> menuList = menuService.getMenuList(menuIds);
-        menuList = menuService.filterDisableMenus(menuList);
-
-        // 2. 拼接结果返回
-        return success(AuthConvert.INSTANCE.convert(user, roles, menuList));
+    @Parameter(name = "includeMenus", description = "是否返回主系统菜单树；默认 false 仅用户/角色/权限（进子系统门户不拖整树）")
+    @Parameter(name = "redisOnly", description = "仅读 Redis；未命中返回空，不重建库（后台预热）")
+    public CommonResult<AuthPermissionInfoRespVO> getPermissionInfo(
+            @RequestParam(value = "includeMenus", defaultValue = "false") boolean includeMenus,
+            @RequestParam(value = "redisOnly", defaultValue = "false") boolean redisOnly) {
+        return success(authPermissionInfoService.getPermissionInfo(getLoginUserId(), includeMenus, redisOnly));
     }
 
     @PostMapping("/register")

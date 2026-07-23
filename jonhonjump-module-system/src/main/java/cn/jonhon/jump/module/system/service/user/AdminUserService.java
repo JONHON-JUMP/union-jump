@@ -111,6 +111,21 @@ public interface AdminUserService {
     AdminUserDO getUserByUsername(String username);
 
     /**
+     * 通过跨系统唯一用户标识查询用户
+     *
+     * @param userUid 用户 UID
+     * @return 用户对象信息
+     */
+    AdminUserDO getUserByUserUid(String userUid);
+
+    /**
+     * 分配全局唯一的 user_uid（创建/导入用户时使用；禁止外部指定）
+     *
+     * @return U+年月日时分秒+三位流水
+     */
+    String allocateUserUid();
+
+    /**
      * 通过手机号获取用户
      *
      * @param mobile 手机号

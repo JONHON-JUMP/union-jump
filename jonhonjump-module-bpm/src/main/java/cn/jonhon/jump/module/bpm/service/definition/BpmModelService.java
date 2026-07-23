@@ -1,14 +1,15 @@
 package cn.jonhon.jump.module.bpm.service.definition;
 
+import cn.jonhon.jump.module.bpm.controller.admin.definition.vo.model.BpmModeImportReqVO;
 import cn.jonhon.jump.module.bpm.controller.admin.definition.vo.model.BpmModelSaveReqVO;
 import cn.jonhon.jump.module.bpm.controller.admin.definition.vo.model.simple.BpmSimpleModelNodeVO;
 import cn.jonhon.jump.module.bpm.controller.admin.definition.vo.model.simple.BpmSimpleModelUpdateReqVO;
 import org.flowable.bpmn.model.BpmnModel;
 import org.flowable.engine.repository.Model;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.validation.Valid;
 import java.util.List;
-
 /**
  * 流程模型接口
  *
@@ -39,6 +40,16 @@ public interface BpmModelService {
      * @return 创建的流程模型的编号
      */
     String createModel(@Valid BpmModelSaveReqVO modelVO);
+
+    /**
+     * 导入流程模型
+     *
+     * @param userId 用户编号
+     * @param importReqVO 导入信息
+     * @param bpmnFile BPMN 文件
+     * @return 创建的流程模型的编号
+     */
+    String importModel(Long userId, @Valid BpmModeImportReqVO importReqVO, MultipartFile bpmnFile);
 
     /**
      * 获得流程模块

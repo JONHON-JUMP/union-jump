@@ -13,7 +13,7 @@
             style="margin-bottom: 20px"
           />
         </div>
-        <div class="head-container sub-system-list">
+        <div class="head-container sub-system-list" v-loading="clientsLoading">
           <div
             v-for="item in filteredClientList"
             :key="item.id"
@@ -27,12 +27,20 @@
               <el-tag size="mini" type="info">{{ item.menuCount || 0 }} 菜单</el-tag>
             </div>
           </div>
-          <el-empty v-if="filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
         </div>
       </el-col>
 
       <!-- 菜单数据 -->
-      <el-col :span="20" :xs="24">
+      <el-col :span="20" :xs="24" v-loading="clientsLoading">
+        <el-alert
+          v-if="showSubSystemBindHint"
+          title="请先在左侧选择已登记的外部系统；关联系统信息后，才可新增/维护该系统下的菜单"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="mb8"
+        />
         <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
           <el-form-item label="菜单名称" prop="name">
             <el-input v-model="queryParams.name" placeholder="请输入菜单名称" clearable style="width: 240px"
@@ -53,6 +61,10 @@
           <el-col :span="1.5">
             <el-button type="primary" plain icon="el-icon-plus" size="mini" @click="handleAdd()"
                        v-hasPermi="['sub-system:menu:create']">新增</el-button>
+          </el-col>
+          <el-col :span="1.5">
+            <el-button type="info" plain icon="el-icon-upload2" size="mini" @click="handleImport"
+                       v-hasPermi="['sub-system:menu:create']">导入</el-button>
           </el-col>
           <el-col :span="1.5">
             <el-button type="info" plain icon="el-icon-sort" size="mini" @click="toggleExpandAll">展开/折叠</el-button>
@@ -140,6 +152,14 @@
               </el-popover>
             </el-form-item>
           </el-col>
+          <el-col :span="24">
+            <el-form-item v-if="form.type !== MenuTypeEnum.BUTTON && isFirstLevelMenu" label="菜单颜色">
+              <menu-style-select v-model="form.styleId" />
+            </el-form-item>
+            <el-form-item v-else-if="form.type !== MenuTypeEnum.BUTTON" label="菜单颜色">
+              <menu-style-select :value="inheritedStyleId" readonly />
+            </el-form-item>
+          </el-col>
           <el-col :span="12">
             <el-form-item label="菜单名称" prop="name">
               <el-input v-model="form.name" placeholder="请输入菜单名称" />
@@ -153,6 +173,11 @@
           <el-col :span="12">
             <el-form-item v-if="form.type !== MenuTypeEnum.BUTTON" label="路由地址" prop="path">
               <el-input v-model="form.path" placeholder="请输入路由地址" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24" v-if="form.type !== MenuTypeEnum.BUTTON">
+            <el-form-item label="菜单说明书">
+              <file-upload v-model="form.manualUrl" :limit="1" :file-size="20" :is-show-tip="true" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -210,6 +235,42 @@
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
+
+    <el-dialog :title="upload.title" :visible.sync="upload.open" width="400px" append-to-body>
+      <el-alert
+        :title="'当前系统：' + (selectedClient ? (selectedClient.name + ' (' + selectedClient.clientId + ')') : '未选择')"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+      <el-upload
+        ref="upload"
+        :limit="1"
+        accept=".xlsx, .xls"
+        :headers="upload.headers"
+        :action="uploadAction"
+        :disabled="upload.isUploading"
+        :on-progress="handleFileUploadProgress"
+        :on-success="handleFileSuccess"
+        :auto-upload="false"
+        drag
+      >
+        <i class="el-icon-upload"></i>
+        <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+        <div class="el-upload__tip text-center" slot="tip">
+          <div class="el-upload__tip">
+            <el-checkbox v-model="upload.updateSupport" /> 是否更新已存在的菜单（同级同名）
+          </div>
+          <span>仅允许 xls/xlsx。父菜单填名称（根填「根」）；请先导入父级再导入子级。</span>
+          <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
+        </div>
+      </el-upload>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" @click="submitFileForm">确 定</el-button>
+        <el-button @click="upload.open = false">取 消</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -217,6 +278,8 @@
 import Treeselect from '@riophae/vue-treeselect'
 import '@riophae/vue-treeselect/dist/vue-treeselect.css'
 import IconSelect from '@/components/IconSelect'
+import MenuStyleSelect from '@/components/MenuStyleSelect'
+import FileUpload from '@/components/FileUpload'
 import {
   createSubSystemMenu,
   deleteSubSystemMenu,
@@ -224,15 +287,20 @@ import {
   getSubSystemClientSimpleList,
   getSubSystemMenu,
   getSubSystemMenuList,
+  importSubSystemMenuTemplate,
   updateSubSystemMenu
 } from '@/api/system/subSystemMenu'
 import { SystemMenuTypeEnum, CommonStatusEnum } from '@/utils/constants'
 import { DICT_TYPE, getDictDatas } from '@/utils/dict'
 import { isExternal } from '@/utils/validate'
+import { flattenMenuTree, inheritedStyleId as resolveInheritedStyleId, isFirstLevelMenu as checkFirstLevelMenu } from '@/utils/menuStyleInherit'
+import { getBaseHeader } from '@/utils/request'
+import subSystemImportGate from '@/utils/subSystemImportGate'
 
 export default {
   name: 'SubSystemMenu',
-  components: { Treeselect, IconSelect },
+  components: { Treeselect, IconSelect, MenuStyleSelect, FileUpload },
+  mixins: [subSystemImportGate],
   data() {
     return {
       loading: false,
@@ -247,6 +315,13 @@ export default {
       isExpandAll: false,
       refreshTable: true,
       checkedIds: [],
+      upload: {
+        open: false,
+        title: '',
+        isUploading: false,
+        updateSupport: false,
+        headers: getBaseHeader()
+      },
       queryParams: {
         name: undefined,
         status: undefined
@@ -263,6 +338,13 @@ export default {
     }
   },
   computed: {
+    uploadAction() {
+      const id = this.selectedClient && this.selectedClient.id
+      const update = this.upload.updateSupport ? 'true' : 'false'
+      return process.env.VUE_APP_BASE_API + '/admin-api/system/sub-system-menu/import'
+        + '?subSystemId=' + (id || '')
+        + '&updateSupport=' + update
+    },
     filteredClientList() {
       const keyword = (this.clientKeyword || '').trim().toLowerCase()
       if (!keyword) {
@@ -277,6 +359,13 @@ export default {
       const id = this.form.subSystemId || (this.selectedClient ? this.selectedClient.id : null)
       const item = this.clientList.find(client => client.id === id)
       return item ? item.name + ' (' + item.clientId + ')' : ''
+    },
+    isFirstLevelMenu() {
+      return checkFirstLevelMenu(this.form.parentId)
+    },
+    inheritedStyleId() {
+      const flatMenus = flattenMenuTree(this.menuList)
+      return resolveInheritedStyleId(flatMenus, this.form.parentId)
     }
   },
   created() {
@@ -287,11 +376,16 @@ export default {
       this.form.icon = name
     },
     loadClientList() {
-      getSubSystemClientSimpleList().then(res => {
-        this.clientList = res.data || []
-        if (!this.selectedClient && this.clientList.length > 0) {
-          this.handleClientClick(this.clientList[0])
-        }
+      return this.withClientsLoading(() => {
+        return getSubSystemClientSimpleList().then(res => {
+          this.clientList = res.data || []
+          if (this.syncSelectedClientFromList()) {
+            return
+          }
+          if (!this.selectedClient && this.clientList.length > 0) {
+            this.handleClientClick(this.clientList[0])
+          }
+        })
       })
     },
     handleClientClick(item) {
@@ -357,6 +451,7 @@ export default {
         parentId: 0,
         name: undefined,
         icon: undefined,
+        styleId: undefined,
         type: SystemMenuTypeEnum.DIR,
         sort: 0,
         path: undefined,
@@ -366,7 +461,8 @@ export default {
         status: CommonStatusEnum.ENABLE,
         visible: true,
         keepAlive: true,
-        alwaysShow: true
+        alwaysShow: true,
+        manualUrl: undefined
       }
       this.resetForm('form')
     },
@@ -378,20 +474,59 @@ export default {
       })
     },
     handleAdd(row) {
-      if (!this.selectedClient) {
-        this.$modal.msgWarning('请先在左侧选择外部系统')
+      this.ensureSubSystemBoundBeforeAction('新增菜单', { requireConfirm: false }).then(() => {
+        this.resetFormData()
+        this.getTreeselect(this.selectedClient.id).then(() => {
+          if (row != null && row.id) {
+            this.form.parentId = row.id
+          } else {
+            this.form.parentId = 0
+          }
+          this.open = true
+          this.title = '添加外部系统菜单'
+        })
+      }).catch(() => {})
+    },
+    handleImport() {
+      this.ensureSubSystemBoundBeforeAction('导入').then(() => {
+        this.upload.title = '导入外部系统菜单 — ' + (this.selectedClient.name || '')
+        this.upload.open = true
+        this.upload.headers = getBaseHeader()
+      }).catch(() => {})
+    },
+    importTemplate() {
+      importSubSystemMenuTemplate().then(response => {
+        this.$download.excel(response, '外部系统菜单导入模板.xls')
+      })
+    },
+    handleFileUploadProgress() {
+      this.upload.isUploading = true
+    },
+    handleFileSuccess(response) {
+      this.upload.open = false
+      this.upload.isUploading = false
+      if (this.$refs.upload) {
+        this.$refs.upload.clearFiles()
+      }
+      if (response.code !== 0) {
+        this.$modal.msgError(response.msg || '导入失败')
         return
       }
-      this.resetFormData()
-      this.getTreeselect(this.selectedClient.id).then(() => {
-        if (row != null && row.id) {
-          this.form.parentId = row.id
-        } else {
-          this.form.parentId = 0
-        }
-        this.open = true
-        this.title = '添加外部系统菜单'
-      })
+      const data = response.data || {}
+      let text = '新建：' + ((data.createKeys && data.createKeys.length) || 0)
+      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      text += '<br />更新：' + ((data.updateKeys && data.updateKeys.length) || 0)
+      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      const failMap = data.failureKeys || {}
+      const failKeys = Object.keys(failMap)
+      text += '<br />失败：' + failKeys.length
+      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + k + '：' + failMap[k] })
+      this.$alert(text, '导入结果', { dangerouslyUseHTMLString: true })
+      this.getList()
+      this.loadClientList()
+    },
+    submitFileForm() {
+      this.$refs.upload.submit()
     },
     handleUpdate(row) {
       this.resetFormData()
@@ -413,7 +548,8 @@ export default {
             status: res.data.status,
             visible: res.data.visible,
             keepAlive: res.data.keepAlive,
-            alwaysShow: res.data.alwaysShow
+            alwaysShow: res.data.alwaysShow,
+            styleId: res.data.styleId
           }
           this.open = true
           this.title = '修改外部系统菜单'
@@ -427,25 +563,39 @@ export default {
         }
         if (this.form.type === SystemMenuTypeEnum.DIR || this.form.type === SystemMenuTypeEnum.MENU) {
           const path = this.form.path
-          if (path && !isExternal(path)) {
-            if (this.form.parentId === 0 && path.charAt(0) !== '/') {
-              this.$modal.msgError('根目录路由地址必须以 / 开头')
-              return
-            }
-            if (this.form.parentId !== 0 && path.charAt(0) === '/') {
-              this.$modal.msgError('非根目录路由地址不能以 / 开头')
-              return
-            }
+          // 子系统菜单路由由前端拼接为 /portal/{clientId}/...，path 应为相对段，不能以 / 开头
+          if (path && !isExternal(path) && path.charAt(0) === '/') {
+            this.$modal.msgError('子系统菜单路由地址不能以 / 开头')
+            return
           }
         }
-        const request = this.form.id ? updateSubSystemMenu : createSubSystemMenu
-        request(this.form).then(() => {
+        this.warnDuplicateMenuName()
+        const payload = { ...this.form }
+        if (!checkFirstLevelMenu(payload.parentId)) {
+          payload.styleId = null
+        }
+        const request = payload.id ? updateSubSystemMenu : createSubSystemMenu
+        request(payload).then(() => {
           this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
           this.open = false
           this.getList()
           this.loadClientList()
         })
       })
+    },
+    /** 菜单重名提醒（不拦截保存） */
+    warnDuplicateMenuName() {
+      const { name, parentId, id } = this.form
+      if (!name) {
+        return
+      }
+      const flatMenus = flattenMenuTree(this.menuList)
+      const duplicate = flatMenus.some(menu =>
+        menu.id !== id && menu.name === name && menu.parentId === parentId
+      )
+      if (duplicate) {
+        this.$modal.msgWarning('已经存在该名字的菜单，请注意区分')
+      }
     },
     handleDelete(row) {
       this.$modal.confirm('是否确认删除名称为"' + row.name + '"的菜单？').then(() => {

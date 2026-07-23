@@ -1,11 +1,21 @@
 import {login, logout, getInfo, socialLogin, smsLogin} from '@/api/login'
 import {setToken, removeToken} from '@/utils/auth'
+import { resolveUserAvatar, loadRoleAvatarConfig } from '@/utils/defaultAvatar'
+
+function normalizePermissions(permissions) {
+  if (!permissions) {
+    return []
+  }
+  const list = Array.isArray(permissions) ? permissions : Object.values(permissions)
+  return list.filter(permission => permission && String(permission).trim())
+}
 
 const user = {
   state: {
     id: 0, // 用户编号
     name: '',
     avatar: '',
+    rawAvatar: '',
     roles: [],
     permissions: []
   },
@@ -22,6 +32,9 @@ const user = {
     },
     SET_AVATAR: (state, avatar) => {
       state.avatar = avatar
+    },
+    SET_RAW_AVATAR: (state, rawAvatar) => {
+      state.rawAvatar = rawAvatar
     },
     SET_ROLES: (state, roles) => {
       state.roles = roles
@@ -44,7 +57,8 @@ const user = {
       return new Promise((resolve, reject) => {
         login(username, password, captchaVerification, socialType, socialCode, socialState, loginType).then(res => {
           res = res.data;
-          // 设置 token
+          // 新登录清门户会话：首进走星标默认；避免 Token 过期未走 LogOut 时仍按上次系统进
+          commit('portal/RESET_PORTAL', null, { root: true })
           setToken(res)
           resolve()
         }).catch(error => {
@@ -61,7 +75,7 @@ const user = {
       return new Promise((resolve, reject) => {
         socialLogin(type, code, state).then(res => {
           res = res.data;
-          // 设置 token
+          commit('portal/RESET_PORTAL', null, { root: true })
           setToken(res)
           resolve()
         }).catch(error => {
@@ -77,7 +91,7 @@ const user = {
       return new Promise((resolve, reject) => {
         smsLogin(mobile,mobileCode).then(res => {
           res = res.data;
-          // 设置 token
+          commit('portal/RESET_PORTAL', null, { root: true })
           setToken(res)
           resolve()
         }).catch(error => {
@@ -85,15 +99,23 @@ const user = {
         })
       })
     },
-    // 获取用户信息
-    GetInfo({ commit, state }) {
+    // 获取用户信息（默认轻量：不含主系统菜单树）
+    GetInfo({ commit, state }, options = {}) {
+      const includeMenus = options && options.includeMenus === true
+      const redisOnly = options && options.redisOnly === true
       return new Promise((resolve, reject) => {
-        getInfo().then(res => {
-          // 没有 data 数据，赋予个默认值
-          if (!res) {
+        getInfo(includeMenus, redisOnly).then(res => {
+          // redisOnly 未命中时 data 可能为 null
+          if (!res || res.data == null) {
+            if (redisOnly) {
+              resolve(null)
+              return
+            }
             res = {
               data: {
                 roles: [],
+                menus: [],
+                permissions: [],
                 user: {
                   id: '',
                   avatar: '',
@@ -104,37 +126,73 @@ const user = {
             }
           }
 
-          res = res.data; // 读取 data 数据
-          const user = res.user
-          const avatar = ( user.avatar === "" || user.avatar == null ) ? require("@/assets/images/profile.jpg") : user.avatar;
-          if (res.roles && res.roles.length > 0) { // 验证返回的roles是否是一个非空数组
-            commit('SET_ROLES', res.roles)
-            commit('SET_PERMISSIONS', res.permissions)
-          } else {
-            commit('SET_ROLES', ['ROLE_DEFAULT'])
-          }
+          res = res.data
+          const user = res.user || {}
+          const roles = res.roles && res.roles.length > 0 ? res.roles : ['ROLE_DEFAULT']
+          commit('SET_ROLES', roles)
+          commit('SET_PERMISSIONS', normalizePermissions(res.permissions))
           commit('SET_ID', user.id)
-          commit('SET_NAME', user.userName)
+          commit('SET_NAME', user.userName || user.username)
           commit('SET_NICKNAME', user.nickname)
-          commit('SET_AVATAR', avatar)
+          commit('SET_RAW_AVATAR', user.avatar || '')
+          commit('SET_AVATAR', resolveUserAvatar(user.avatar, roles))
           resolve(res)
+          loadRoleAvatarConfig().then(() => {
+            commit('SET_AVATAR', resolveUserAvatar(user.avatar, roles))
+          }).catch(() => {})
         }).catch(error => {
           reject(error)
         })
       })
     },
 
-    // 退出系统
-    LogOut({ commit, state }) {
-      return new Promise((resolve, reject) => {
-        logout(state.token).then(() => {
+    /**
+     * 加载主系统菜单树并注入路由。
+     * - redisOnly / background：仅 Redis，未命中返回 null（不打库）
+     * - preferRedis：先 Redis，未命中再打库写回（后台懒加载用）
+     */
+    LoadMainMenus({ dispatch, rootState }, options = {}) {
+      const background = !!(options && options.background)
+      const redisOnly = background || !!(options && options.redisOnly)
+      const preferRedis = !!(options && options.preferRedis)
+      if (rootState.permission.defaultRoutes && rootState.permission.defaultRoutes.length) {
+        return Promise.resolve(rootState.permission.defaultRoutes)
+      }
+      const applyMenus = userInfo => {
+        if (!userInfo || !userInfo.menus || !userInfo.menus.length) {
+          return null
+        }
+        return dispatch('GenerateRoutes', userInfo.menus).then(accessRoutes => {
+          const router = require('@/router').default
+          router.addRoutes(accessRoutes)
+          dispatch('portal/ensureMainSidebarCached', null, { root: true })
+          return accessRoutes
+        })
+      }
+      if (preferRedis) {
+        return dispatch('GetInfo', { includeMenus: true, redisOnly: true }).then(cached => {
+          const applied = applyMenus(cached)
+          if (applied) {
+            return applied
+          }
+          return dispatch('GetInfo', { includeMenus: true, redisOnly: false }).then(applyMenus)
+        })
+      }
+      return dispatch('GetInfo', { includeMenus: true, redisOnly }).then(applyMenus)
+    },
+
+    // 退出系统（即使后端失败也清本地登录态，避免现场换人后仍残留 Token）
+    LogOut({ commit }) {
+      return new Promise((resolve) => {
+        logout().finally(() => {
           commit('SET_ROLES', [])
           commit('SET_PERMISSIONS', [])
+          commit('SET_ID', 0)
+          commit('SET_NAME', '')
+          commit('SET_NICKNAME', '')
           commit('portal/RESET_PORTAL', null, { root: true })
           removeToken()
           resolve()
-        }).catch(error => {
-          reject(error)
         })
       })
     }

@@ -6,6 +6,7 @@ import cn.jonhon.jump.module.system.dal.dataobject.permission.MenuDO;
 
 import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 菜单 Service 接口
@@ -98,5 +99,10 @@ public interface MenuService {
      * @return 菜单数组
      */
     List<MenuDO> getMenuList(Collection<Long> ids);
+
+    /**
+     * 获得 menuId 及其所有子菜单编号
+     */
+    Set<Long> getMenuSelfAndChildIds(Long menuId);
 
 }

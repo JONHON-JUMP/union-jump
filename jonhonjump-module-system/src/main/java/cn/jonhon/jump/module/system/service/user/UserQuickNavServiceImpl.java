@@ -2,15 +2,16 @@ package cn.jonhon.jump.module.system.service.user;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.UserQuickNavCandidateRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.UserQuickNavRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.permission.MenuDO;
 import cn.jonhon.jump.module.system.dal.dataobject.permission.RoleDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.UserQuickNavDO;
 import cn.jonhon.jump.module.system.dal.mysql.user.UserQuickNavMapper;
+import cn.jonhon.jump.module.system.dal.redis.user.UserQuickNavRedisDAO;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
 import cn.jonhon.jump.module.system.service.permission.MenuService;
 import cn.jonhon.jump.module.system.service.permission.PermissionService;
+import cn.jonhon.jump.module.system.service.permission.RoleQuickNavService;
 import cn.jonhon.jump.module.system.service.permission.RoleService;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,8 +23,6 @@ import java.util.stream.Collectors;
 
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertMap;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertSet;
-import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.filterList;
-import static cn.jonhon.jump.module.system.dal.dataobject.permission.MenuDO.ID_ROOT;
 
 /**
  * 用户快捷导航 Service 实现（主系统）
@@ -35,6 +34,10 @@ public class UserQuickNavServiceImpl implements UserQuickNavService {
     @Resource
     private UserQuickNavMapper userQuickNavMapper;
     @Resource
+    private UserQuickNavRedisDAO userQuickNavRedisDAO;
+    @Resource
+    private RoleQuickNavService roleQuickNavService;
+    @Resource
     private PermissionService permissionService;
     @Resource
     private RoleService roleService;
@@ -43,52 +46,34 @@ public class UserQuickNavServiceImpl implements UserQuickNavService {
 
     @Override
     public UserQuickNavRespVO getUserQuickNav(Long userId) {
-        Set<Long> allowedMenuIds = getAllowedMenuIds(userId);
-        List<UserQuickNavDO> savedList = userQuickNavMapper.selectListByUserId(userId);
-        boolean configured = CollUtil.isNotEmpty(savedList);
-        List<Long> menuIds = savedList.stream()
-                .map(UserQuickNavDO::getMenuId)
-                .filter(allowedMenuIds::contains)
-                .collect(Collectors.toList());
-        return new UserQuickNavRespVO(menuIds, configured);
-    }
-
-    @Override
-    public List<UserQuickNavCandidateRespVO> getCandidateList(Long userId) {
-        Set<Long> allowedMenuIds = getAllowedMenuIds(userId);
-        if (CollUtil.isEmpty(allowedMenuIds)) {
-            return Collections.emptyList();
+        // Redis 存「过滤后的完整结果」；lockedMenuIds != null 表示已计算，命中则不再扫库
+        UserQuickNavRespVO cached = userQuickNavRedisDAO.get(userId);
+        if (cached != null && cached.getLockedMenuIds() != null) {
+            return cached;
         }
-        Map<Long, MenuDO> menuMap = convertMap(menuService.getMenuList(), MenuDO::getId);
-        Set<Long> treeMenuIds = new HashSet<>();
-        for (Long menuId : allowedMenuIds) {
-            treeMenuIds.add(menuId);
-            Long parentId = menuMap.get(menuId).getParentId();
-            while (parentId != null && !ID_ROOT.equals(parentId)) {
-                MenuDO parent = menuMap.get(parentId);
-                if (parent == null) {
-                    break;
-                }
-                if (!Boolean.FALSE.equals(parent.getVisible())) {
-                    treeMenuIds.add(parentId);
-                }
-                parentId = parent.getParentId();
+
+        UserQuickNavRespVO saved = cached != null ? cached : loadUserQuickNavFromDb(userId);
+        if (!Boolean.TRUE.equals(saved.getConfigured())) {
+            List<Long> roleDefaults = roleQuickNavService.getUserDefaultMenuIds(userId);
+            if (CollUtil.isNotEmpty(roleDefaults)) {
+                saved = new UserQuickNavRespVO(roleDefaults, false, null);
             }
         }
-        List<MenuDO> treeMenus = menuService.filterDisableMenus(
-                menuService.getMenuList(treeMenuIds).stream()
-                        .filter(menu -> !MenuTypeEnum.BUTTON.getType().equals(menu.getType()))
-                        .filter(menu -> isMenuShownInSidebar(menu, menuMap))
-                        .collect(Collectors.toList()));
-        return buildCandidateTree(treeMenus, menuMap);
+        Set<Long> allowedMenuIds = getAllowedMenuIds(userId);
+        UserQuickNavRespVO result = filterByAllowedMenuIds(saved, allowedMenuIds);
+        result.setLockedMenuIds(getLockedMenuIds(userId, allowedMenuIds));
+        userQuickNavRedisDAO.set(userId, result);
+        return result;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public void saveUserQuickNav(Long userId, List<Long> menuIds) {
+    public UserQuickNavRespVO saveUserQuickNav(Long userId, List<Long> menuIds) {
         Set<Long> allowedMenuIds = getAllowedMenuIds(userId);
+        List<Long> lockedMenuIds = getLockedMenuIds(userId, allowedMenuIds);
         List<Long> validMenuIds = CollUtil.isEmpty(menuIds) ? Collections.emptyList()
                 : menuIds.stream().filter(allowedMenuIds::contains).distinct().collect(Collectors.toList());
+        validMenuIds = mergeLockedMenuIds(validMenuIds, lockedMenuIds);
 
         userQuickNavMapper.deleteByUserId(userId);
         for (int i = 0; i < validMenuIds.size(); i++) {
@@ -98,11 +83,48 @@ public class UserQuickNavServiceImpl implements UserQuickNavService {
             record.setSort(i);
             userQuickNavMapper.insert(record);
         }
+        UserQuickNavRespVO result = new UserQuickNavRespVO(validMenuIds, true, lockedMenuIds);
+        userQuickNavRedisDAO.set(userId, result);
+        return result;
     }
 
     @Override
     public void deleteByMenuId(Long menuId) {
+        List<UserQuickNavDO> affectedList = userQuickNavMapper.selectListByMenuId(menuId);
+        if (CollUtil.isEmpty(affectedList)) {
+            return;
+        }
         userQuickNavMapper.deleteByMenuId(menuId);
+        userQuickNavRedisDAO.deleteList(convertSet(affectedList, UserQuickNavDO::getUserId));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void syncUserQuickNavByRoleId(Long roleId) {
+        if (roleId == null) {
+            return;
+        }
+        syncUserQuickNavFromRoles(permissionService.getUserRoleIdListByRoleId(Collections.singleton(roleId)));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void syncUserQuickNavFromRoles(Long userId) {
+        if (userId == null) {
+            return;
+        }
+        syncUserQuickNavFromRoles(Collections.singleton(userId));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void syncUserQuickNavFromRoles(Collection<Long> userIds) {
+        if (CollUtil.isEmpty(userIds)) {
+            return;
+        }
+        for (Long userId : userIds) {
+            writeUserQuickNavFromRoles(userId);
+        }
     }
 
     @Override
@@ -110,48 +132,84 @@ public class UserQuickNavServiceImpl implements UserQuickNavService {
         if (CollUtil.isEmpty(menuIds)) {
             return;
         }
-        userQuickNavMapper.deleteByMenuIds(menuIds);
-    }
-
-    private List<UserQuickNavCandidateRespVO> buildCandidateTree(List<MenuDO> menuList, Map<Long, MenuDO> menuMap) {
-        if (CollUtil.isEmpty(menuList)) {
-            return Collections.emptyList();
+        List<UserQuickNavDO> affectedList = userQuickNavMapper.selectListByMenuIds(menuIds);
+        if (CollUtil.isEmpty(affectedList)) {
+            return;
         }
-        menuList.sort(Comparator.comparing(MenuDO::getSort).thenComparing(MenuDO::getId));
-        Map<Long, UserQuickNavCandidateRespVO> treeNodeMap = new LinkedHashMap<>();
-        menuList.forEach(menu -> {
-            UserQuickNavCandidateRespVO node = new UserQuickNavCandidateRespVO();
-            node.setId(menu.getId());
-            node.setParentId(resolveVisibleParentId(menu.getParentId(), menuMap));
-            node.setName(menu.getName());
-            node.setType(menu.getType());
-            node.setIcon(menu.getIcon());
-            treeNodeMap.put(menu.getId(), node);
-        });
-        treeNodeMap.values().stream()
-                .filter(node -> !ID_ROOT.equals(node.getParentId()))
-                .forEach(childNode -> {
-                    UserQuickNavCandidateRespVO parentNode = treeNodeMap.get(childNode.getParentId());
-                    if (parentNode == null) {
-                        return;
-                    }
-                    if (parentNode.getChildren() == null) {
-                        parentNode.setChildren(new ArrayList<>());
-                    }
-                    parentNode.getChildren().add(childNode);
-                });
-        return filterList(treeNodeMap.values(), node -> ID_ROOT.equals(node.getParentId()));
+        userQuickNavMapper.deleteByMenuIds(menuIds);
+        userQuickNavRedisDAO.deleteList(convertSet(affectedList, UserQuickNavDO::getUserId));
     }
 
-    /**
-     * 与侧边栏一致：菜单自身及全部祖先均为「显示」时，才可在快捷导航中展示。
-     */
+    private UserQuickNavRespVO loadUserQuickNavFromDb(Long userId) {
+        List<UserQuickNavDO> savedList = userQuickNavMapper.selectListByUserId(userId);
+        boolean configured = CollUtil.isNotEmpty(savedList);
+        List<Long> menuIds = savedList.stream()
+                .map(UserQuickNavDO::getMenuId)
+                .collect(Collectors.toList());
+        return new UserQuickNavRespVO(menuIds, configured, null);
+    }
+
+    private void writeUserQuickNavFromRoles(Long userId) {
+        List<Long> existingMenuIds = loadUserQuickNavFromDb(userId).getMenuIds();
+        List<Long> roleMenuIds = roleQuickNavService.getUserDefaultMenuIds(userId);
+        Set<Long> allowedMenuIds = getAllowedMenuIds(userId);
+
+        LinkedHashSet<Long> merged = new LinkedHashSet<>();
+        existingMenuIds.stream().filter(allowedMenuIds::contains).forEach(merged::add);
+        if (CollUtil.isNotEmpty(roleMenuIds)) {
+            roleMenuIds.stream().filter(allowedMenuIds::contains).forEach(merged::add);
+        }
+        List<Long> validMenuIds = new ArrayList<>(merged);
+        if (validMenuIds.equals(existingMenuIds)) {
+            userQuickNavRedisDAO.delete(userId);
+            return;
+        }
+        if (CollUtil.isEmpty(validMenuIds)) {
+            userQuickNavRedisDAO.delete(userId);
+            return;
+        }
+
+        userQuickNavMapper.deleteByUserId(userId);
+        for (int i = 0; i < validMenuIds.size(); i++) {
+            UserQuickNavDO record = new UserQuickNavDO();
+            record.setUserId(userId);
+            record.setMenuId(validMenuIds.get(i));
+            record.setSort(i);
+            userQuickNavMapper.insert(record);
+        }
+        userQuickNavRedisDAO.delete(userId);
+    }
+
+    private List<Long> getLockedMenuIds(Long userId, Set<Long> allowedMenuIds) {
+        return roleQuickNavService.getUserDefaultMenuIds(userId).stream()
+                .filter(allowedMenuIds::contains)
+                .collect(Collectors.toList());
+    }
+
+    private List<Long> mergeLockedMenuIds(List<Long> menuIds, List<Long> lockedMenuIds) {
+        LinkedHashSet<Long> merged = new LinkedHashSet<>();
+        if (CollUtil.isNotEmpty(menuIds)) {
+            menuIds.forEach(merged::add);
+        }
+        if (CollUtil.isNotEmpty(lockedMenuIds)) {
+            lockedMenuIds.forEach(merged::add);
+        }
+        return new ArrayList<>(merged);
+    }
+
+    private UserQuickNavRespVO filterByAllowedMenuIds(UserQuickNavRespVO saved, Set<Long> allowedMenuIds) {
+        List<Long> menuIds = saved.getMenuIds().stream()
+                .filter(allowedMenuIds::contains)
+                .collect(Collectors.toList());
+        return new UserQuickNavRespVO(menuIds, saved.getConfigured(), null);
+    }
+
     private boolean isMenuShownInSidebar(MenuDO menu, Map<Long, MenuDO> menuMap) {
         if (Boolean.FALSE.equals(menu.getVisible())) {
             return false;
         }
         Long parentId = menu.getParentId();
-        if (parentId == null || ID_ROOT.equals(parentId)) {
+        if (parentId == null || MenuDO.ID_ROOT.equals(parentId)) {
             return true;
         }
         MenuDO parent = menuMap.get(parentId);
@@ -159,20 +217,6 @@ public class UserQuickNavServiceImpl implements UserQuickNavService {
             return true;
         }
         return isMenuShownInSidebar(parent, menuMap);
-    }
-
-    private Long resolveVisibleParentId(Long parentId, Map<Long, MenuDO> menuMap) {
-        while (parentId != null && !ID_ROOT.equals(parentId)) {
-            MenuDO parent = menuMap.get(parentId);
-            if (parent == null) {
-                return ID_ROOT;
-            }
-            if (!Boolean.FALSE.equals(parent.getVisible())) {
-                return parentId;
-            }
-            parentId = parent.getParentId();
-        }
-        return ID_ROOT;
     }
 
     private Set<Long> getAllowedMenuIds(Long userId) {

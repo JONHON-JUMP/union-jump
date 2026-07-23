@@ -22,7 +22,11 @@
       <el-table-column label="任务编号" align="center" prop="id" width="320" />
       <el-table-column label="任务名称" align="center" prop="name" />
       <el-table-column label="所属流程" align="center" prop="processInstance.name" />
-      <el-table-column label="流程发起人" align="center" prop="processInstance.startUserNickname" />
+      <el-table-column label="流程发起人" align="center" width="120">
+        <template v-slot="scope">
+          <span>{{ getStartUserNickname(scope.row) }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="创建时间" align="center" prop="createTime" width="180">
         <template v-slot="scope">
           <span>{{ parseTime(scope.row.createTime) }}</span>
@@ -97,6 +101,16 @@ export default {
     resetQuery() {
       this.resetForm("queryForm");
       this.handleQuery();
+    },
+    getStartUserNickname(row) {
+      const processInstance = row.processInstance
+      if (!processInstance) {
+        return ''
+      }
+      if (processInstance.startUser && processInstance.startUser.nickname) {
+        return processInstance.startUser.nickname
+      }
+      return processInstance.startUserNickname || ''
     },
     /** 处理审批按钮 */
     handleAudit(row) {

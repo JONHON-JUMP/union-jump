@@ -17,7 +17,6 @@ public class SubSystemMenuDO extends BaseDO {
 
     @TableId
     private Long id;
-    private Long deptId;
     private Long subSystemId;
     private String menuName;
     private Long parentId;
@@ -32,8 +31,13 @@ public class SubSystemMenuDO extends BaseDO {
     private Integer status;
     private String perms;
     private String icon;
+    /** 菜单样式编号，关联 system_menu_style.id */
+    private Long styleId;
     private String componentName;
     private Integer alwaysShow;
     private String remark;
+
+    /** 菜单说明书文件地址（可选） */
+    private String manualUrl;
 
 }

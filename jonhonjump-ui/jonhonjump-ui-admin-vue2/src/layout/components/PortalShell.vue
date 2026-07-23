@@ -6,10 +6,10 @@
   >
     <header class="portal-header" @click.stop>
       <button class="brand" type="button" aria-label="返回门户首页" @click="goHome">
-        <span class="brand-mark">J</span>
+        <img class="brand-mark" :src="avicBrandLogo" :alt="avicBrandAlt">
         <span class="brand-copy">
-          <strong>JUMP 中航统一制造管理平台</strong>
-          <small>JONHON UNIFORM MANUFACTURE PLATFORM</small>
+          <strong>JUMP 中航光电统一制造管理平台</strong>
+          <small>JONHON UNIFORM MANUFACTURING PLATFORM</small>
         </span>
       </button>
 
@@ -39,7 +39,7 @@
               class="search-result"
               @mousedown.prevent="openApp(app)"
             >
-              <span class="mini-icon" :style="{ background: app.color }">
+              <span class="mini-icon" :style="iconStyle(app)">
                 <svg-icon :icon-class="app.icon" />
               </span>
               <span>
@@ -52,37 +52,14 @@
           </div>
         </div>
 
-        <div class="system-chip">
-          <span class="status-dot" />
-          <span>当前系统：</span>
-          <strong>{{ currentSubsystem }}</strong>
-          <el-dropdown trigger="click" placement="bottom-end" @command="handleSubsystemChange">
-            <button class="system-switch" type="button">
-              切换
-              <i class="el-icon-arrow-down" />
-            </button>
-            <el-dropdown-menu slot="dropdown" class="system-dropdown">
-              <el-dropdown-item
-                v-for="system in subsystemOptions"
-                :key="system.value"
-                :command="system.value"
-                :class="{ 'is-current': currentSystem === system.value }"
-              >
-                <span class="system-option">
-                  <i :class="system.icon" />
-                  <span>
-                    <strong>{{ system.label }}</strong>
-                    <small>{{ system.description }}</small>
-                  </span>
-                  <i v-if="currentSystem === system.value" class="el-icon-check" />
-                </span>
-              </el-dropdown-item>
-            </el-dropdown-menu>
-          </el-dropdown>
-        </div>
+        <portal-system-switch @switch="handleSubsystemChange" />
 
-        <el-badge :value="3" class="notice-badge">
-          <button class="round-action" type="button" aria-label="通知" @click="goTodo">
+        <button class="switch-user-btn" type="button" @click="handleSwitchUser">
+          切换用户
+        </button>
+
+        <el-badge :value="todoBadgeValue" class="notice-badge">
+          <button class="round-action" type="button" aria-label="待办任务" @click="goTodo">
             <i class="el-icon-bell" />
           </button>
         </el-badge>
@@ -116,43 +93,82 @@
     <all-apps-drawer
       ref="allAppsDrawer"
       :visible.sync="drawerVisible"
-      :routes="sidebarRouters || []"
+      :routes="currentSystemSidebarRouters || []"
+      :system-key="currentSystem"
+      :system-label="currentSystemLabel"
+      :quick-nav-menu-ids="quickNavMenuIds"
+      :quick-nav-locked-menu-ids="quickNavLockedMenuIds"
+      :quick-nav-configured="quickNavConfigured"
+      :sub-system-id="currentSubSystemId"
       @open="openApp"
+      @quick-nav-change="handleQuickNavChangeFromDrawer"
     />
   </div>
 </template>
 
 <script>
 import { mapGetters } from 'vuex'
-import { getPath } from '@/utils/ruoyi'
+import { confirmSwitchUser, confirmLogout } from '@/utils/switchUser'
 import { isExternal } from '@/utils/validate'
-import { buildSubsystemOptions, resolveCurrentSubsystemLabel } from '@/utils/portalSubsystem'
 import { parsePortalClientId, resolvePortalFrameRoute, isMainBusinessPath } from '@/utils/portalRoute'
 import AllAppsDrawer from '@/views/components/AllAppsDrawer.vue'
 import PortalDock from './PortalDock.vue'
+import PortalSystemSwitch from './PortalSystemSwitch.vue'
+import { AVIC_BRAND_LOGO, AVIC_BRAND_ALT } from '@/constants/brand'
+import { buildIconStyle, resolveMenuColors } from '@/utils/menuIconStyle'
+import { resolvePortalMenuIcon } from '@/utils/portalMenuIcon'
+import {
+  buildQuickNavScopeKey,
+  getQuickNavCache,
+  setQuickNavCache
+} from '@/utils/portalQuickNavCache'
+import { getTodoTaskPage } from '@/api/bpm/task'
+import { checkPermi } from '@/utils/permission'
 
-const colors = {
-  blue: 'linear-gradient(145deg, #2597f4, #086fd8)'
+function resolveMenuIconFields(icon, meta = {}) {
+  const resolved = resolvePortalMenuIcon(icon, {
+    name: meta.title || meta.name,
+    path: meta.path
+  })
+  return {
+    svgIcon: resolved.svgIcon,
+    icon: resolved.icon,
+    hasIcon: resolved.hasIcon
+  }
 }
 
 export default {
   name: 'PortalShell',
-  components: { AllAppsDrawer, PortalDock },
+  components: { AllAppsDrawer, PortalDock, PortalSystemSwitch },
   data() {
     return {
+      avicBrandLogo: AVIC_BRAND_LOGO,
+      avicBrandAlt: AVIC_BRAND_ALT,
       searchKeyword: '',
       searchFocused: false,
       drawerVisible: false,
-      dockExpanded: false
+      dockExpanded: false,
+      quickNavMenuIds: [],
+      quickNavLockedMenuIds: [],
+      quickNavConfigured: false,
+      todoCount: 0,
+      todoRefreshTimer: null
     }
   },
   computed: {
-    ...mapGetters(['avatar', 'nickname', 'name', 'sidebarRouters', 'currentSystem', 'portalSystemList']),
-    subsystemOptions() {
-      return buildSubsystemOptions(this.portalSystemList)
+    ...mapGetters(['avatar', 'nickname', 'name', 'sidebarRouters', 'currentSystemSidebarRouters', 'currentSystemLabel', 'currentSystem', 'portalSystemList']),
+    todoBadgeValue() {
+      return this.todoCount > 0 ? this.todoCount : ''
     },
-    currentSubsystem() {
-      return resolveCurrentSubsystemLabel(this.currentSystem, this.portalSystemList)
+    currentSubSystemId() {
+      if (this.currentSystem === 'main') {
+        return 0
+      }
+      const sys = (this.portalSystemList || []).find(item => item.clientId === this.currentSystem)
+      return sys ? Number(sys.subSystemId) : 0
+    },
+    quickNavScopeKey() {
+      return buildQuickNavScopeKey(this.currentSystem, this.currentSubSystemId)
     },
     displayName() {
       return this.nickname || this.name || '制造同仁'
@@ -161,7 +177,7 @@ export default {
       return this.displayName.slice(0, 1)
     },
     authorizedApps() {
-      return this.flattenRoutes(this.sidebarRouters || [])
+      return this.flattenRoutes(this.currentSystemSidebarRouters || [])
     },
     filteredApps() {
       const keyword = this.searchKeyword.toLowerCase()
@@ -177,17 +193,136 @@ export default {
     }
   },
   watch: {
+    currentSystem() {
+      this.searchKeyword = ''
+      this.searchFocused = false
+      this.restoreQuickNavFromCache()
+      this.loadQuickNav()
+    },
+    drawerVisible(visible) {
+      if (visible) {
+        // 首页 Panel 取消收藏后 Shell 可能仍持旧列表；打开抽屉前先对齐缓存，避免再收藏时把已取消项写回
+        this.restoreQuickNavFromCache()
+      }
+      if (!visible || this.currentSystem === 'main') {
+        return
+      }
+      const loaded = !!(this.$store.state.portal.loadedSubSystems || {})[this.currentSystem]
+      if (!loaded) {
+        this.$store.dispatch('portal/ensureSubSystemLoaded', {
+          clientId: this.currentSystem,
+          activate: false
+        }).catch(() => {})
+      }
+    },
     '$route.path'() {
       this.dockExpanded = false
+      this.loadTodoCount()
     }
   },
-  created() {
-    this.$store.dispatch('portal/loadSystemList')
+  mounted() {
+    this._onPortalOpenAllApps = (keyword) => {
+      this.drawerVisible = true
+      this.$nextTick(() => {
+        if (this.$refs.allAppsDrawer) {
+          this.$refs.allAppsDrawer.openWithKeyword(keyword || '')
+        }
+      })
+    }
+    this._onPortalQuickNavChanged = (payload) => {
+      if (!payload || payload.scopeKey !== this.quickNavScopeKey || payload.source === 'shell') {
+        return
+      }
+      this.handleQuickNavChange(payload)
+    }
+    this.$root.$on('portal-open-all-apps', this._onPortalOpenAllApps)
+    this.$root.$on('portal-quick-nav-changed', this._onPortalQuickNavChanged)
+    this.restoreQuickNavFromCache()
+    this.loadQuickNav()
+    this.loadTodoCount()
+    this.todoRefreshTimer = window.setInterval(() => {
+      this.loadTodoCount()
+    }, 60000)
+  },
+  beforeDestroy() {
+    if (this._onPortalOpenAllApps) {
+      this.$root.$off('portal-open-all-apps', this._onPortalOpenAllApps)
+      this._onPortalOpenAllApps = null
+    }
+    if (this._onPortalQuickNavChanged) {
+      this.$root.$off('portal-quick-nav-changed', this._onPortalQuickNavChanged)
+      this._onPortalQuickNavChanged = null
+    }
+    if (this.todoRefreshTimer) {
+      window.clearInterval(this.todoRefreshTimer)
+      this.todoRefreshTimer = null
+    }
   },
   methods: {
+    iconStyle(app) {
+      return buildIconStyle(app)
+    },
     handleShellClick() {
       this.searchFocused = false
       if (this.dockExpanded) this.dockExpanded = false
+    },
+    handleQuickNavChange(payload) {
+      this.quickNavMenuIds = (payload && payload.menuIds) || []
+      this.quickNavLockedMenuIds = (payload && payload.lockedMenuIds) || []
+      this.quickNavConfigured = !!(payload && payload.configured)
+    },
+    restoreQuickNavFromCache() {
+      const cached = getQuickNavCache(this.quickNavScopeKey)
+      if (cached) {
+        this.quickNavMenuIds = [...cached.menuIds]
+        this.quickNavLockedMenuIds = [...(cached.lockedMenuIds || [])]
+        this.quickNavConfigured = cached.configured
+        return
+      }
+      this.quickNavMenuIds = []
+      this.quickNavLockedMenuIds = []
+      this.quickNavConfigured = false
+    },
+    loadQuickNav() {
+      const scopeKey = this.quickNavScopeKey
+      return this.$store.dispatch('portal/loadQuickNavConfig', {
+        subSystemId: this.currentSubSystemId
+      }).then(config => {
+        if (scopeKey !== this.quickNavScopeKey) {
+          return
+        }
+        const menuIds = (config && config.menuIds) || []
+        const lockedMenuIds = (config && config.lockedMenuIds) || []
+        const configured = !!(config && config.configured)
+        this.quickNavMenuIds = menuIds
+        this.quickNavLockedMenuIds = lockedMenuIds
+        this.quickNavConfigured = configured
+        setQuickNavCache(scopeKey, menuIds, configured, lockedMenuIds)
+      }).catch(() => {
+        if (scopeKey === this.quickNavScopeKey) {
+          this.quickNavMenuIds = []
+          this.quickNavLockedMenuIds = []
+          this.quickNavConfigured = false
+        }
+      })
+    },
+    handleQuickNavChangeFromDrawer(payload) {
+      this.handleQuickNavChange(payload)
+      const menuIds = (payload && payload.menuIds) || []
+      const configured = !!(payload && payload.configured)
+      const lockedMenuIds = (payload && payload.lockedMenuIds) || this.quickNavLockedMenuIds
+      const apps = payload && Object.prototype.hasOwnProperty.call(payload, 'apps')
+        ? (payload.apps || [])
+        : undefined
+      setQuickNavCache(this.quickNavScopeKey, menuIds, configured, lockedMenuIds)
+      this.$root.$emit('portal-quick-nav-changed', {
+        menuIds,
+        lockedMenuIds,
+        configured,
+        apps,
+        scopeKey: this.quickNavScopeKey,
+        source: 'shell'
+      })
     },
     expandDock() {
       this.dockExpanded = true
@@ -199,7 +334,7 @@ export default {
         text: '正在切换系统...',
         spinner: 'el-icon-loading'
       })
-      this.$store.dispatch('portal/switchSystem', value).catch(err => {
+      this.$store.dispatch('portal/switchSystem', { system: value, stayOnPortalHome: false }).catch(err => {
         this.$message.error(typeof err === 'string' ? err : (err.message || '切换系统失败'))
       }).finally(() => {
         loading.close()
@@ -217,8 +352,8 @@ export default {
             name: title,
             group: group || '授权菜单',
             path,
-            icon: (route.meta && route.meta.icon) || 'component',
-            color: colors.blue
+            ...resolveMenuIconFields((route.meta && route.meta.icon) || '', { title, path }),
+            ...resolveMenuColors(route.meta || {})
           })
         }
         if (route.children) result.push(...this.flattenRoutes(route.children, path, title || group))
@@ -235,7 +370,13 @@ export default {
       this.drawerVisible = false
       if (!app || !app.path) return
       if (this.currentSystem !== 'main' && isMainBusinessPath(app.path)) {
-        this.$message.warning('当前为子系统模式，请从门户首页选择应用进入')
+        const loading = this.$loading({ lock: true, text: '正在进入主系统...', spinner: 'el-icon-loading' })
+        this.$store.dispatch('portal/switchSystem', { system: 'main', skipNavigate: true })
+          .then(() => this.$router.push(app.path))
+          .catch(err => {
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入主系统失败'))
+          })
+          .finally(() => loading.close())
         return
       }
       if (isExternal(app.path)) {
@@ -252,13 +393,22 @@ export default {
         if (this.$route.path === app.path) {
           return
         }
-        const loading = this.$loading({ lock: true, text: '正在进入子系统...', spinner: 'el-icon-loading' })
-        this.$store.dispatch('portal/enterSubSystem', { clientId, navigate: false })
-          .then(() => this.$router.push(app.path))
+        const menusReady = !!(this.$store.state.portal.loadedSubSystems || {})[clientId]
+        const loading = menusReady
+          ? null
+          : this.$loading({ lock: true, text: '加载子系统菜单...', spinner: 'el-icon-loading' })
+        this.$store.dispatch('portal/ensureSubSystemReady', clientId)
+          .then(() => {
+            // ensureSubSystemReady 已按需激活；若加载期间用户已切走，不再跳转
+            if (this.$store.state.portal.currentSystem !== clientId) {
+              return
+            }
+            return this.$router.push(app.path)
+          })
           .catch(err => {
             this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
           })
-          .finally(() => loading.close())
+          .finally(() => loading && loading.close())
         return
       }
       if (this.$route.path !== app.path) {
@@ -284,22 +434,47 @@ export default {
       if (this.$route.path === '/index' || this.$route.path === '/') return
       this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
     },
+    loadTodoCount() {
+      if (!checkPermi(['bpm:task:query'])) {
+        this.todoCount = 0
+        return Promise.resolve()
+      }
+      return getTodoTaskPage({ pageNo: 1, pageSize: 1 }, true).then(response => {
+        this.todoCount = (response.data && response.data.total) || 0
+      }).catch(() => {
+        this.todoCount = 0
+      })
+    },
     goTodo() {
-      this.$router.push({ path: '/index', query: { workbench: 'todo' } })
+      if (this.$route.path === '/index' || this.$route.path === '/') {
+        // 首页已打开时：直接通知切到待办（仅改 query 可能因重复导航不触发 watch）
+        this.$root.$emit('portal-open-workbench', 'todo')
+        if (this.$route.query.workbench !== 'todo') {
+          this.$router.replace({
+            path: '/index',
+            query: { ...this.$route.query, workbench: 'todo' }
+          }).catch(() => {})
+        }
+        return
+      }
+      const app = this.authorizedApps.find(item => item.path === '/bpm/task/todo')
+      if (app) {
+        this.openApp(app)
+        return
+      }
+      this.$router.push({ path: '/index', query: { workbench: 'todo' } }).catch(() => {})
+    },
+    handleSwitchUser() {
+      confirmSwitchUser(this.$store, this.$route.fullPath)
+    },
+    handleLogout() {
+      confirmLogout(this.$store, this.$route.fullPath)
     },
     handleUserCommand(command) {
       if (command === 'profile') this.$router.push('/user/profile')
       else if (command === 'settings') this.$message.info('平台设置入口已打开，可在此接入个人偏好配置')
       else if (command === 'logout') {
-        this.$confirm('确定退出 JUMP 统一制造管理平台吗？', '退出登录', {
-          confirmButtonText: '退出',
-          cancelButtonText: '取消',
-          type: 'warning'
-        }).then(() => {
-          this.$store.dispatch('LogOut').then(() => {
-            location.href = getPath('/index')
-          })
-        }).catch(() => {})
+        this.handleLogout()
       }
     }
   }
@@ -365,17 +540,15 @@ button { color: inherit; }
 }
 
 .brand-mark {
-  display: grid;
+  display: block;
   flex: 0 0 60px;
   width: 60px;
   height: 60px;
-  place-items: center;
+  padding: 4px;
   border-radius: 16px;
-  color: #fff;
-  background: linear-gradient(145deg, #0e88e9, #08a7bd);
+  object-fit: contain;
+  background: #fff;
   box-shadow: 0 8px 16px rgba(8, 124, 229, .22);
-  font-size: 27px;
-  font-weight: 700;
 }
 
 .brand-copy {
@@ -387,6 +560,24 @@ button { color: inherit; }
 .brand-copy strong { overflow: hidden; font-size: 22px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
 .brand-copy small { margin-top: 3px; color: $muted; font-size: 13px; }
 .header-actions { display: flex; align-items: center; gap: 10px; }
+.switch-user-btn {
+  height: 38px;
+  padding: 0 14px;
+  border: 1px solid #f5c06a;
+  border-radius: 999px;
+  background: #fff7e6;
+  color: #b88230;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s ease, box-shadow .2s ease;
+}
+.switch-user-btn:hover,
+.switch-user-btn:focus-visible {
+  outline: none;
+  background: #ffefd2;
+  box-shadow: 0 0 0 3px rgba(230, 162, 60, .16);
+}
 
 .app-search {
   position: relative;
@@ -427,7 +618,7 @@ button { color: inherit; }
 .search-result small { margin-top: 2px; font-size: 12px; }
 .search-result > i { color: #7790aa; }
 .search-empty { padding: 24px 12px; color: $muted; text-align: center; }
-.mini-icon { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border-radius: 12px; color: #fff; }
+.mini-icon { display: grid; flex: 0 0 42px; width: 42px; height: 42px; place-items: center; border-radius: 12px; }
 .mini-icon .svg-icon { width: 22px; height: 22px; }
 
 .system-chip {
@@ -467,6 +658,7 @@ button { color: inherit; }
   flex: 1 1 auto;
   flex-direction: column;
 }
+
 .portal-workspace.is-iframe-host {
   min-height: 0;
 }
@@ -475,7 +667,14 @@ button { color: inherit; }
   min-height: 0;
   flex: 1 1 auto;
   flex-direction: column;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-padding-bottom: var(--dock-space, 50px);
+}
+.workspace-content > .app-main {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .portal-workspace.is-iframe-host .workspace-content {
   overflow: hidden;
@@ -517,23 +716,4 @@ button { color: inherit; }
   *::before,
   *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
-</style>
-
-<style lang="scss">
-.system-dropdown {
-  min-width: 260px;
-  padding: 8px;
-  border: 0;
-  border-radius: 14px;
-  box-shadow: 0 12px 28px rgba(41, 81, 117, .16);
-}
-.system-dropdown .el-dropdown-menu__item { height: auto; padding: 9px 10px; border-radius: 10px; line-height: 1.4; }
-.system-dropdown .el-dropdown-menu__item:hover { color: #075eb5; background: #edf6fd; }
-.system-dropdown .el-dropdown-menu__item.is-current { color: #075eb5; background: #e5f2fd; }
-.system-option { display: flex; align-items: center; gap: 10px; }
-.system-option > i:first-child { width: 28px; color: #2785d1; font-size: 18px; text-align: center; }
-.system-option > span { display: flex; min-width: 0; flex: 1; flex-direction: column; }
-.system-option strong { color: #183653; font-size: 13px; }
-.system-option small { margin-top: 2px; color: #71859b; font-size: 11px; }
-.system-option > .el-icon-check { color: #087ce5; font-weight: 700; }
 </style>

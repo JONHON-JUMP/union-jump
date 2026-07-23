@@ -51,7 +51,7 @@
 <script>
 import { getTodoTaskPage } from '@/api/bpm/task'
 import { getMyNotifyMessagePage } from '@/api/system/notify/message'
-import { faqList } from './quickNavData'
+import { listFaqWorkbench } from '@/api/system/faq'
 
 export default {
   name: 'HomeTaskPanel',
@@ -62,8 +62,10 @@ export default {
       loading: false,
       todoList: [],
       notifyList: [],
+      faqList: [],
       todoCount: 0,
-      notifyCount: 0
+      notifyCount: 0,
+      faqCount: 0
     }
   },
   computed: {
@@ -71,7 +73,7 @@ export default {
       return [
         { key: 'todo', label: '待办', count: this.todoCount },
         { key: 'notify', label: '通知', count: this.notifyCount },
-        { key: 'faq', label: '常见问题', count: '' }
+        { key: 'faq', label: '常见问题', count: this.faqCount }
       ]
     },
     displayList() {
@@ -81,7 +83,7 @@ export default {
       } else if (this.activeTab === 'notify') {
         list = this.notifyList
       } else {
-        list = faqList
+        list = this.faqList
       }
       if (!this.searchKeyword) {
         return list
@@ -107,7 +109,7 @@ export default {
     },
     loadData() {
       this.loading = true
-      Promise.all([this.loadTodoList(), this.loadNotifyList()]).finally(() => {
+      Promise.all([this.loadTodoList(), this.loadNotifyList(), this.loadFaqList()]).finally(() => {
         this.loading = false
       })
     },
@@ -143,6 +145,22 @@ export default {
         this.notifyCount = 0
       })
     },
+    loadFaqList() {
+      return listFaqWorkbench({ pageNo: 1, pageSize: 20 }).then(response => {
+        const list = response.data.list || []
+        this.faqCount = response.data.total || 0
+        this.faqList = list.map(row => ({
+          category: `【${this.getDictDataLabel(this.DICT_TYPE.SYSTEM_FAQ_CATEGORY, row.category) || '常见QA'}】`,
+          title: row.title || '-',
+          author: row.publisherName || '-',
+          date: this.formatDate(row.createTime),
+          raw: row
+        }))
+      }).catch(() => {
+        this.faqList = []
+        this.faqCount = 0
+      })
+    },
     buildTodoTitle(row) {
       const user = row.processInstance && row.processInstance.startUserNickname
       const taskName = row.name || ''
@@ -160,6 +178,8 @@ export default {
     handleRowClick(item) {
       if (this.activeTab === 'todo' && item.raw && item.raw.processInstance) {
         this.$router.push({ name: 'BpmProcessInstanceDetail', query: { id: item.raw.processInstance.id } }).catch(() => {})
+      } else if (this.activeTab === 'faq' && item.raw && item.raw.id) {
+        this.$router.push({ name: 'MyFaqDetail', query: { faqId: item.raw.id } }).catch(() => {})
       }
     },
     handleMore() {
@@ -169,6 +189,8 @@ export default {
         })
       } else if (this.activeTab === 'notify') {
         this.$router.push({ path: '/user/notify-message' })
+      } else if (this.activeTab === 'faq') {
+        this.$router.push({ name: 'MyFaq' }).catch(() => {})
       }
     }
   }

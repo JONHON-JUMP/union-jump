@@ -7,20 +7,30 @@ import store from '@/store'
  */
 export function checkPermi(value) {
   if (value && value instanceof Array && value.length > 0) {
-    const permissions = store.getters && store.getters.permissions
+    const roles = store.getters && store.getters.roles
+    if (roles && roles.includes('super_admin')) {
+      return true
+    }
+    const permissions = normalizePermissions(store.getters && store.getters.permissions)
     const permissionDatas = value
     const all_permission = "*:*:*";
 
-    const hasPermission = permissions.some(permission => {
+    return permissions.some(permission => {
       return all_permission === permission || permissionDatas.includes(permission)
     })
-
-    return hasPermission;
 
   } else {
     console.error(`need roles! Like checkPermi="['system:user:add','system:user:edit']"`)
     return false
   }
+}
+
+function normalizePermissions(permissions) {
+  if (!permissions) {
+    return []
+  }
+  const list = Array.isArray(permissions) ? permissions : Object.values(permissions)
+  return list.filter(permission => permission && String(permission).trim())
 }
 
 /**

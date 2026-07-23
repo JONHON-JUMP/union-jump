@@ -55,3 +55,12 @@ export function getSubSystemTeamUserSimpleList(subSystemId) {
     params: { subSystemId }
   })
 }
+
+/** 下载外部系统班组导入模板 */
+export function importSubSystemTeamTemplate() {
+  return request({
+    url: '/system/sub-system-team/get-import-template',
+    method: 'get',
+    responseType: 'blob'
+  })
+}

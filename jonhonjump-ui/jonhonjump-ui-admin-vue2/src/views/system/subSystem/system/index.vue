@@ -150,17 +150,15 @@
 
       <el-form ref="form" :model="form" :rules="rules" label-width="110px">
 
-        <el-form-item label="OAuth2 客户端" prop="clientId">
+        <el-form-item label="OAuth2 客户端" prop="oauth2ClientId">
 
           <el-select
 
-            v-model="form.clientId"
+            v-model="form.oauth2ClientId"
 
             placeholder="请选择 OAuth2 客户端"
 
             filterable
-
-            :disabled="!!form.id"
 
             style="width: 100%"
 
@@ -172,13 +170,13 @@
 
               v-for="item in availableClientOptions"
 
-              :key="item.clientId"
+              :key="item.id"
 
               :label="item.name + ' (' + item.clientId + ')'"
 
-              :value="item.clientId"
+              :value="item.id"
 
-              :disabled="item.bound && item.clientId !== form.clientId"
+              :disabled="item.bound && item.id !== form.oauth2ClientId"
 
             />
 
@@ -324,7 +322,7 @@ export default {
 
       rules: {
 
-        clientId: [{ required: true, message: 'OAuth2 客户端不能为空', trigger: 'change' }],
+        oauth2ClientId: [{ required: true, message: 'OAuth2 客户端不能为空', trigger: 'change' }],
 
         systemName: [{ required: true, message: '系统名称不能为空', trigger: 'blur' }],
 
@@ -348,13 +346,13 @@ export default {
 
     selectedClientInfo() {
 
-      if (!this.form.clientId) {
+      if (!this.form.oauth2ClientId) {
 
         return null
 
       }
 
-      return this.clientOptions.find(item => item.clientId === this.form.clientId) || null
+      return this.clientOptions.find(item => item.id === this.form.oauth2ClientId) || null
 
     }
 
@@ -420,7 +418,7 @@ export default {
 
         id: undefined,
 
-        clientId: undefined,
+        oauth2ClientId: undefined,
 
         systemName: undefined,
         description: undefined,
@@ -466,7 +464,7 @@ export default {
 
           id: res.data.id,
 
-          clientId: res.data.clientId,
+          oauth2ClientId: res.data.oauth2ClientId,
 
           systemName: res.data.systemName,
           description: res.data.description,
@@ -488,9 +486,9 @@ export default {
 
     },
 
-    handleClientChange(clientId) {
+    handleClientChange(oauth2ClientId) {
 
-      const client = this.clientOptions.find(item => item.clientId === clientId)
+      const client = this.clientOptions.find(item => item.id === oauth2ClientId)
 
       if (client && !this.form.systemName) {
 

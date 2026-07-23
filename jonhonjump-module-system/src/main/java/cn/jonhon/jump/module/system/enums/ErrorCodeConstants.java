@@ -18,13 +18,18 @@ public interface ErrorCodeConstants {
     ErrorCode AUTH_REGISTER_CAPTCHA_CODE_ERROR = new ErrorCode(1_002_000_008, "验证码不正确，原因：{}");
 
     // ========== 菜单模块 1-002-001-000 ==========
-    ErrorCode MENU_NAME_DUPLICATE = new ErrorCode(1_002_001_000, "已经存在该名字的菜单");
+    ErrorCode MENU_NAME_DUPLICATE = new ErrorCode(1_002_001_000, "主系统已存在同名菜单");
     ErrorCode MENU_PARENT_NOT_EXISTS = new ErrorCode(1_002_001_001, "父菜单不存在");
     ErrorCode MENU_PARENT_ERROR = new ErrorCode(1_002_001_002, "不能设置自己为父菜单");
     ErrorCode MENU_NOT_EXISTS = new ErrorCode(1_002_001_003, "菜单不存在");
     ErrorCode MENU_EXISTS_CHILDREN = new ErrorCode(1_002_001_004, "存在子菜单，无法删除");
     ErrorCode MENU_PARENT_NOT_DIR_OR_MENU = new ErrorCode(1_002_001_005, "父菜单的类型必须是目录或者菜单");
     ErrorCode MENU_COMPONENT_NAME_DUPLICATE = new ErrorCode(1_002_001_006, "已经存在该组件名的菜单");
+    ErrorCode MENU_STYLE_NOT_EXISTS = new ErrorCode(1_002_001_010, "菜单样式不存在");
+    ErrorCode MENU_STYLE_NAME_DUPLICATE = new ErrorCode(1_002_001_011, "已经存在该名称的菜单样式");
+    ErrorCode MENU_STYLE_IN_USE = new ErrorCode(1_002_001_012, "菜单样式已被菜单引用，无法删除");
+    ErrorCode ROLE_AVATAR_NOT_EXISTS = new ErrorCode(1_002_001_013, "角色头像配置不存在");
+    ErrorCode ROLE_AVATAR_ROLE_CODE_DUPLICATE = new ErrorCode(1_002_001_014, "该角色已配置头像，请勿重复添加");
 
     // ========== 角色模块 1-002-002-000 ==========
     ErrorCode ROLE_NOT_EXISTS = new ErrorCode(1_002_002_000, "角色不存在");
@@ -46,8 +51,14 @@ public interface ErrorCodeConstants {
     ErrorCode USER_IMPORT_INIT_PASSWORD = new ErrorCode(1_002_003_009, "初始密码不能为空");
     ErrorCode USER_MOBILE_NOT_EXISTS = new ErrorCode(1_002_003_010, "该手机号尚未注册");
     ErrorCode USER_REGISTER_DISABLED = new ErrorCode(1_002_003_011, "注册功能已关闭");
+    ErrorCode USER_UID_GENERATE_FAILED = new ErrorCode(1_002_003_031, "生成用户唯一标识失败，请稍后重试");
+    ErrorCode SUB_SYSTEM_IMPORT_NOT_BOUND = new ErrorCode(1_002_003_032, "请先选择并关联已登记的外部系统，确认后再导入");
+    ErrorCode SUB_SYSTEM_IMPORT_LIST_EMPTY = new ErrorCode(1_002_003_033, "导入数据不能为空");
     ErrorCode SUB_SYSTEM_USER_NOT_EXISTS = new ErrorCode(1_002_003_012, "外部系统用户不存在");
     ErrorCode SUB_SYSTEM_USER_EXISTS = new ErrorCode(1_002_003_013, "该用户已关联此外部系统");
+    ErrorCode SUB_SYSTEM_USER_USERNAME_EXISTS = new ErrorCode(1_002_003_035, "该外部系统下用户名已存在");
+    ErrorCode SUB_SYSTEM_USER_USERNAME_NOT_FOUND = new ErrorCode(1_002_003_036, "外部系统中不存在同名用户，请先在外部系统用户中导入或新增");
+    ErrorCode SUB_SYSTEM_USER_MAIN_BOUND = new ErrorCode(1_002_003_037, "该外部系统用户已关联其他主系统用户");
     ErrorCode SUB_SYSTEM_NOT_EXISTS = new ErrorCode(1_002_003_014, "外部系统不存在");
     ErrorCode SUB_SYSTEM_ROLE_NOT_EXISTS = new ErrorCode(1_002_003_015, "外部系统角色不存在");
     ErrorCode SUB_SYSTEM_ROLE_NAME_DUPLICATE = new ErrorCode(1_002_003_016, "已经存在名为【{}】的外部系统角色");
@@ -64,6 +75,7 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_POST_CODE_DUPLICATE = new ErrorCode(1_002_003_027, "已经存在编码为【{}】的外部系统岗位");
     ErrorCode SUB_SYSTEM_POST_HAS_USERS = new ErrorCode(1_002_003_028, "外部系统岗位已分配用户，无法删除");
     ErrorCode SUB_SYSTEM_USER_HOME_MENU_INVALID = new ErrorCode(1_002_003_029, "主页面必须是当前外部系统下的菜单页面");
+    ErrorCode USER_PORTAL_DEFAULT_SYSTEM_INVALID = new ErrorCode(1_002_003_030, "无效的默认打开子系统");
     ErrorCode SUB_SYSTEM_TEAM_NOT_EXISTS = new ErrorCode(1_002_003_030, "外部系统班组不存在");
     ErrorCode SUB_SYSTEM_TEAM_NAME_DUPLICATE = new ErrorCode(1_002_003_031, "已经存在名为【{}】的外部系统班组");
     ErrorCode SUB_SYSTEM_TEAM_CODE_DUPLICATE = new ErrorCode(1_002_003_032, "已经存在编码为【{}】的外部系统班组");
@@ -72,6 +84,14 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_OAUTH2_CLIENT_NOT_EXISTS = new ErrorCode(1_002_003_035, "OAuth2 客户端不存在，请先在 OAuth2 客户端管理中创建");
     ErrorCode SUB_SYSTEM_CLIENT_ID_DUPLICATE = new ErrorCode(1_002_003_036, "OAuth2 客户端【{}】已关联其他外部系统");
     ErrorCode SUB_SYSTEM_HAS_RELATED_DATA = new ErrorCode(1_002_003_037, "外部系统已存在业务数据，无法删除");
+    ErrorCode PORTAL_PERM_CLIENT_MISMATCH = new ErrorCode(1_002_003_038, "OAuth client_id 与请求不匹配");
+    ErrorCode PORTAL_EXT_NAMESPACE_FORBIDDEN = new ErrorCode(1_002_003_039, "扩展缓存 namespace 不在白名单");
+    ErrorCode PORTAL_EXT_KEY_INVALID = new ErrorCode(1_002_003_040, "扩展缓存 key 非法");
+    ErrorCode PORTAL_EXT_VALUE_TOO_LARGE = new ErrorCode(1_002_003_041, "扩展缓存 value 超过大小限制");
+    ErrorCode PORTAL_EXT_TTL_INVALID = new ErrorCode(1_002_003_042, "扩展缓存 TTL 非法或超过上限");
+    ErrorCode SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS = new ErrorCode(1_002_003_043, "用户不存在");
+    ErrorCode SUB_SYSTEM_CARD_LOGIN_USER_DISABLED = new ErrorCode(1_002_003_044, "用户已停用");
+    ErrorCode SUB_SYSTEM_CARD_LOGIN_CLIENT_MISMATCH = new ErrorCode(1_002_003_045, "clientId 与 Basic 认证不一致");
 
     // ========== 部门模块 1-002-004-000 ==========
     ErrorCode DEPT_NAME_DUPLICATE = new ErrorCode(1_002_004_000, "已经存在该名字的部门");
@@ -102,6 +122,17 @@ public interface ErrorCodeConstants {
 
     // ========== 通知公告 1-002-008-000 ==========
     ErrorCode NOTICE_NOT_FOUND = new ErrorCode(1_002_008_001, "当前通知公告不存在");
+    ErrorCode NOTICE_STATUS_INVALID = new ErrorCode(1_002_008_002, "通知状态不正确");
+    ErrorCode NOTICE_CANNOT_EDIT_DELETED = new ErrorCode(1_002_008_003, "已删除的通知不可修改");
+    ErrorCode NOTICE_PUBLISH_FAIL = new ErrorCode(1_002_008_004, "仅草稿状态的通知可发布");
+    ErrorCode NOTICE_REVOKE_FAIL = new ErrorCode(1_002_008_005, "仅已发布的通知可撤回");
+    ErrorCode NOTICE_DELETE_FAIL = new ErrorCode(1_002_008_006, "通知删除失败");
+    ErrorCode FAQ_NOT_FOUND = new ErrorCode(1_002_009_001, "常见QA不存在");
+    ErrorCode FAQ_STATUS_INVALID = new ErrorCode(1_002_009_002, "常见QA状态不正确");
+    ErrorCode FAQ_CANNOT_EDIT_DELETED = new ErrorCode(1_002_009_003, "已删除的常见QA不可修改");
+    ErrorCode FAQ_PUBLISH_FAIL = new ErrorCode(1_002_009_004, "仅草稿状态的常见QA可发布");
+    ErrorCode FAQ_REVOKE_FAIL = new ErrorCode(1_002_009_005, "仅已发布的常见QA可撤回");
+    ErrorCode FAQ_DELETE_FAIL = new ErrorCode(1_002_009_006, "常见QA删除失败");
 
     // ========== 短信渠道 1-002-011-000 ==========
     ErrorCode SMS_CHANNEL_NOT_EXISTS = new ErrorCode(1_002_011_000, "短信渠道不存在");
@@ -193,5 +224,6 @@ public interface ErrorCodeConstants {
 
     // ========== 站内信发送 1-002-028-000 ==========
     ErrorCode NOTIFY_SEND_TEMPLATE_PARAM_MISS = new ErrorCode(1_002_028_000, "模板参数({})缺失");
+    ErrorCode NOTIFY_MESSAGE_NOT_EXISTS = new ErrorCode(1_002_028_001, "站内信不存在");
 
 }

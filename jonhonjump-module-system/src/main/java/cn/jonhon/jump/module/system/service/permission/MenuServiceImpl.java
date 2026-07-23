@@ -12,7 +12,10 @@ import cn.jonhon.jump.module.system.dal.mysql.permission.MenuMapper;
 import cn.jonhon.jump.module.system.dal.redis.RedisKeyConstants;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
 import cn.jonhon.jump.module.system.service.tenant.TenantService;
+import cn.jonhon.jump.module.system.service.auth.AuthPermissionInfoService;
 import cn.jonhon.jump.module.system.service.user.UserQuickNavService;
+import cn.jonhon.jump.module.system.service.permission.RoleQuickNavService;
+import cn.jonhon.jump.module.system.util.ExternalMenuNameUtils;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
@@ -48,23 +51,34 @@ public class MenuServiceImpl implements MenuService {
     @Lazy
     private UserQuickNavService userQuickNavService;
     @Resource
+    @Lazy
+    private RoleQuickNavService roleQuickNavService;
+    @Resource
     @Lazy // 延迟，避免循环依赖报错
     private TenantService tenantService;
+    @Resource
+    private MenuColorService menuColorService;
+    @Resource
+    @Lazy
+    private AuthPermissionInfoService authPermissionInfoService;
 
     @Override
     @CacheEvict(value = RedisKeyConstants.PERMISSION_MENU_ID_LIST, key = "#createReqVO.permission",
             condition = "#createReqVO.permission != null")
     public Long createMenu(MenuSaveVO createReqVO) {
+        normalizeExternalSystemManagementMenuName(createReqVO);
         // 校验父菜单存在
         validateParentMenu(createReqVO.getParentId(), null);
         // 校验菜单（自己）
-        validateMenuName(createReqVO.getParentId(), createReqVO.getName(), null);
+        validateMenuName(createReqVO.getParentId(), createReqVO.getName(), createReqVO.getType(), null);
         validateMenuComponentName(createReqVO.getComponentName(), null);
+        normalizeMenuStyle(createReqVO);
 
         // 插入数据库
         MenuDO menu = BeanUtils.toBean(createReqVO, MenuDO.class);
         initMenuProperty(menu);
         menuMapper.insert(menu);
+        authPermissionInfoService.evictUsersAffectedByMenu(menu.getId());
         // 返回
         return menu.getId();
     }
@@ -73,6 +87,7 @@ public class MenuServiceImpl implements MenuService {
     @CacheEvict(value = RedisKeyConstants.PERMISSION_MENU_ID_LIST,
             allEntries = true) // allEntries 清空所有缓存，因为 permission 如果变更，涉及到新老两个 permission。直接清理，简单有效
     public void updateMenu(MenuSaveVO updateReqVO) {
+        normalizeExternalSystemManagementMenuName(updateReqVO);
         // 校验更新的菜单是否存在
         if (menuMapper.selectById(updateReqVO.getId()) == null) {
             throw exception(MENU_NOT_EXISTS);
@@ -80,13 +95,15 @@ public class MenuServiceImpl implements MenuService {
         // 校验父菜单存在
         validateParentMenu(updateReqVO.getParentId(), updateReqVO.getId());
         // 校验菜单（自己）
-        validateMenuName(updateReqVO.getParentId(), updateReqVO.getName(), updateReqVO.getId());
+        validateMenuName(updateReqVO.getParentId(), updateReqVO.getName(), updateReqVO.getType(), updateReqVO.getId());
         validateMenuComponentName(updateReqVO.getComponentName(), updateReqVO.getId());
+        normalizeMenuStyle(updateReqVO);
 
         // 更新到数据库
         MenuDO updateObj = BeanUtils.toBean(updateReqVO, MenuDO.class);
         initMenuProperty(updateObj);
         menuMapper.updateById(updateObj);
+        authPermissionInfoService.evictUsersAffectedByMenu(updateReqVO.getId());
     }
 
     @Override
@@ -104,10 +121,12 @@ public class MenuServiceImpl implements MenuService {
         }
         // 标记删除
         menuMapper.deleteById(id);
+        authPermissionInfoService.evictUsersAffectedByMenu(id);
         // 删除授予给角色的权限
         permissionService.processMenuDeleted(id);
         // 删除用户快捷导航配置
         userQuickNavService.deleteByMenuId(id);
+        roleQuickNavService.deleteByMenuId(id);
     }
 
     @Override
@@ -124,10 +143,12 @@ public class MenuServiceImpl implements MenuService {
 
         // 标记删除
         menuMapper.deleteByIds(ids);
+        ids.forEach(authPermissionInfoService::evictUsersAffectedByMenu);
         // 删除授予给角色的权限
         ids.forEach(id -> permissionService.processMenuDeleted(id));
         // 删除用户快捷导航配置
         userQuickNavService.deleteByMenuIds(ids);
+        roleQuickNavService.deleteByMenuIds(ids);
     }
 
     @Override
@@ -216,6 +237,37 @@ public class MenuServiceImpl implements MenuService {
         return menuMapper.selectByIds(ids);
     }
 
+    @Override
+    public Set<Long> getMenuSelfAndChildIds(Long menuId) {
+        if (menuId == null) {
+            return Collections.emptySet();
+        }
+        List<MenuDO> allMenus = menuMapper.selectList();
+        Map<Long, List<MenuDO>> childrenMap = new HashMap<>();
+        for (MenuDO menu : allMenus) {
+            childrenMap.computeIfAbsent(menu.getParentId(), key -> new ArrayList<>()).add(menu);
+        }
+        Set<Long> result = new HashSet<>();
+        Set<Long> enqueued = new HashSet<>();
+        ArrayDeque<Long> queue = new ArrayDeque<>();
+        queue.add(menuId);
+        enqueued.add(menuId);
+        while (!queue.isEmpty()) {
+            Long currentId = queue.poll();
+            result.add(currentId);
+            List<MenuDO> children = childrenMap.get(currentId);
+            if (CollUtil.isEmpty(children)) {
+                continue;
+            }
+            for (MenuDO child : children) {
+                if (enqueued.add(child.getId())) {
+                    queue.add(child.getId());
+                }
+            }
+        }
+        return result;
+    }
+
     /**
      * 校验父菜单是否合法
      * <p>
@@ -248,26 +300,34 @@ public class MenuServiceImpl implements MenuService {
     }
 
     /**
-     * 校验菜单是否合法
-     * <p>
-     * 1. 校验相同父菜单编号下，是否存在相同的菜单名
+     * 菜单名称重复提醒（不拦截保存）
      *
-     * @param name     菜单名字
      * @param parentId 父菜单编号
+     * @param name     菜单名称
+     * @param type     菜单类型
      * @param id       菜单编号
      */
     @VisibleForTesting
-    void validateMenuName(Long parentId, String name, Long id) {
-        MenuDO menu = menuMapper.selectByParentIdAndName(parentId, name);
-        if (menu == null) {
+    void validateMenuName(Long parentId, String name, Integer type, Long id) {
+        if (StrUtil.isBlank(name)) {
             return;
         }
-        // 如果 id 为空，说明不用比较是否为相同 id 的菜单
-        if (id == null) {
-            throw exception(MENU_NAME_DUPLICATE);
+        if (MenuTypeEnum.BUTTON.getType().equals(type)) {
+            MenuDO menu = menuMapper.selectByParentIdAndName(parentId, name);
+            if (menu != null && (id == null || !menu.getId().equals(id))) {
+                log.warn("[validateMenuName][按钮菜单名称({}) 在同一父菜单下已存在重名，仅提醒不拦截]", name);
+            }
+            return;
         }
-        if (!menu.getId().equals(id)) {
-            throw exception(MENU_NAME_DUPLICATE);
+        List<MenuDO> menus = menuMapper.selectListByNameAndTypes(name,
+                Arrays.asList(MenuTypeEnum.DIR.getType(), MenuTypeEnum.MENU.getType()));
+        if (CollUtil.isEmpty(menus)) {
+            return;
+        }
+        boolean duplicate = id == null
+                || menus.stream().anyMatch(menu -> !menu.getId().equals(id));
+        if (duplicate) {
+            log.warn("[validateMenuName][菜单名称({}) 主系统内已存在重名，仅提醒不拦截]", name);
         }
     }
 
@@ -310,6 +370,51 @@ public class MenuServiceImpl implements MenuService {
             menu.setIcon("");
             menu.setPath("");
         }
+    }
+
+    /** 仅一级菜单可配置颜色，子菜单继承一级菜单颜色 */
+    private void normalizeMenuStyle(MenuSaveVO reqVO) {
+        if (!MenuDO.ID_ROOT.equals(reqVO.getParentId())) {
+            reqVO.setStyleId(null);
+            return;
+        }
+        menuColorService.validateMenuColorExists(reqVO.getStyleId());
+    }
+
+    private void normalizeExternalSystemManagementMenuName(MenuSaveVO reqVO) {
+        if (!shouldApplyExternalSystemManagementPrefix(reqVO)) {
+            return;
+        }
+        reqVO.setName(ExternalMenuNameUtils.normalizeMenuName(reqVO.getName()));
+    }
+
+    private boolean shouldApplyExternalSystemManagementPrefix(MenuSaveVO reqVO) {
+        if (MenuTypeEnum.BUTTON.getType().equals(reqVO.getType())) {
+            return false;
+        }
+        if (ExternalMenuNameUtils.EXTERNAL_SYSTEM_DIR.equals(StrUtil.trim(reqVO.getName()))) {
+            return false;
+        }
+        if (StrUtil.isNotBlank(reqVO.getComponent())
+                && reqVO.getComponent().startsWith(ExternalMenuNameUtils.EXTERNAL_SYSTEM_COMPONENT_PREFIX)) {
+            return true;
+        }
+        return isDescendantOfExternalSystemManagement(reqVO.getParentId());
+    }
+
+    private boolean isDescendantOfExternalSystemManagement(Long parentId) {
+        Long currentId = parentId;
+        while (currentId != null && !ObjUtil.equal(currentId, ID_ROOT)) {
+            MenuDO menu = menuMapper.selectById(currentId);
+            if (menu == null) {
+                return false;
+            }
+            if (ExternalMenuNameUtils.EXTERNAL_SYSTEM_DIR.equals(menu.getName())) {
+                return true;
+            }
+            currentId = menu.getParentId();
+        }
+        return false;
     }
 
 }

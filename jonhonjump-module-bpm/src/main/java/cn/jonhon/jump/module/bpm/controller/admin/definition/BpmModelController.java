@@ -25,6 +25,7 @@ import org.flowable.engine.repository.ProcessDefinition;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import javax.validation.Valid;
@@ -117,6 +118,14 @@ public class BpmModelController {
     @PreAuthorize("@ss.hasPermission('bpm:model:create')")
     public CommonResult<String> createModel(@Valid @RequestBody BpmModelSaveReqVO createRetVO) {
         return success(modelService.createModel(createRetVO));
+    }
+
+    @PostMapping("/import")
+    @Operation(summary = "导入流程模型")
+    @PreAuthorize("@ss.hasPermission('bpm:model:create')")
+    public CommonResult<String> importModel(@Valid BpmModeImportReqVO importReqVO,
+                                            @RequestParam("bpmnFile") MultipartFile bpmnFile) {
+        return success(modelService.importModel(getLoginUserId(), importReqVO, bpmnFile));
     }
 
     @PutMapping("/update")

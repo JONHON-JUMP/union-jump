@@ -34,6 +34,7 @@ import cn.jonhon.jump.module.bpm.framework.flowable.core.enums.BpmnModelConstant
 import cn.jonhon.jump.module.bpm.framework.flowable.core.enums.BpmnVariableConstants;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.event.BpmProcessInstanceEventPublisher;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmHttpRequestUtils;
+import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmBooleanUtils;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmnModelUtils;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.FlowableUtils;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.SimpleModelUtils;
@@ -897,7 +898,7 @@ public class BpmProcessInstanceServiceImpl implements BpmProcessInstanceService 
                 .getProcessDefinitionInfo(instance.getProcessDefinitionId());
         Assert.notNull(processDefinitionInfo, "流程定义({})不存在", processDefinitionInfo);
         if (processDefinitionInfo.getAllowCancelRunningProcess() != null // 防止未配置 AllowCancelRunningProcess , 默认为可取消
-                && BooleanUtil.isFalse(processDefinitionInfo.getAllowCancelRunningProcess())) {
+                && BpmBooleanUtils.isFalse(processDefinitionInfo.getAllowCancelRunningProcess())) {
             throw exception(PROCESS_INSTANCE_CANCEL_FAIL_NOT_ALLOW);
         }
         // 1.4 子流程不允许取消

@@ -131,3 +131,31 @@ export function assignSubSystemUserRole(data) {
     data: data
   })
 }
+
+/** 下载子系统用户导入模板 */
+export function importSubSystemUserTemplate() {
+  return request({
+    url: '/system/sub-system-users/get-import-template',
+    method: 'get',
+    responseType: 'blob'
+  })
+}
+
+/** 按用户名查询子系统用户 */
+export function getSubSystemUserByUsername(subSystemId, username) {
+  return request({
+    url: '/system/sub-system-users/get-by-username',
+    method: 'get',
+    params: { subSystemId, username }
+  })
+}
+
+/** 挂接主系统用户到子系统同名用户 */
+export function bindSubSystemMainUser(subSystemId, mainUserId) {
+  return request({
+    url: '/system/sub-system-users/bind-main-user',
+    method: 'post',
+    params: { subSystemId, mainUserId }
+  })
+}
+

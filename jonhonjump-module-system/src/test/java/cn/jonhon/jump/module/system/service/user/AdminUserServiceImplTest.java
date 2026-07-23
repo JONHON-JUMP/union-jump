@@ -36,9 +36,12 @@ import org.springframework.context.annotation.Import;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import javax.annotation.Resource;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 import static cn.hutool.core.util.RandomUtil.randomEle;
@@ -58,7 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-@Import(AdminUserServiceImpl.class)
+@Import({AdminUserServiceImpl.class, UserUidGenerator.class})
 public class AdminUserServiceImplTest extends BaseDbUnitTest {
 
     @Resource
@@ -126,7 +129,9 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
         Long userId = userService.createUser(reqVO);
         // 断言
         AdminUserDO user = userMapper.selectById(userId);
-        assertPojoEquals(reqVO, user, "password", "id");
+        assertPojoEquals(reqVO, user, "password", "id", "userUid");
+        assertNotNull(user.getUserUid());
+        assertTrue(user.getUserUid().matches("^U\\d{14}\\d{3}$"));
         assertEquals("jonhonjumpyuanma", user.getPassword());
         assertEquals(CommonStatusEnum.ENABLE.getStatus(), user.getStatus());
         // 断言关联岗位
@@ -335,7 +340,7 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
         // 准备参数
         UserPageReqVO reqVO = new UserPageReqVO();
         reqVO.setUsername("tu");
-        reqVO.setMobile("1560");
+        reqVO.setEmployeeNo("1560");
         reqVO.setStatus(CommonStatusEnum.ENABLE.getStatus());
         reqVO.setCreateTime(buildBetweenTime(2020, 12, 1, 2020, 12, 24));
         reqVO.setDeptId(1L); // 其中，1L 是 2L 的父部门
@@ -358,22 +363,37 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
         // mock 数据
         AdminUserDO dbUser = randomAdminUserDO(o -> { // 等会查询到
             o.setUsername("tudou");
-            o.setMobile("15601691300");
+            o.setEmployeeNo("15601691300");
             o.setStatus(CommonStatusEnum.ENABLE.getStatus());
             o.setCreateTime(buildTime(2020, 12, 12));
             o.setDeptId(2L);
         });
         userMapper.insert(dbUser);
         // 测试 username 不匹配
-        userMapper.insert(cloneIgnoreId(dbUser, o -> o.setUsername("dou")));
-        // 测试 mobile 不匹配
-        userMapper.insert(cloneIgnoreId(dbUser, o -> o.setMobile("18818260888")));
+        userMapper.insert(cloneIgnoreId(dbUser, o -> {
+            o.setUsername("dou");
+            o.setUserUid(nextTestUserUid());
+        }));
+        // 测试 employeeNo 不匹配
+        userMapper.insert(cloneIgnoreId(dbUser, o -> {
+            o.setEmployeeNo("18818260888");
+            o.setUserUid(nextTestUserUid());
+        }));
         // 测试 status 不匹配
-        userMapper.insert(cloneIgnoreId(dbUser, o -> o.setStatus(CommonStatusEnum.DISABLE.getStatus())));
+        userMapper.insert(cloneIgnoreId(dbUser, o -> {
+            o.setStatus(CommonStatusEnum.DISABLE.getStatus());
+            o.setUserUid(nextTestUserUid());
+        }));
         // 测试 createTime 不匹配
-        userMapper.insert(cloneIgnoreId(dbUser, o -> o.setCreateTime(buildTime(2020, 11, 11))));
+        userMapper.insert(cloneIgnoreId(dbUser, o -> {
+            o.setCreateTime(buildTime(2020, 11, 11));
+            o.setUserUid(nextTestUserUid());
+        }));
         // 测试 dept 不匹配
-        userMapper.insert(cloneIgnoreId(dbUser, o -> o.setDeptId(0L)));
+        userMapper.insert(cloneIgnoreId(dbUser, o -> {
+            o.setDeptId(0L);
+            o.setUserUid(nextTestUserUid());
+        }));
         return dbUser;
     }
 
@@ -397,7 +417,10 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
         AdminUserDO dbUser = randomAdminUserDO(o -> o.setDeptId(1L));
         userMapper.insert(dbUser);
         // 测试 deptId 不匹配
-        userMapper.insert(cloneIgnoreId(dbUser, o -> o.setDeptId(2L)));
+        userMapper.insert(cloneIgnoreId(dbUser, o -> {
+            o.setDeptId(2L);
+            o.setUserUid(nextTestUserUid());
+        }));
         // 准备参数
         Collection<Long> deptIds = singleton(1L);
 
@@ -456,7 +479,9 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
         // 断言
         assertEquals(1, respVO.getCreateUsernames().size());
         AdminUserDO user = userMapper.selectByUsername(respVO.getCreateUsernames().get(0));
-        assertPojoEquals(importUser, user);
+        assertPojoEquals(importUser, user, "userUid");
+        assertNotNull(user.getUserUid());
+        assertTrue(user.getUserUid().matches("^U\\d{14}\\d{3}$"));
         assertEquals("java", user.getPassword());
         assertEquals(0, respVO.getUpdateUsernames().size());
         assertEquals(0, respVO.getFailureUsernames().size());
@@ -754,11 +779,21 @@ public class AdminUserServiceImplTest extends BaseDbUnitTest {
 
     // ========== 随机对象 ==========
 
+    private static final AtomicInteger TEST_USER_UID_SEQ = new AtomicInteger(0);
+    private static final DateTimeFormatter TEST_USER_UID_FMT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+
+    /** 测试用唯一 UID：U + 时间 + 三位流水，避免唯一索引冲突 */
+    private static String nextTestUserUid() {
+        int seq = TEST_USER_UID_SEQ.incrementAndGet() % 1000;
+        return "U" + LocalDateTime.now().format(TEST_USER_UID_FMT) + String.format("%03d", seq);
+    }
+
     @SafeVarargs
     private static AdminUserDO randomAdminUserDO(Consumer<AdminUserDO>... consumers) {
         Consumer<AdminUserDO> consumer = (o) -> {
             o.setStatus(randomEle(CommonStatusEnum.values()).getStatus()); // 保证 status 的范围
             o.setSex(randomEle(SexEnum.values()).getSex()); // 保证 sex 的范围
+            o.setUserUid(nextTestUserUid());
         };
         return randomPojo(AdminUserDO.class, ArrayUtils.append(consumer, consumers));
     }

@@ -50,6 +50,8 @@ public class RoleServiceImpl implements RoleService {
 
     @Resource
     private RoleMapper roleMapper;
+    @Resource
+    private RoleQuickNavService roleQuickNavService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -117,6 +119,7 @@ public class RoleServiceImpl implements RoleService {
         roleMapper.deleteById(id);
         // 2.2 删除相关数据
         permissionService.processRoleDeleted(id);
+        roleQuickNavService.deleteByRoleId(id);
 
         // 3. 记录操作日志上下文
         LogRecordContext.putVariable("role", role);
@@ -131,7 +134,10 @@ public class RoleServiceImpl implements RoleService {
         // 2.1 标记删除
         roleMapper.deleteByIds(ids);
         // 2.2 删除相关数据
-        ids.forEach(id -> permissionService.processRoleDeleted(id));
+        ids.forEach(id -> {
+            permissionService.processRoleDeleted(id);
+            roleQuickNavService.deleteByRoleId(id);
+        });
     }
 
     /**

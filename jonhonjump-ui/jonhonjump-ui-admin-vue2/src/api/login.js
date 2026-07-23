@@ -25,10 +25,17 @@ export function login(username, password, captchaVerification, socialType, socia
 }
 
 // 获取用户详细信息
-export function getInfo() {
+// includeMenus: 是否拉主系统整棵菜单树（默认 false，门户先出；进主系统再 true）
+// redisOnly: 仅 Redis，未命中不打库（后台预热）
+export function getInfo(includeMenus = false, redisOnly = false) {
   return request({
     url: '/system/auth/get-permission-info',
-    method: 'get'
+    method: 'get',
+    // 用 0/1，避免 axios/qs 把 false 丢掉导致「无参数」走全量菜单
+    params: {
+      includeMenus: includeMenus ? 1 : 0,
+      redisOnly: redisOnly ? 1 : 0
+    }
   })
 }
 

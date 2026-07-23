@@ -8,7 +8,7 @@
           </div>
           <div>
             <div class="text-center">
-              <userAvatar :user="user" />
+              <userAvatar :user="user" @refresh="getUser" />
             </div>
             <ul class="list-group list-group-striped">
               <li class="list-group-item">
@@ -34,10 +34,6 @@
               <li class="list-group-item">
                 <svg-icon icon-class="tree" />所属岗位
                 <div class="pull-right" v-if="user.posts">{{ user.posts.map(post => post.name).join(',') }}</div>
-              </li>
-              <li class="list-group-item">
-                <svg-icon icon-class="peoples" />所属角色
-                <div class="pull-right" v-if="user.roles">{{ user.roles.map(role => role.name).join(',') }}</div>
               </li>
               <li class="list-group-item">
                 <svg-icon icon-class="date" />创建日期

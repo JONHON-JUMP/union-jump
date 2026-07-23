@@ -40,9 +40,9 @@ public class BpmOALeaveDO extends BaseDO {
      */
     private Long userId;
     /**
-     * 请假类型
+     * 请假类型，参见 bpm_oa_leave_type 字典
      */
-    private String type;
+    private Integer type;
     /**
      * 原因
      */

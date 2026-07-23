@@ -11,6 +11,7 @@ import cn.jonhon.jump.module.bpm.dal.dataobject.definition.BpmFormDO;
 import cn.jonhon.jump.module.bpm.dal.dataobject.definition.BpmProcessDefinitionInfoDO;
 import cn.jonhon.jump.module.bpm.dal.mysql.definition.BpmProcessDefinitionInfoMapper;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.enums.BpmnModelConstants;
+import cn.jonhon.jump.module.bpm.framework.flowable.core.util.BpmBooleanUtils;
 import cn.jonhon.jump.module.bpm.framework.flowable.core.util.FlowableUtils;
 import cn.jonhon.jump.module.system.api.user.AdminUserApi;
 import cn.jonhon.jump.module.system.api.user.dto.AdminUserRespDTO;
@@ -159,7 +160,10 @@ public class BpmProcessDefinitionServiceImpl implements BpmProcessDefinitionServ
         // 插入拓展表
         BpmProcessDefinitionInfoDO definitionDO = BeanUtils.toBean(modelMetaInfo, BpmProcessDefinitionInfoDO.class)
                 .setModelId(model.getId()).setCategory(model.getCategory()).setProcessDefinitionId(definition.getId())
-                .setModelType(modelMetaInfo.getType()).setSimpleModel(simpleJson);
+                .setModelType(modelMetaInfo.getType()).setSimpleModel(simpleJson)
+                .setVisible(BpmBooleanUtils.toInteger(modelMetaInfo.getVisible()))
+                .setAllowCancelRunningProcess(BpmBooleanUtils.toInteger(modelMetaInfo.getAllowCancelRunningProcess()))
+                .setAllowWithdrawTask(BpmBooleanUtils.toInteger(modelMetaInfo.getAllowWithdrawTask()));
         if (form != null) {
             definitionDO.setFormFields(form.getFields()).setFormConf(form.getConf());
         }

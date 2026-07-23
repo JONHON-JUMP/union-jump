@@ -12,7 +12,10 @@ public class SubSystemRespVO {
     @Schema(description = "系统编号")
     private Long id;
 
-    @Schema(description = "OAuth2 客户端编号")
+    @Schema(description = "OAuth2 客户端编号（system_oauth2_client.id）")
+    private Long oauth2ClientId;
+
+    @Schema(description = "OAuth2 客户端标识（运行时 SSO/路由用，来自 OAuth2 客户端）")
     private String clientId;
 
     @Schema(description = "系统名称")

@@ -19,4 +19,7 @@ public class UserQuickNavRespVO {
     @Schema(description = "是否已保存过个人配置（false 表示默认空，尚未自定义）")
     private Boolean configured;
 
+    @Schema(description = "角色默认快捷导航（不可删除，仅可调整顺序）")
+    private List<Long> lockedMenuIds;
+
 }

@@ -274,6 +274,8 @@ jonhonjump:
   security:
     permit-all_urls:
       - /admin-api/mp/open/** # 微信公众号开放平台，微信回调接口，不需要登录
+      - /admin-api/system/oauth2/subsystem/v1/card-login # 子系统刷卡校验，凭 clientSecret，无需用户 Token
+      - /admin-api/system/oauth2/subsystem/v1/permission-info # 子系统用户权限查询，凭 clientSecret，无需用户 Token
   api-encrypt:
     enable: true # 是否开启 API 加密
     algorithm: AES # 加密算法，支持 AES、RSA 等
@@ -314,6 +316,8 @@ jonhonjump:
     ignore-urls:
       - /jmreport/* # 积木报表，无法携带租户编号
       - /admin-api/system/auth/** # 登录、登出、刷新令牌等，无法保证携带租户编号
+      - /admin-api/system/oauth2/subsystem/v1/card-login # 机端刷卡，可不带 tenant-id
+      - /admin-api/system/oauth2/subsystem/v1/permission-info # 机端权限查询，可不带 tenant-id
     ignore-visit-urls:
       - /admin-api/system/user/profile/**
       - /admin-api/system/auth/**
@@ -354,3 +358,12 @@ jonhonjump:
       type: redis # 消息总线的类型
 
 debug: false
+
+# Subsystem ext-cache whitelist (Scheme C)
+jonhon:
+  portal:
+    ext-cache:
+      max-value-bytes: 65536
+      max-ttl-seconds: 604800
+      clients:
+        scada: device,session,alarm

@@ -94,6 +94,12 @@ public class SubSystemMenuSaveReqVO {
 
 
 
+    @Schema(description = "菜单样式编号")
+
+    private Long styleId;
+
+
+
     @Schema(description = "组件路径")
 
     @Size(max = 200, message = "组件路径不能超过200个字符")
@@ -131,6 +137,14 @@ public class SubSystemMenuSaveReqVO {
     @Schema(description = "是否总是显示")
 
     private Boolean alwaysShow;
+
+
+
+    @Schema(description = "菜单说明书文件地址")
+
+    @Size(max = 1024, message = "菜单说明书地址不能超过1024个字符")
+
+    private String manualUrl;
 
 
 

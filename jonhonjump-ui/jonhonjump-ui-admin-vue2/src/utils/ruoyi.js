@@ -136,22 +136,39 @@ export function handleTree(data, id, parentId, children, rootId) {
   id = id || 'id'
   parentId = parentId || 'parentId'
   children = children || 'children'
-  rootId = rootId || Math.min.apply(Math, data.map(item => {
-    return item[parentId]
-  })) || 0
-  //对源数据深度克隆
-  const cloneData = JSON.parse(JSON.stringify(data))
-  //循环所有项
-  const treeData = cloneData.filter(father => {
-    let branchArr = cloneData.filter(child => {
-      //返回每一项的子级数组
-      return father[id] === child[parentId]
-    });
-    branchArr.length > 0 ? father.children = branchArr : '';
-    //返回第一层
-    return father[parentId] === rootId;
-  });
-  return treeData !== '' ? treeData : data;
+  if (!Array.isArray(data) || data.length === 0) {
+    return []
+  }
+  if (rootId === undefined || rootId === null) {
+    rootId = Math.min.apply(Math, data.map(item => item[parentId]))
+    if (!Number.isFinite(rootId)) {
+      rootId = 0
+    }
+  }
+  const nodeMap = new Map()
+  const treeData = []
+  const nodes = new Array(data.length)
+  for (let i = 0; i < data.length; i++) {
+    const node = { ...data[i] }
+    nodes[i] = node
+    nodeMap.set(node[id], node)
+  }
+  for (let i = 0; i < nodes.length; i++) {
+    const node = nodes[i]
+    const parentKey = node[parentId]
+    if (parentKey === rootId) {
+      treeData.push(node)
+      continue
+    }
+    const parentNode = nodeMap.get(parentKey)
+    if (parentNode) {
+      if (!parentNode[children]) {
+        parentNode[children] = []
+      }
+      parentNode[children].push(node)
+    }
+  }
+  return treeData.length ? treeData : data
 }
 
 /**

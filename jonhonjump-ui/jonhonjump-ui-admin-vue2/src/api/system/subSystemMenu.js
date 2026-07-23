@@ -47,3 +47,12 @@ export function deleteSubSystemMenuList(ids) {
     method: 'delete'
   })
 }
+
+/** 下载外部系统菜单导入模板 */
+export function importSubSystemMenuTemplate() {
+  return request({
+    url: '/system/sub-system-menu/get-import-template',
+    method: 'get',
+    responseType: 'blob'
+  })
+}

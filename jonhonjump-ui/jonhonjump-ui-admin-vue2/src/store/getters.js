@@ -1,3 +1,8 @@
+import {
+  resolveCurrentSystemLabel,
+  resolveCurrentSystemSearchRoutes
+} from '@/utils/portalSearchRoutes'
+
 const getters = {
   sidebar: state => state.app.sidebar,
   size: state => state.app.size,
@@ -19,6 +24,8 @@ const getters = {
   sidebarRouters:state => state.permission.sidebarRouters,
   currentSystem: state => state.portal.currentSystem,
   portalSystemList: state => state.portal.systemList,
+  currentSystemSidebarRouters: state => resolveCurrentSystemSearchRoutes(state),
+  currentSystemLabel: state => resolveCurrentSystemLabel(state),
   // 数据字典
   dict_datas: state => state.dict.dictDatas
 }

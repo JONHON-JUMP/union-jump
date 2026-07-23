@@ -1,11 +1,13 @@
 package cn.jonhon.jump.module.bpm.service.definition;
 
+import cn.hutool.core.io.IoUtil;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ArrayUtil;
 import cn.hutool.core.util.ObjUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.util.json.JsonUtils;
 import cn.jonhon.jump.framework.common.util.validation.ValidationUtils;
+import cn.jonhon.jump.module.bpm.controller.admin.definition.vo.model.BpmModeImportReqVO;
 import cn.jonhon.jump.module.bpm.controller.admin.definition.vo.model.BpmModelMetaInfoVO;
 import cn.jonhon.jump.module.bpm.controller.admin.definition.vo.model.BpmModelSaveReqVO;
 import cn.jonhon.jump.module.bpm.controller.admin.definition.vo.model.simple.BpmSimpleModelNodeVO;
@@ -39,9 +41,12 @@ import org.flowable.task.api.Task;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.multipart.MultipartFile;
 
 import javax.annotation.Resource;
 import javax.validation.Valid;
+import java.io.IOException;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -122,6 +127,35 @@ public class BpmModelServiceImpl implements BpmModelService {
         // 3. 保存模型
         saveModel(model, createReqVO);
         return model.getId();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public String importModel(Long userId, @Valid BpmModeImportReqVO importReqVO, MultipartFile bpmnFile) {
+        if (bpmnFile == null || bpmnFile.isEmpty()) {
+            throw exception(MODEL_IMPORT_BPMN_FILE_NOT_EXISTS);
+        }
+        String bpmnXml;
+        try {
+            bpmnXml = IoUtil.readUtf8(bpmnFile.getInputStream());
+        } catch (IOException e) {
+            log.error("[importModel][读取 BPMN 文件失败]", e);
+            throw exception(MODEL_IMPORT_BPMN_FILE_NOT_EXISTS);
+        }
+        if (StrUtil.isEmpty(bpmnXml)) {
+            throw exception(MODEL_IMPORT_BPMN_FILE_NOT_EXISTS);
+        }
+
+        BpmModelSaveReqVO createReqVO = new BpmModelSaveReqVO();
+        createReqVO.setKey(importReqVO.getKey());
+        createReqVO.setName(importReqVO.getName());
+        createReqVO.setDescription(importReqVO.getDescription());
+        createReqVO.setType(BpmModelTypeEnum.BPMN.getType());
+        createReqVO.setFormType(BpmModelFormTypeEnum.NORMAL.getType());
+        createReqVO.setVisible(true);
+        createReqVO.setManagerUserIds(Collections.singletonList(userId));
+        createReqVO.setBpmnXml(bpmnXml);
+        return createModel(createReqVO);
     }
 
     @Override

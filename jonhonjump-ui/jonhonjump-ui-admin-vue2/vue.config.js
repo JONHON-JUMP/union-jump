@@ -12,6 +12,26 @@ const name = process.env.VUE_APP_TITLE || 'JUMP系统' // 网页标题
 
 const port = process.env.port || process.env.npm_config_port || 80 // 端口
 
+/** 构建号：发版检测用；CI 可注入 VUE_APP_BUILD_ID */
+const APP_BUILD_ID = process.env.VUE_APP_BUILD_ID || `${Date.now()}`
+
+class EmitVersionJsonPlugin {
+  apply(compiler) {
+    compiler.hooks.emit.tapAsync('EmitVersionJsonPlugin', (compilation, callback) => {
+      const body = JSON.stringify({ version: APP_BUILD_ID })
+      compilation.assets['version.json'] = {
+        source() {
+          return body
+        },
+        size() {
+          return body.length
+        }
+      }
+      callback()
+    })
+  }
+}
+
 // vue.config.js 配置说明
 //官方vue.config.js 参考文档 https://cli.vuejs.org/zh/config/#css-loaderoptions
 // 这里只列一部分，具体配置参考文档
@@ -68,10 +88,16 @@ module.exports = {
         filename: '[path].gz[query]',   // 压缩后的文件名
         algorithm: 'gzip',              // 使用gzip压缩
         minRatio: 0.8                   // 压缩率小于1才会压缩
-      })
+      }),
+      new EmitVersionJsonPlugin()
     ],
   },
   chainWebpack(config) {
+    config.plugin('define').tap(args => {
+      args[0]['process.env.VUE_APP_BUILD_ID'] = JSON.stringify(APP_BUILD_ID)
+      return args
+    })
+
     config.plugins.delete('preload') // TODO: need test
     config.plugins.delete('prefetch') // TODO: need test
 

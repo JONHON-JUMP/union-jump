@@ -17,7 +17,6 @@ public class SubSystemPostDO extends BaseDO {
 
     @TableId
     private Long id;
-    private Long deptId;
     private Long subSystemId;
     private String name;
     private String code;

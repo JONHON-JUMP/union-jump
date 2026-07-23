@@ -54,3 +54,4 @@ application-my.yaml
 **/.DS_Store
 
 /.worktrees/
+node_modules

@@ -13,7 +13,7 @@
             style="margin-bottom: 20px"
           />
         </div>
-        <div class="head-container sub-system-list">
+        <div class="head-container sub-system-list" v-loading="clientsLoading">
           <div
             v-for="item in filteredClientList"
             :key="item.id"
@@ -27,12 +27,20 @@
               <el-tag size="mini" type="info">{{ item.userCount || 0 }} 人</el-tag>
             </div>
           </div>
-          <el-empty v-if="filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
         </div>
       </el-col>
 
       <!-- 用户数据（子表 sub_system_users） -->
-      <el-col :span="20" :xs="24">
+      <el-col :span="20" :xs="24" v-loading="clientsLoading">
+        <el-alert
+          v-if="showSubSystemBindHint"
+          title="请先在左侧选择已登记的外部系统，再新增或导入该系统用户（无需关联主系统用户）"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="mb8"
+        />
         <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
           <el-form-item label="外部系统" prop="subSystemId">
             <el-select
@@ -50,21 +58,24 @@
               />
             </el-select>
           </el-form-item>
+          <el-form-item label="用户名" prop="username">
+            <el-input v-model="queryParams.username" placeholder="请输入用户名" clearable style="width: 240px"
+                      @keyup.enter.native="handleQuery"/>
+          </el-form-item>
           <el-form-item label="用户姓名" prop="nickname">
             <el-input v-model="queryParams.nickname" placeholder="请输入用户姓名" clearable style="width: 240px"
-                      @keyup.enter.native="handleQuery"/>
-          </el-form-item>
-          <el-form-item label="域账号" prop="domainNo">
-            <el-input v-model="queryParams.domainNo" placeholder="请输入域账号" clearable style="width: 240px"
-                      @keyup.enter.native="handleQuery"/>
-          </el-form-item>
-          <el-form-item label="用户工号" prop="employeeNo">
-            <el-input v-model="queryParams.employeeNo" placeholder="请输入用户工号" clearable style="width: 240px"
                       @keyup.enter.native="handleQuery"/>
           </el-form-item>
           <el-form-item label="班组名称" prop="teamName">
             <el-input v-model="queryParams.teamName" placeholder="请输入班组名称" clearable style="width: 240px"
                       @keyup.enter.native="handleQuery"/>
+          </el-form-item>
+          <el-form-item label="状态" prop="status">
+            <el-select v-model="queryParams.status" placeholder="请选择状态" clearable style="width: 160px">
+              <el-option label="未关联" value="unlinked" />
+              <el-option label="正常" value="0" />
+              <el-option label="禁用" value="1" />
+            </el-select>
           </el-form-item>
           <el-form-item>
             <el-button type="primary" icon="el-icon-search" @click="handleQuery">搜索</el-button>
@@ -76,6 +87,10 @@
             <el-col :span="1.5">
               <el-button type="primary" plain icon="el-icon-plus" size="mini" @click="handleAdd"
                          v-hasPermi="['sub-system:user:create']">新增</el-button>
+            </el-col>
+            <el-col :span="1.5">
+              <el-button type="info" plain icon="el-icon-upload2" size="mini" @click="handleImport"
+                         v-hasPermi="['sub-system:user:create']">导入</el-button>
             </el-col>
             <el-col :span="1.5">
               <el-button
@@ -93,30 +108,18 @@
 
           <el-table v-loading="loading" :data="userList" @selection-change="handleRowCheckboxChange">
             <el-table-column type="selection" width="55" fixed="left" />
-            <el-table-column label="系统" align="center" prop="clientName" width="120" fixed="left" :show-overflow-tooltip="true" />
+            <el-table-column label="用户名" prop="username" :show-overflow-tooltip="true" width="110" fixed="left" />
             <el-table-column label="用户姓名" prop="nickname" :show-overflow-tooltip="true" width="100" fixed="left" />
-            <el-table-column label="用户工号" prop="employeeNo" :show-overflow-tooltip="true" width="100" fixed="left" />
-            <el-table-column label="刷卡卡号" prop="cardNo" width="120" :show-overflow-tooltip="true" />
-            <el-table-column label="ERP账号" width="120" :show-overflow-tooltip="true">
-              <template v-slot="scope">
-                <span>{{ formatErpNos(scope.row.erpNos) }}</span>
-              </template>
-            </el-table-column>
-            <el-table-column label="域账号" prop="domainNo" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="车间编号" prop="workshopId" width="100" />
-            <el-table-column label="班组编号" prop="teamId" width="110" />
+            <el-table-column label="班组编码" prop="teamId" width="110" />
             <el-table-column label="班组名称" prop="teamName" width="120" :show-overflow-tooltip="true" />
-            <el-table-column label="主页面" prop="homeMenuName" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="岗位" prop="postNames" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="角色" prop="roleNames" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="状态" align="center" width="100">
               <template v-slot="scope">
-                <el-switch
-                  v-model="scope.row.status"
-                  active-value="0"
-                  inactive-value="1"
-                  @change="handleStatusChange(scope.row)"
-                />
+                <el-tag :type="displayStatusType(scope.row)" size="mini">
+                  {{ displayStatusLabel(scope.row) }}
+                </el-tag>
               </template>
             </el-table-column>
             <el-table-column label="备注" prop="remark" width="120" :show-overflow-tooltip="true" />
@@ -148,45 +151,13 @@
         <el-form-item label="外部系统">
           <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
         </el-form-item>
-        <el-form-item v-if="form.id === undefined" label="主数据人员ID" prop="mainUserId">
-          <el-input-number
-            v-model="form.mainUserId"
-            :min="1"
-            controls-position="right"
-            placeholder="请输入主数据人员ID"
-            style="width: 100%"
-            @change="handleMainUserIdChange"
-          />
+        <el-form-item label="用户名" prop="username">
+          <el-input v-model="form.username" placeholder="请输入子系统用户名" maxlength="64" />
         </el-form-item>
-        <el-divider content-position="left">主数据人员信息</el-divider>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <el-form-item label="用户姓名">
-              <el-input v-model="mainUserInfo.nickname" disabled placeholder="请先选择主数据人员" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="用户工号">
-              <el-input v-model="mainUserInfo.employeeNo" disabled />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="刷卡卡号">
-              <el-input v-model="mainUserInfo.cardNo" disabled />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="ERP账号">
-              <el-input :value="formatErpNos(mainUserInfo.erpNos)" disabled />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="域账号">
-              <el-input v-model="mainUserInfo.domainNo" disabled />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-divider content-position="left">外部系统关联信息</el-divider>
+        <el-form-item label="用户姓名" prop="nickname">
+          <el-input v-model="form.nickname" placeholder="请输入用户姓名" maxlength="64" />
+        </el-form-item>
+        <el-divider content-position="left">组织与权限</el-divider>
         <el-form-item label="车间编号" prop="workshopId">
           <el-input v-model="form.workshopId" placeholder="请输入车间编号" />
         </el-form-item>
@@ -239,6 +210,9 @@
             <el-radio label="0">正常</el-radio>
             <el-radio label="1">禁用</el-radio>
           </el-radio-group>
+          <div v-if="!form.mainUserId" style="color:#909399;font-size:12px;margin-top:4px">
+            未挂接主用户时，列表展示为「未关联」
+          </div>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input v-model="form.remark" type="textarea" placeholder="请输入备注" />
@@ -272,6 +246,43 @@
         <el-button @click="openRole = false">取 消</el-button>
       </div>
     </el-dialog>
+
+    <!-- 子系统用户导入（须先选择并确认已关联的外部系统） -->
+    <el-dialog :title="upload.title" :visible.sync="upload.open" width="460px" append-to-body>
+      <el-alert
+        :title="'当前系统：' + (selectedClient ? (selectedClient.name + ' (' + selectedClient.clientId + ')') : '未选择')"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+      <el-upload
+        ref="upload"
+        :limit="1"
+        accept=".xlsx, .xls"
+        :headers="upload.headers"
+        :action="uploadAction"
+        :disabled="upload.isUploading"
+        :on-progress="handleFileUploadProgress"
+        :on-success="handleFileSuccess"
+        :auto-upload="false"
+        drag
+      >
+        <i class="el-icon-upload"></i>
+        <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
+        <div class="el-upload__tip text-center" slot="tip">
+          <div class="el-upload__tip">
+            <el-checkbox v-model="upload.updateSupport" /> 是否更新已存在的用户名数据
+          </div>
+          <span>仅允许 xls/xlsx。按用户名写入子系统花名册，可不关联主系统用户。</span>
+          <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
+        </div>
+      </el-upload>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" @click="submitFileForm">确 定</el-button>
+        <el-button @click="upload.open = false">取 消</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -291,14 +302,17 @@ import {
   getSubSystemUserHomeMenuTree,
   getSubSystemUserPage,
   getSubSystemUserRoleIds,
-  updateSubSystemUser,
-  updateSubSystemUserStatus
+  importSubSystemUserTemplate,
+  updateSubSystemUser
 } from '@/api/system/subSystemUsers'
 import { getUser } from '@/api/system/user'
+import { getBaseHeader } from '@/utils/request'
+import subSystemImportGate from '@/utils/subSystemImportGate'
 
 export default {
   name: 'SubSystemUser',
   components: { Treeselect },
+  mixins: [subSystemImportGate],
   data() {
     return {
       loading: false,
@@ -320,24 +334,37 @@ export default {
       roleForm: {},
       mainUserInfo: {},
       checkedIds: [],
+      upload: {
+        open: false,
+        title: '',
+        isUploading: false,
+        updateSupport: false,
+        headers: getBaseHeader()
+      },
       queryParams: {
         pageNo: 1,
         pageSize: 10,
         subSystemId: undefined,
+        username: undefined,
         mainUserId: undefined,
         workshopId: undefined,
-        employeeNo: undefined,
-        domainNo: undefined,
         nickname: undefined,
         teamName: undefined,
         status: undefined
       },
       rules: {
-        mainUserId: [{ required: true, message: '主数据人员ID不能为空', trigger: 'blur' }]
+        username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }]
       }
     }
   },
   computed: {
+    uploadAction() {
+      const id = this.selectedClient && this.selectedClient.id
+      const update = this.upload.updateSupport ? 'true' : 'false'
+      return process.env.VUE_APP_BASE_API + '/admin-api/system/sub-system-users/import'
+        + '?subSystemId=' + (id || '')
+        + '&updateSupport=' + update
+    },
     filteredClientList() {
       const keyword = (this.clientKeyword || '').trim().toLowerCase()
       if (!keyword) {
@@ -392,11 +419,16 @@ export default {
       })
     },
     loadClientList() {
-      getSubSystemClientSimpleList().then(res => {
-        this.clientList = res.data || []
-        if (!this.selectedClient && this.clientList.length > 0) {
-          this.handleClientClick(this.clientList[0])
-        }
+      return this.withClientsLoading(() => {
+        return getSubSystemClientSimpleList().then(res => {
+          this.clientList = res.data || []
+          if (this.syncSelectedClientFromList()) {
+            return
+          }
+          if (!this.selectedClient && this.clientList.length > 0) {
+            this.handleClientClick(this.clientList[0])
+          }
+        })
       })
     },
     loadSubOptions(subSystemId) {
@@ -460,10 +492,10 @@ export default {
     handleClientClick(item) {
       this.selectedClient = item
       this.queryParams.subSystemId = item.id
+      this.queryParams.username = undefined
       this.queryParams.nickname = undefined
-      this.queryParams.domainNo = undefined
-      this.queryParams.employeeNo = undefined
       this.queryParams.teamName = undefined
+      this.queryParams.status = undefined
       this.queryParams.pageNo = 1
       this.listSubSystemId = item.id
       this.getList()
@@ -503,6 +535,8 @@ export default {
         id: undefined,
         subSystemId: this.selectedClient ? this.selectedClient.id : undefined,
         mainUserId: undefined,
+        username: undefined,
+        nickname: undefined,
         workshopId: undefined,
         teamId: undefined,
         homeMenuId: undefined,
@@ -511,7 +545,6 @@ export default {
         roleIds: [],
         postIds: []
       }
-      this.resetMainUserInfo()
       this.resetForm('form')
     },
     cancel() {
@@ -519,16 +552,55 @@ export default {
       this.resetFormData()
     },
     handleAdd() {
-      if (!this.selectedClient) {
-        this.$modal.msgWarning('请先选择外部系统')
+      this.ensureSubSystemBoundBeforeAction('新增', { requireConfirm: false }).then(() => {
+        this.resetFormData()
+        this.loadSubOptions().then(() => {
+          this.menuPageOptions = []
+          this.open = true
+          this.title = '添加外部系统用户'
+        })
+      }).catch(() => {})
+    },
+    handleImport() {
+      this.ensureSubSystemBoundBeforeAction('导入').then(() => {
+        this.upload.title = '导入子系统用户 — ' + (this.selectedClient.name || '')
+        this.upload.open = true
+        this.upload.headers = getBaseHeader()
+      }).catch(() => {})
+    },
+    importTemplate() {
+      importSubSystemUserTemplate().then(response => {
+        this.$download.excel(response, '子系统用户导入模板.xls')
+      })
+    },
+    handleFileUploadProgress() {
+      this.upload.isUploading = true
+    },
+    handleFileSuccess(response) {
+      this.upload.open = false
+      this.upload.isUploading = false
+      if (this.$refs.upload) {
+        this.$refs.upload.clearFiles()
+      }
+      if (response.code !== 0) {
+        this.$modal.msgError(response.msg || '导入失败')
         return
       }
-      this.resetFormData()
-      this.loadSubOptions().then(() => {
-        this.menuPageOptions = []
-        this.open = true
-        this.title = '添加外部系统用户'
-      })
+      const data = response.data || {}
+      let text = '新建绑定：' + ((data.createKeys && data.createKeys.length) || 0)
+      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      text += '<br />更新绑定：' + ((data.updateKeys && data.updateKeys.length) || 0)
+      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      const failMap = data.failureKeys || {}
+      const failKeys = Object.keys(failMap)
+      text += '<br />失败：' + failKeys.length
+      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + k + '：' + failMap[k] })
+      this.$alert(text, '导入结果', { dangerouslyUseHTMLString: true })
+      this.getList()
+      this.loadClientList()
+    },
+    submitFileForm() {
+      this.$refs.upload.submit()
     },
     handleUpdate(row) {
       this.resetFormData()
@@ -538,6 +610,8 @@ export default {
             id: res.data.id,
             subSystemId: res.data.subSystemId,
             mainUserId: res.data.mainUserId,
+            username: res.data.username,
+            nickname: res.data.nickname,
             workshopId: res.data.workshopId,
             teamId: res.data.teamId,
             homeMenuId: res.data.homeMenuId,
@@ -546,7 +620,6 @@ export default {
             roleIds: res.data.roleIds || [],
             postIds: res.data.postIds || []
           }
-          this.fillMainUserInfo(res.data)
           return this.loadHomeMenuOptions()
         }).then(() => {
           this.open = true
@@ -586,15 +659,18 @@ export default {
         this.loadClientList()
       }).catch(() => {})
     },
-    handleStatusChange(row) {
-      const text = row.status === '0' ? '启用' : '停用'
-      this.$modal.confirm('确认要"' + text + '"编号为"' + row.id + '"的用户吗?').then(() => {
-        return updateSubSystemUserStatus(row.id, row.status)
-      }).then(() => {
-        this.$modal.msgSuccess(text + '成功')
-      }).catch(() => {
-        row.status = row.status === '0' ? '1' : '0'
-      })
+    /** main_user_id 为空 → 未关联；否则按 status 显示正常/禁用 */
+    displayStatusLabel(row) {
+      if (!row || row.mainUserId == null || row.mainUserId === '') {
+        return '未关联'
+      }
+      return row.status === '1' ? '禁用' : '正常'
+    },
+    displayStatusType(row) {
+      if (!row || row.mainUserId == null || row.mainUserId === '') {
+        return 'info'
+      }
+      return row.status === '1' ? 'danger' : 'success'
     },
     handleRole(row) {
       this.loadSubOptions(row.subSystemId).then(() => {

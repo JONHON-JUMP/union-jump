@@ -16,6 +16,15 @@ public class SubSystemMenuSimpleRespVO {
     @Schema(description = "父菜单编号")
     private Long parentId;
 
+    @Schema(description = "菜单类型，参见 MenuTypeEnum")
+    private Integer type;
+
+    @Schema(description = "状态")
+    private Integer status;
+
+    @Schema(description = "是否可见")
+    private Boolean visible;
+
     @Schema(description = "显示顺序")
     private Integer orderNum;
 
