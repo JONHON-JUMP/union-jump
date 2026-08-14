@@ -15,7 +15,7 @@ import './assets/icons' // icon
 import './permission' // permission control
 import './tongji' // 百度统计
 import { installChunkLoadGuard, startAppVersionPoll } from '@/utils/appVersion'
-import { installPortalSessionBridge } from '@/utils/portalSessionBridge'
+import { installPortalLogoutBroadcast } from '@/utils/portalLogoutBroadcast'
 import { getDicts } from "@/api/system/dict/data";
 import { getConfigKey } from "@/api/infra/config";
 import { parseTime, resetForm, handleTree, addBeginAndEndTime, divide } from "@/utils/ruoyi";
@@ -99,8 +99,8 @@ Vue.use(Element, {
 Vue.config.productionTip = false
 
 installChunkLoadGuard(router)
-installPortalSessionBridge()
 startAppVersionPoll()
+installPortalLogoutBroadcast()
 
 new Vue({
   el: '#app',

@@ -163,7 +163,7 @@
                   <span class="icon-highlight" />
                   <svg-icon :icon-class="item.icon" />
                 </span>
-                <strong>{{ item.name }}</strong>
+                <strong :title="item.name">{{ item.name }}</strong>
               </button>
               <button
                 v-if="item.type !== 'folder' && item.menuId != null && !(isInQuickNav(item) && isQuickNavLocked(item))"
@@ -262,7 +262,7 @@
                     <span class="icon-highlight" />
                     <svg-icon :icon-class="leaf.icon" />
                   </span>
-                  <strong>{{ leaf.name }}</strong>
+                  <strong :title="leaf.name">{{ leaf.name }}</strong>
                 </button>
                 <button
                   v-if="leaf.menuId != null && !(isInQuickNav(leaf) && isQuickNavLocked(leaf))"
@@ -559,13 +559,22 @@ export default {
         this.localQuickNavMenuIds = [...menuIds]
         this.localQuickNavLockedMenuIds = [...nextLocked]
         this.localQuickNavConfigured = nextConfigured
-        this.$message.success(wasInQuickNav ? `已取消“${item.name}”的快捷导航` : `已将“${item.name}”加入快捷导航`)
         this.$emit('quick-nav-change', {
           menuIds,
           lockedMenuIds: [...nextLocked],
           configured: nextConfigured,
           apps: nextApps
         })
+        const pinned = menuIds.some(id => Number(id) === Number(item.menuId))
+        if (!wasInQuickNav && !pinned) {
+          this.$message.warning(`“${item.name}”未能加入快捷导航，请刷新后重试`)
+          return
+        }
+        if (wasInQuickNav && pinned) {
+          this.$message.warning(`“${item.name}”为角色默认项，无法取消`)
+          return
+        }
+        this.$message.success(wasInQuickNav ? `已取消“${item.name}”的快捷导航` : `已将“${item.name}”加入快捷导航`)
       } catch (error) {
         this.localQuickNavMenuIds = prevMenuIds
         this.localQuickNavLockedMenuIds = prevLocked
@@ -805,7 +814,10 @@ button {
 }
 
 .drawer-actions {
-  gap: 10px;
+  /* gap replaced by margin for Chrome < 80 compat */
+}
+.drawer-actions > * + * {
+  margin-left: 10px;
 }
 
 .menu-search {
@@ -871,9 +883,12 @@ button {
 }
 
 .drawer-close:hover,
-.drawer-close:focus-visible,
-.folder-panel__header button:hover,
-.folder-panel__header button:focus-visible {
+.folder-panel__header button:hover {
+  outline: 3px solid rgba(8, 124, 229, .16);
+  background: #dcecf9;
+}
+.drawer-close:focus,
+.folder-panel__header button:focus {
   outline: 3px solid rgba(8, 124, 229, .16);
   background: #dcecf9;
 }
@@ -920,14 +935,18 @@ button {
   margin-top: 4px;
 }
 
-.group-nav button:hover,
-.group-nav button:focus-visible {
+.group-nav button:hover {
+  outline: none;
+  color: #075eb5;
+  background: #edf6fd;
+}
+.group-nav button:focus {
   outline: none;
   color: #075eb5;
   background: #edf6fd;
 }
 
-.group-nav button:focus-visible {
+.group-nav button:focus {
   box-shadow: inset 0 0 0 3px rgba(8, 124, 229, .15);
 }
 
@@ -1011,16 +1030,18 @@ button {
 .apps-grid {
   display: grid;
   margin-top: 22px;
-  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(148px, 1fr));
   column-gap: clamp(12px, 2vw, 28px);
-  row-gap: 30px;
+  row-gap: 34px;
 }
 
 .search-results {
   display: flex;
   margin-top: 18px;
   flex-direction: column;
-  gap: 4px;
+}
+.search-results > * + * {
+  margin-top: 4px;
 }
 
 .search-result {
@@ -1035,8 +1056,11 @@ button {
   cursor: pointer;
 }
 
-.search-result:hover,
-.search-result:focus-visible {
+.search-result:hover {
+  outline: none;
+  background: #edf6fd;
+}
+.search-result:focus {
   outline: none;
   background: #edf6fd;
 }
@@ -1117,8 +1141,12 @@ button {
   transition: color .18s ease, background .18s ease, transform .18s ease;
 }
 
-.pin-app:hover,
-.pin-app:focus-visible {
+.pin-app:hover {
+  outline: 3px solid rgba(8, 124, 229, .16);
+  color: #075eb5;
+  transform: scale(1.06);
+}
+.pin-app:focus {
   outline: 3px solid rgba(8, 124, 229, .16);
   color: #075eb5;
   transform: scale(1.06);
@@ -1159,13 +1187,16 @@ button {
   pointer-events: none;
 }
 
-.app-tile:hover .app-icon,
-.app-tile:focus-visible .app-icon {
+.app-tile:hover .app-icon {
+  transform: translateY(-5px);
+  filter: saturate(1.08);
+}
+.app-tile:focus .app-icon {
   transform: translateY(-5px);
   filter: saturate(1.08);
 }
 
-.app-tile:focus-visible .app-icon {
+.app-tile:focus .app-icon {
   outline: 3px solid rgba(8, 124, 229, .24);
   outline-offset: 5px;
 }
@@ -1175,13 +1206,17 @@ button {
 }
 
 .app-tile > strong {
+  display: -webkit-box;
   max-width: 100%;
   margin-top: 13px;
   overflow: hidden;
-  font-size: 16px;
-  line-height: 1.4;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  font-size: 15px;
+  line-height: 1.35;
+  text-align: center;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  white-space: normal;
 }
 
 .app-tile > small {
@@ -1295,7 +1330,10 @@ button {
 
 .folder-overlay {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   z-index: 10;
   display: flex;
   padding: 28px;
@@ -1399,14 +1437,18 @@ button {
   font-size: 12px;
 }
 
-.folder-leaf:hover,
-.folder-leaf:focus-visible {
+.folder-leaf:hover {
+  outline: none;
+  background: #e5f2fc;
+  transform: translateY(-2px);
+}
+.folder-leaf:focus {
   outline: none;
   background: #e5f2fc;
   transform: translateY(-2px);
 }
 
-.folder-leaf:focus-visible {
+.folder-leaf:focus {
   box-shadow: inset 0 0 0 3px rgba(8, 124, 229, .15);
 }
 
@@ -1433,13 +1475,17 @@ button {
 }
 
 .folder-leaf strong {
+  display: -webkit-box;
   max-width: 100%;
   margin-top: 10px;
   overflow: hidden;
   font-size: 13px;
-  line-height: 1.4;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  line-height: 1.35;
+  text-align: center;
+  word-break: break-word;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  white-space: normal;
 }
 
 .folder-panel-enter-active,
@@ -1486,8 +1532,10 @@ button {
   .drawer-layout {
     display: flex;
     padding: 14px;
-    gap: 12px;
     flex-direction: column;
+  }
+  .drawer-layout > * + * {
+    margin-top: 12px;
   }
 
   .group-nav {
@@ -1496,7 +1544,9 @@ button {
     padding: 6px;
     overflow-x: auto;
     overflow-y: hidden;
-    gap: 6px;
+  }
+  .group-nav > * + * {
+    margin-left: 6px;
   }
 
   .group-nav button {
@@ -1526,7 +1576,7 @@ button {
   }
 
   .apps-grid {
-    grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
     column-gap: 10px;
   }
 
@@ -1560,8 +1610,10 @@ button {
     min-height: auto;
     padding: 12px;
     align-items: stretch;
-    gap: 10px;
     flex-direction: column;
+  }
+  .drawer-header > * + * {
+    margin-top: 10px;
   }
 
   .drawer-heading__mark {
@@ -1705,11 +1757,13 @@ button {
   }
 
   .app-tile:hover .app-icon,
-  .app-tile:focus-visible .app-icon,
   .app-tile:active .app-icon,
   .folder-leaf:hover,
-  .folder-leaf:focus-visible,
   .folder-leaf:active {
+    transform: none;
+  }
+  .app-tile:focus .app-icon,
+  .folder-leaf:focus {
     transform: none;
   }
 }

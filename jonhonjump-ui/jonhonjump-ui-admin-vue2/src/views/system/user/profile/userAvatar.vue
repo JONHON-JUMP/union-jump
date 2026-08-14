@@ -328,7 +328,10 @@ export default {
 .system-avatar-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  margin: -8px;
+}
+.system-avatar-list > * {
+  margin: 8px;
 }
 
 .system-avatar-item {

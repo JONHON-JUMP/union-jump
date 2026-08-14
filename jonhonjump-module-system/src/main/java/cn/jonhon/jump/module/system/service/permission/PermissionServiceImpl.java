@@ -38,6 +38,8 @@ import java.util.function.Supplier;
 
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertSet;
 import static cn.jonhon.jump.framework.common.util.json.JsonUtils.toJsonString;
+import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.ROLE_MENU_HAS_QUICK_NAV;
 
 /**
  * 权限 Service 实现类
@@ -67,6 +69,9 @@ public class PermissionServiceImpl implements PermissionService {
     @Resource
     @Lazy
     private UserQuickNavService userQuickNavService;
+    @Resource
+    @Lazy
+    private RoleQuickNavService roleQuickNavService;
 
     @Override
     public boolean hasAnyPermissions(Long userId, String... permissions) {
@@ -154,6 +159,13 @@ public class PermissionServiceImpl implements PermissionService {
         Set<Long> menuIdList = CollUtil.emptyIfNull(menuIds);
         Collection<Long> createMenuIds = CollUtil.subtract(menuIdList, dbMenuIds);
         Collection<Long> deleteMenuIds = CollUtil.subtract(dbMenuIds, menuIdList);
+        // 取消的菜单若仍在角色快捷导航中，禁止直接改菜单权限
+        if (CollUtil.isNotEmpty(deleteMenuIds)) {
+            List<Long> quickNavMenuIds = roleQuickNavService.getRoleQuickNav(roleId).getMenuIds();
+            if (CollUtil.isNotEmpty(quickNavMenuIds) && CollUtil.containsAny(quickNavMenuIds, deleteMenuIds)) {
+                throw exception(ROLE_MENU_HAS_QUICK_NAV);
+            }
+        }
         // 执行新增和删除。对于已经授权的菜单，不用做任何处理
         if (CollUtil.isNotEmpty(createMenuIds)) {
             roleMenuMapper.insertBatch(CollectionUtils.convertList(createMenuIds, menuId -> {
@@ -165,6 +177,9 @@ public class PermissionServiceImpl implements PermissionService {
         }
         if (CollUtil.isNotEmpty(deleteMenuIds)) {
             roleMenuMapper.deleteListByRoleIdAndMenuIds(roleId, deleteMenuIds);
+            // 个人快捷导航不拦截角色菜单取消；取消后同步去掉该角色用户个人快捷导航中的对应项
+            Set<Long> userIds = getUserRoleIdListByRoleId(Collections.singleton(roleId));
+            userQuickNavService.removeMenusForUsers(userIds, deleteMenuIds);
         }
         authPermissionInfoService.evictUsersByRoleId(roleId);
     }
@@ -287,6 +302,8 @@ public class PermissionServiceImpl implements PermissionService {
     @Override
     public void assignRoleDataScope(Long roleId, Integer dataScope, Set<Long> dataScopeDeptIds) {
         roleService.updateRoleDataScope(roleId, dataScope, dataScopeDeptIds);
+        // 数据权限变更也要失效权限包并抬版本，在线用户动作时提示重登
+        authPermissionInfoService.evictUsersByRoleId(roleId);
     }
 
     @Override

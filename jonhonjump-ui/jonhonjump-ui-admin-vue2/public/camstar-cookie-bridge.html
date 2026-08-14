@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>Camstar Cookie Bridge</title>
+</head>
+<body>
+<script>
+/**
+ * 部署到 Camstar / :4200 站点根目录（与业务页同 host），
+ * 供 JUMP 隐藏 iframe 调用：/camstar-cookie-bridge.html?v={Base64工号}
+ * 在目标 host 写入 Nancal_Cam_SessionId（浏览器禁止跨域直接写 Cookie）。
+ */
+(function () {
+  var ok = false
+  try {
+    var params = new URLSearchParams(window.location.search || '')
+    var v = params.get('v') || params.get('Nancal_Cam_SessionId') || ''
+    if (v) {
+      document.cookie = 'Nancal_Cam_SessionId=' + encodeURIComponent(v)
+        + '; path=/; SameSite=Lax'
+      ok = true
+    }
+  } catch (e) { /* ignore */ }
+  try {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage({
+        type: 'camstar-cookie-seeded',
+        host: window.location.host,
+        ok: ok
+      }, '*')
+    }
+  } catch (e2) { /* ignore */ }
+})()
+</script>
+ok
+</body>
+</html>

@@ -15,6 +15,7 @@ import org.springframework.security.provisioning.InMemoryUserDetailsManager;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.SavedRequestAwareAuthenticationSuccessHandler;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.web.cors.CorsConfiguration;
 
 import javax.servlet.DispatcherType;
 
@@ -102,6 +103,14 @@ public class AdminServerConfiguration {
                                 adminSeverContextPath + "/actuator/**" // Actuator 端点忽略 CSRF
                         )
                 );
+        httpSecurity.cors().configurationSource(httpServletRequest -> {
+            final CorsConfiguration corsConfiguration = new CorsConfiguration();
+            corsConfiguration.addAllowedHeader("*");
+            corsConfiguration.addAllowedMethod("*");
+            corsConfiguration.addAllowedOriginPattern("*");
+            corsConfiguration.setAllowCredentials(true);
+            return corsConfiguration;
+        });
         return httpSecurity.build();
     }
 

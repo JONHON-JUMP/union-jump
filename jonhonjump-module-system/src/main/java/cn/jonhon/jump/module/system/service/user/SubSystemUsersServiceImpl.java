@@ -386,6 +386,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                     .collect(Collectors.toList());
         }
 
+        // 主系统下发角色 + 页面菜单 + 按钮 permissions；数据范围不下发（子系统本地管）
         List<PortalPermContextRespVO.Role> roles = new ArrayList<>();
         Set<String> permissions = new LinkedHashSet<>();
         boolean allPerms = false;
@@ -399,41 +400,47 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 allPerms = true;
             }
         }
+        List<SubSystemMenuDO> allMenusRaw = subSystemMenuMapper.selectListBySubSystemId(subSystem.getId()).stream()
+                .filter(menu -> menu.getStatus() == null || menu.getStatus() == 0)
+                .collect(Collectors.toList());
         Set<Long> roleMenuIds;
         if (allPerms) {
             permissions.add("*:*:*");
-            roleMenuIds = convertSet(
-                    subSystemMenuMapper.selectListBySubSystemId(subSystem.getId()), SubSystemMenuDO::getId);
+            roleMenuIds = convertSet(allMenusRaw, SubSystemMenuDO::getId);
         } else {
             roleMenuIds = CollUtil.isEmpty(roleList) ? Collections.emptySet()
                     : convertSet(subSystemRoleMenuMapper.selectListByRoleIds(
                             convertList(roleList, SubSystemRoleDO::getId)), SubSystemRoleMenuDO::getMenuId);
+            // 勾了页面则自动带上按钮 perms（即使历史 role_menu 未存 F）
+            roleMenuIds = expandWithButtonChildren(allMenusRaw, roleMenuIds);
             if (CollUtil.isNotEmpty(roleMenuIds)) {
-                List<SubSystemMenuDO> authMenus = subSystemMenuMapper.selectBatchIds(roleMenuIds);
-                for (SubSystemMenuDO menu : authMenus) {
-                    if (menu.getStatus() != null && menu.getStatus() != 0) {
+                Map<Long, SubSystemMenuDO> authMenuMap = convertMap(allMenusRaw, SubSystemMenuDO::getId);
+                for (Long menuId : roleMenuIds) {
+                    SubSystemMenuDO menu = authMenuMap.get(menuId);
+                    if (menu == null || StrUtil.isBlank(menu.getPerms())) {
                         continue;
                     }
-                    if (StrUtil.isNotBlank(menu.getPerms())) {
-                        for (String perm : menu.getPerms().split(",")) {
-                            if (StrUtil.isNotBlank(perm)) {
-                                permissions.add(perm.trim());
-                            }
+                    for (String perm : menu.getPerms().split(",")) {
+                        if (StrUtil.isNotBlank(perm)) {
+                            permissions.add(perm.trim());
                         }
                     }
                 }
             }
         }
 
-        List<SubSystemMenuDO> allMenus = subSystemMenuMapper.selectListBySubSystemId(subSystem.getId()).stream()
-                .filter(menu -> menu.getStatus() == null || menu.getStatus() == 0)
+        // 路由只要目录/页面
+        List<SubSystemMenuDO> pageMenus = allMenusRaw.stream()
+                .filter(menu -> !"F".equals(menu.getType()))
                 .collect(Collectors.toList());
-        Map<Long, SubSystemMenuDO> menuMap = convertMap(allMenus, SubSystemMenuDO::getId);
+        Map<Long, SubSystemMenuDO> menuMap = convertMap(pageMenus, SubSystemMenuDO::getId);
         Set<Long> displayMenuIds = new HashSet<>();
         for (Long menuId : roleMenuIds) {
-            addMenuAndAncestors(menuId, menuMap, displayMenuIds);
+            if (menuMap.containsKey(menuId)) {
+                addMenuAndAncestors(menuId, menuMap, displayMenuIds);
+            }
         }
-        List<SubSystemMenuDO> displayMenus = allMenus.stream()
+        List<SubSystemMenuDO> displayMenus = pageMenus.stream()
                 .filter(menu -> displayMenuIds.contains(menu.getId()))
                 .collect(Collectors.toList());
 
@@ -445,7 +452,14 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         resp.setTeamId(user.getTeamId());
         resp.setRoles(roles);
         resp.setPermissions(new ArrayList<>(permissions));
+        resp.setMainUserId(user.getMainUserId());
         resp.setMenus(buildPermissionMenuTree(displayMenus, 0L));
+        // 登录灌权时写入主系统 Redis 权限包；改菜单/角色会 evict，子系统读 miss 可提示重登
+        if (user.getMainUserId() != null) {
+            warmPortalPermContext(user.getMainUserId(), subSystem.getId());
+        }
+        // 会话侧用版本号比对：my-menus 会 warm 回权限包，仅靠 Redis exists 会漏掉重登提示
+        resp.setRbacVersion(subSystemPermissionContextService.getRbacVersion(subSystem.getId()));
         return resp;
     }
 
@@ -462,7 +476,15 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                     node.setName(menu.getMenuName());
                     node.setType(menu.getType());
                     node.setPath(menu.getPath());
-                    node.setComponent(menu.getComponent());
+                    // Camstar/外链内链：不要把门户 Empty 组件灌给 4200，否则无法生成 InnerLink → 404
+                    String path = menu.getPath();
+                    if (StrUtil.isNotBlank(path)
+                            && (StrUtil.startWithIgnoreCase(path, "http://")
+                            || StrUtil.startWithIgnoreCase(path, "https://"))) {
+                        node.setComponent(null);
+                    } else {
+                        node.setComponent(menu.getComponent());
+                    }
                     node.setPerms(menu.getPerms());
                     node.setIcon(menu.getIcon());
                     node.setOrderNum(menu.getOrderNum());
@@ -662,6 +684,36 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return roles;
     }
+    /**
+     * 勾选目录/菜单时，自动带上其下按钮（F），用于 permissions 下发与 role_menu 落库。
+     */
+    private Set<Long> expandWithButtonChildren(List<SubSystemMenuDO> menus, Set<Long> selectedIds) {
+        if (CollUtil.isEmpty(selectedIds) || CollUtil.isEmpty(menus)) {
+            return new LinkedHashSet<>(CollUtil.emptyIfNull(selectedIds));
+        }
+        Map<Long, List<SubSystemMenuDO>> childrenMap = menus.stream()
+                .filter(m -> m.getParentId() != null)
+                .collect(Collectors.groupingBy(SubSystemMenuDO::getParentId));
+        LinkedHashSet<Long> result = new LinkedHashSet<>(selectedIds);
+        ArrayDeque<Long> queue = new ArrayDeque<>(selectedIds);
+        while (!queue.isEmpty()) {
+            Long parentId = queue.poll();
+            List<SubSystemMenuDO> children = childrenMap.get(parentId);
+            if (CollUtil.isEmpty(children)) {
+                continue;
+            }
+            for (SubSystemMenuDO child : children) {
+                if (!"F".equals(child.getType())) {
+                    continue;
+                }
+                if (result.add(child.getId())) {
+                    queue.add(child.getId());
+                }
+            }
+        }
+        return result;
+    }
+
     private void addMenuAndAncestors(Long menuId, Map<Long, SubSystemMenuDO> menuMap, Set<Long> displayMenuIds) {
         Long current = menuId;
         while (current != null && current != 0L) {
@@ -774,17 +826,17 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             return Collections.emptyList();
         }
         List<SubSystemMenuDO> allMenus = subSystemMenuMapper.selectListBySubSystemId(subSystemId).stream()
-                .filter(menu -> menu.getStatus() != null && menu.getStatus() == 0)
+                .filter(menu -> menu.getStatus() == null || menu.getStatus() == 0)
                 .collect(Collectors.toList());
         Map<Long, SubSystemMenuDO> menuMap = convertMap(allMenus, SubSystemMenuDO::getId);
         Set<Long> displayMenuIds = new HashSet<>();
         for (Long menuId : roleMenuIds) {
             addMenuAndAncestors(menuId, menuMap, displayMenuIds);
         }
+        // 与权限包一致：角色勾选（含仅勾按钮时的祖先页面）均可展示；仅目录/页面进门户树
         List<SubSystemMenuDO> displayMenus = allMenus.stream()
                 .filter(menu -> displayMenuIds.contains(menu.getId()))
-                .filter(menu -> "M".equals(menu.getType())
-                        || ("C".equals(menu.getType()) && roleMenuIds.contains(menu.getId())))
+                .filter(menu -> "M".equals(menu.getType()) || "C".equals(menu.getType()))
                 .collect(Collectors.toList());
         Set<Long> styleIds = displayMenus.stream()
                 .filter(menu -> MenuStyleHelper.isFirstLevelMenu(menu.getParentId()))
@@ -836,13 +888,92 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(roleMenuIds)) {
             return Collections.emptySet();
         }
-        return subSystemMenuMapper.selectListBySubSystemId(subSystemId).stream()
-                .filter(menu -> menu.getStatus() != null && menu.getStatus() == 0)
-                .filter(menu -> "C".equals(menu.getType()) && roleMenuIds.contains(menu.getId()))
+        // 与 my-menus 一致：角色勾了按钮/子项时，祖先页面也应可加入快捷导航（可见即可加星，无额外权限）
+        List<SubSystemMenuDO> allMenus = subSystemMenuMapper.selectListBySubSystemId(subSystemId).stream()
+                .filter(menu -> menu.getStatus() == null || menu.getStatus() == 0)
+                .collect(Collectors.toList());
+        Map<Long, SubSystemMenuDO> menuMap = convertMap(allMenus, SubSystemMenuDO::getId);
+        Set<Long> displayMenuIds = new HashSet<>();
+        for (Long menuId : roleMenuIds) {
+            addMenuAndAncestors(menuId, menuMap, displayMenuIds);
+        }
+        return allMenus.stream()
+                .filter(menu -> "C".equals(menu.getType()) && displayMenuIds.contains(menu.getId()))
                 .filter(menu -> menu.getVisible() == null || menu.getVisible() == 0)
                 .map(SubSystemMenuDO::getId)
                 .collect(Collectors.toSet());
     }
+
+    @Override
+    public Set<Long> retainAllowedQuickNavMenuIds(Long userId, Long subSystemId, Collection<Long> candidateIds) {
+        if (CollUtil.isEmpty(candidateIds)) {
+            return Collections.emptySet();
+        }
+        SubSystemUsersDO subSystemUser = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, userId);
+        if (subSystemUser == null || "1".equals(subSystemUser.getStatus())) {
+            return Collections.emptySet();
+        }
+        SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
+        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus())) {
+            return Collections.emptySet();
+        }
+        List<Long> roleIds = getSubSystemUserRoleIds(subSystemUser.getId());
+        if (CollUtil.isEmpty(roleIds)) {
+            return Collections.emptySet();
+        }
+        Set<Long> roleMenuIds = getRoleMenuIds(subSystemId, roleIds);
+        if (CollUtil.isEmpty(roleMenuIds)) {
+            return Collections.emptySet();
+        }
+        LinkedHashSet<Long> candidates = new LinkedHashSet<>();
+        for (Long id : candidateIds) {
+            if (id != null) {
+                candidates.add(id);
+            }
+        }
+        if (candidates.isEmpty()) {
+            return Collections.emptySet();
+        }
+        LinkedHashSet<Long> seedIds = new LinkedHashSet<>(candidates);
+        seedIds.addAll(roleMenuIds);
+        Map<Long, SubSystemMenuDO> menuMap = loadSubSystemMenusWithAncestors(seedIds);
+        Set<Long> displayMenuIds = new HashSet<>();
+        for (Long menuId : roleMenuIds) {
+            addMenuAndAncestors(menuId, menuMap, displayMenuIds);
+        }
+        return candidates.stream()
+                .map(menuMap::get)
+                .filter(Objects::nonNull)
+                .filter(menu -> "C".equals(menu.getType()) && displayMenuIds.contains(menu.getId()))
+                .filter(menu -> menu.getStatus() == null || menu.getStatus() == 0)
+                .filter(menu -> menu.getVisible() == null || menu.getVisible() == 0)
+                .map(SubSystemMenuDO::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private Map<Long, SubSystemMenuDO> loadSubSystemMenusWithAncestors(Collection<Long> ids) {
+        Map<Long, SubSystemMenuDO> menuMap = new HashMap<>();
+        Set<Long> pending = new LinkedHashSet<>(ids);
+        while (CollUtil.isNotEmpty(pending)) {
+            List<SubSystemMenuDO> batch = subSystemMenuMapper.selectListByIds(pending);
+            pending.clear();
+            if (CollUtil.isEmpty(batch)) {
+                break;
+            }
+            for (SubSystemMenuDO menu : batch) {
+                if (menu == null || menu.getId() == null || menuMap.containsKey(menu.getId())) {
+                    continue;
+                }
+                menuMap.put(menu.getId(), menu);
+                Long parentId = menu.getParentId();
+                if (parentId != null && parentId != 0L && !menuMap.containsKey(parentId)) {
+                    pending.add(parentId);
+                }
+            }
+        }
+        return menuMap;
+    }
+
     private List<SubSystemPortalMenuRespVO> buildPortalMenuTree(List<SubSystemMenuDO> menus, Long parentId,
                                                                 SubSystemDO subSystem,
                                                                 Map<Long, SubSystemMenuDO> menuMap,
@@ -898,27 +1029,161 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         vo.setManualUrl(menu.getManualUrl());
         vo.setChildren(children);
         if ("C".equals(menu.getType())) {
-            vo.setComponent("system/subSystem/portal/Empty");
+            String path = menu.getPath();
+            boolean httpRoute = StrUtil.isNotBlank(path)
+                    && (StrUtil.startWithIgnoreCase(path, "http://")
+                    || StrUtil.startWithIgnoreCase(path, "https://"));
+            // 两类菜单：Camstar/外链认「路由地址」；若依认「组件路径」
+            if (httpRoute) {
+                vo.setComponent(null);
+            } else {
+                vo.setComponent(menu.getComponent());
+            }
+            // 门户壳没有子系统 Vue 页，一律 iframe；真正打开地址在 link
             vo.setLink(buildIframeLink(subSystem, menu, menuMap));
         }
         return vo;
     }
     private String buildIframeLink(SubSystemDO subSystem, SubSystemMenuDO menu, Map<Long, SubSystemMenuDO> menuMap) {
-        if (StrUtil.isNotBlank(menu.getPath())
-                && (menu.getPath().startsWith("http://") || menu.getPath().startsWith("https://"))) {
-            return menu.getPath();
-        }
         String baseUrl = StrUtil.removeSuffix(subSystem.getSystemUrl(), "/");
         if (StrUtil.isBlank(baseUrl)) {
             return null;
+        }
+        String leafPath = menu.getPath();
+        String component = menu.getComponent();
+        boolean ruoyiComponent = StrUtil.isNotBlank(component)
+                && !"InnerLink".equalsIgnoreCase(component)
+                && !StrUtil.containsIgnoreCase(component, "empty")
+                && !StrUtil.containsIgnoreCase(component, "portal/");
+
+        // 若依：有组件路径 → 一律 systemUrl/#/路由（禁止再走 http 直链分支）
+        if (ruoyiComponent) {
+            String routePath = buildMenuRoutePath(menu.getId(), menuMap);
+            if (StrUtil.isBlank(routePath)) {
+                return baseUrl;
+            }
+            return baseUrl + "/#/" + routePath.replace(":", "/");
+        }
+
+        // Camstar/外链：路由地址 http → 直开
+        if (StrUtil.isNotBlank(leafPath)
+                && (leafPath.startsWith("http://") || leafPath.startsWith("https://"))) {
+            return leafPath;
         }
         String routePath = buildMenuRoutePath(menu.getId(), menuMap);
         if (StrUtil.isBlank(routePath)) {
             return baseUrl;
         }
-        return baseUrl + "/#/" + routePath;
+        // 无组件 + IP:port 编码 → Camstar/外链直链；还原失败则仍按若依 hash
+        if (routePath.contains(":") || routePath.matches(".*\\d+[./]\\d+[./]\\d+[./]\\d+.*")
+                || routePath.matches(".*\\d+\\.\\d+\\.\\d+\\.\\d+9\\d{2,5}.*")) {
+            String asHttp = slashIpPortPathToHttp(routePath);
+            if (asHttp == null) {
+                String normalized = routePath.replace(":", "/");
+                normalized = normalized.replaceAll("(?<=^|/)(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)(?=/)", "$1/$2/$3/$4");
+                asHttp = slashIpPortPathToHttp(normalized);
+            }
+            if (asHttp != null && isCamstarPortalUrl(asHttp)) {
+                return asHttp;
+            }
+            if (asHttp != null) {
+                // 其它业务机端口：同样直开
+                return asHttp;
+            }
+            return baseUrl + "/#/" + routePath.replace(":", "/");
+        }
+        return baseUrl + "/#/" + routePath.replace(":", "/");
+    }
+
+    /**
+     * 192.168.240.12794200/Process/... → http://192.168.240.127:4200/Process/...
+     * 或 15/192/168/240/126/43061/mes/... → http://192.168.240.126:43061/mes/...
+     */
+    private static String slashIpPortPathToHttp(String path) {
+        if (path == null) {
+            return null;
+        }
+        String raw = path.startsWith("/") ? path.substring(1) : path;
+        java.util.regex.Matcher dotted9 = java.util.regex.Pattern
+                .compile("^(?:.*/)?(\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3})9(\\d{2,5})(?:/(.*))?$")
+                .matcher(raw);
+        if (dotted9.matches()) {
+            int port = Integer.parseInt(dotted9.group(2));
+            if (port > 255) {
+                String after = dotted9.group(3);
+                if (StrUtil.isBlank(after)) {
+                    return "http://" + dotted9.group(1) + ":" + port + "/";
+                }
+                return "http://" + dotted9.group(1) + ":" + port + "/" + after;
+            }
+        }
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^(?:.*/)?(\\d+)/(\\d+)/(\\d+)/(\\d+)/(\\d+)/(.*)$")
+                .matcher(raw);
+        if (!m.matches()) {
+            return null;
+        }
+        return "http://" + m.group(1) + "." + m.group(2) + "." + m.group(3) + "." + m.group(4)
+                + ":" + m.group(5) + "/" + m.group(6);
+    }
+
+    /** 与若依 SysMenuServiceImpl.innerLinkReplaceEach 对齐（含端口冒号→/） */
+    private static String innerLinkReplaceEach(String path) {
+        if (path == null) {
+            return "";
+        }
+        return path.replace("https://", "")
+                .replace("http://", "")
+                .replace("www.", "")
+                .replace(".", "/")
+                .replace(":", "/");
+    }
+
+    private static boolean isCamstarPortalUrl(String path) {
+        if (StrUtil.isBlank(path)) {
+            return false;
+        }
+        String p = path.toLowerCase();
+        return p.contains(":4200/") || p.contains(":4200?") || p.endsWith(":4200")
+                || p.contains("94200/") || p.endsWith("94200")
+                || p.contains("/4200/") || p.endsWith("/4200")
+                || p.contains("camstarportal") || p.contains("/camstar/");
+    }
+
+    private String buildParentRoutePrefix(Long menuId, Map<Long, SubSystemMenuDO> menuMap) {
+        List<String> segments = new ArrayList<>();
+        SubSystemMenuDO leaf = menuMap.get(menuId);
+        if (leaf == null) {
+            return "";
+        }
+        Long current = leaf.getParentId();
+        while (current != null && current != 0L) {
+            SubSystemMenuDO item = menuMap.get(current);
+            if (item == null) {
+                break;
+            }
+            if (("M".equals(item.getType()) || "C".equals(item.getType())) && StrUtil.isNotBlank(item.getPath())) {
+                String p = StrUtil.removePrefix(item.getPath(), "/");
+                if (!p.startsWith("http://") && !p.startsWith("https://")
+                        && !p.contains(":") && !p.matches(".*\\d+/\\d+/\\d+/\\d+.*")
+                        && !"null".equalsIgnoreCase(p) && !"Empty".equalsIgnoreCase(p)) {
+                    segments.add(0, p);
+                }
+            }
+            current = item.getParentId();
+        }
+        return String.join("/", segments);
     }
     private String buildMenuRoutePath(Long menuId, Map<Long, SubSystemMenuDO> menuMap) {
+        SubSystemMenuDO leaf = menuMap.get(menuId);
+        if (leaf != null && StrUtil.isNotBlank(leaf.getPath())) {
+            String leafPath = StrUtil.removePrefix(leaf.getPath(), "/");
+            // 若依内链整段（含端口或点改斜杠 IP）已是完整业务 path，勿再拼上级菜单 path
+            if (leafPath.contains(":") || leafPath.matches(".*\\d+/\\d+/\\d+/\\d+.*")
+                    || leafPath.startsWith("http://") || leafPath.startsWith("https://")) {
+                return leafPath;
+            }
+        }
         List<String> segments = new ArrayList<>();
         Long current = menuId;
         while (current != null && current != 0L) {

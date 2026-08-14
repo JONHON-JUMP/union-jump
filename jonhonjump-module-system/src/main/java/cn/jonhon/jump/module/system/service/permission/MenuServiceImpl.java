@@ -119,14 +119,15 @@ public class MenuServiceImpl implements MenuService {
         if (menuMapper.selectById(id) == null) {
             throw exception(MENU_NOT_EXISTS);
         }
+        // 已配置快捷导航时禁止删除，需先取消
+        if (userQuickNavService.existsByMenuId(id) || roleQuickNavService.existsByMenuId(id)) {
+            throw exception(MENU_HAS_QUICK_NAV);
+        }
         // 标记删除
         menuMapper.deleteById(id);
         authPermissionInfoService.evictUsersAffectedByMenu(id);
         // 删除授予给角色的权限
         permissionService.processMenuDeleted(id);
-        // 删除用户快捷导航配置
-        userQuickNavService.deleteByMenuId(id);
-        roleQuickNavService.deleteByMenuId(id);
     }
 
     @Override
@@ -140,15 +141,15 @@ public class MenuServiceImpl implements MenuService {
                 throw exception(MENU_EXISTS_CHILDREN);
             }
         });
+        if (userQuickNavService.existsByMenuIds(ids) || roleQuickNavService.existsByMenuIds(ids)) {
+            throw exception(MENU_HAS_QUICK_NAV);
+        }
 
         // 标记删除
         menuMapper.deleteByIds(ids);
         ids.forEach(authPermissionInfoService::evictUsersAffectedByMenu);
         // 删除授予给角色的权限
         ids.forEach(id -> permissionService.processMenuDeleted(id));
-        // 删除用户快捷导航配置
-        userQuickNavService.deleteByMenuIds(ids);
-        roleQuickNavService.deleteByMenuIds(ids);
     }
 
     @Override

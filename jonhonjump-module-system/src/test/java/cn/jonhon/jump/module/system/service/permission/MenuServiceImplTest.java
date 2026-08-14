@@ -8,6 +8,7 @@ import cn.jonhon.jump.module.system.dal.dataobject.permission.MenuDO;
 import cn.jonhon.jump.module.system.dal.mysql.permission.MenuMapper;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
 import cn.jonhon.jump.module.system.service.tenant.TenantService;
+import cn.jonhon.jump.module.system.service.auth.AuthPermissionInfoService;
 import cn.jonhon.jump.module.system.service.user.UserQuickNavService;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.mock.mockito.MockBean;
@@ -47,6 +48,12 @@ public class MenuServiceImplTest extends BaseDbUnitTest {
     private TenantService tenantService;
     @MockBean
     private UserQuickNavService userQuickNavService;
+    @MockBean
+    private RoleQuickNavService roleQuickNavService;
+    @MockBean
+    private AuthPermissionInfoService authPermissionInfoService;
+    @MockBean
+    private MenuColorService menuColorService;
 
     @Test
     public void testCreateMenu_success() {
@@ -110,7 +117,8 @@ public class MenuServiceImplTest extends BaseDbUnitTest {
         MenuDO dbMenuDO = menuMapper.selectById(id);
         assertNull(dbMenuDO);
         verify(permissionService).processMenuDeleted(id);
-        verify(userQuickNavService).deleteByMenuId(id);
+        verify(userQuickNavService).existsByMenuId(id);
+        verify(roleQuickNavService).existsByMenuId(id);
     }
 
     @Test

@@ -89,7 +89,8 @@ import { getTodoTaskPage } from '@/api/bpm/task'
 import { listNoticeWorkbench } from '@/api/system/notice'
 import { listFaqWorkbench } from '@/api/system/faq'
 import { checkPermi } from '@/utils/permission'
-import { parsePortalClientId, isMainBusinessPath } from '@/utils/portalRoute'
+import { parsePortalClientId, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath } from '@/utils/portalRoute'
+import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
 import PortalQuickNavPanel from './components/PortalQuickNavPanel.vue'
 import { buildPortalHomeApps } from '@/utils/portalQuickNavApps'
 import { buildIconStyle, resolveMenuColors } from '@/utils/menuIconStyle'
@@ -541,13 +542,11 @@ export default {
         return
       }
       if (this.currentSystem !== 'main' && isMainBusinessPath(app.path)) {
-        const loading = this.$loading({ lock: true, text: '正在进入主系统...', spinner: 'el-icon-loading' })
         this.$store.dispatch('portal/switchSystem', { system: 'main', skipNavigate: true })
           .then(() => this.$router.push(app.path))
           .catch(err => {
             this.$message.error(typeof err === 'string' ? err : (err.message || '进入主系统失败'))
           })
-          .finally(() => loading.close())
         return
       }
       if (isExternal(app.path)) {
@@ -561,25 +560,75 @@ export default {
       }
       const clientId = parsePortalClientId(app.path)
       if (clientId) {
-        if (this.$route.path === app.path) {
+        // 快捷导航 apps 可能仍是旧斜杠编码；对齐侧栏 IP9port
+        let targetPath = app.path
+        const rest0 = String(app.path).replace(new RegExp('^/portal/' + clientId + '/'), '')
+        const asHttp0 = slashIpPortRestToHttp(String(rest0).replace(/:/g, '/'))
+        if (asHttp0) {
+          targetPath = `/portal/${clientId}/` + encodeHttpToMesPath(asHttp0)
+        }
+        if (this.$route.path === targetPath) {
           return
         }
         const menusReady = !!(this.$store.state.portal.loadedSubSystems || {})[clientId]
-        const loading = menusReady
-          ? null
-          : this.$loading({ lock: true, text: '加载子系统菜单...', spinner: 'el-icon-loading' })
-        this.$store.dispatch('portal/ensureSubSystemReady', clientId)
+        const activeMap = this.$store.state.portal.pathLinkMap || {}
+        const cachedMap = (this.$store.state.portal.subSystemPathLinkCache || {})[clientId] || {}
+        const entry = activeMap[targetPath] || lookupPathLinkEntry(targetPath, activeMap)
+          || cachedMap[targetPath] || lookupPathLinkEntry(targetPath, cachedMap)
+          || activeMap[app.path] || lookupPathLinkEntry(app.path, activeMap)
+          || cachedMap[app.path] || lookupPathLinkEntry(app.path, cachedMap)
+        const link = (entry && entry.link) || ''
+        const rest = String(targetPath).replace(new RegExp('^/portal/' + clientId + '/'), '')
+        const isDirect = (/^https?:\/\//i.test(link) && link.indexOf('#') < 0)
+          || !!slashIpPortRestToHttp(rest.replace(/:/g, '/'))
+        const resolvedLink = link || slashIpPortRestToHttp(rest.replace(/:/g, '/')) || ''
+
+        const openDirect = () => {
+          ensureLocalCamstarCookie()
+          if (resolvedLink) {
+            seedCamstarCookieForUrlInBackground(resolvedLink)
+          }
+          const afterPush = () => {
+            if (!menusReady) {
+              this.$store.dispatch('portal/ensureSubSystemLoaded', {
+                clientId,
+                activate: false,
+                force: false
+              }).catch(() => {})
+            }
+          }
+          const needShell = this.$store.state.portal.currentSystem !== clientId
+            || !(this.$store.state.portal.pathLinkMap && Object.keys(this.$store.state.portal.pathLinkMap).length)
+          if (needShell) {
+            return this.$store.dispatch('portal/activateSubSystemShell', { clientId })
+              .then(() => this.$router.push(targetPath))
+              .then(afterPush)
+          }
+          return this.$router.push(targetPath).then(afterPush).catch(() => afterPush())
+        }
+
+        if (isDirect) {
+          return openDirect().catch(err => {
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
+          })
+        }
+
+        if (!menusReady) {
+          this.$message({ message: '正在准备子系统菜单…', type: 'info', duration: 1500 })
+        }
+        this.$store.dispatch('portal/ensureSubSystemReady', {
+          clientId,
+          skipSso: false
+        })
           .then(() => {
-            // ensureSubSystemReady 已按需激活；若加载期间用户已切走，不再跳转
             if (this.$store.state.portal.currentSystem !== clientId) {
               return
             }
-            return this.$router.push(app.path)
+            return this.$router.push(targetPath)
           })
           .catch(err => {
             this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
           })
-          .finally(() => loading && loading.close())
         return
       }
       if (this.$route.path !== app.path) {
@@ -727,7 +776,8 @@ button { color: inherit; }
 }
 
 .brand-copy small { margin-top: 3px; color: $muted; font-size: 13px; }
-.header-actions { display: flex; align-items: center; gap: 10px; }
+.header-actions { display: flex; align-items: center; }
+.header-actions > * + * { margin-left: 10px; }
 .switch-user-btn {
   height: 38px;
   padding: 0 14px;
@@ -740,8 +790,12 @@ button { color: inherit; }
   cursor: pointer;
   transition: background .2s ease, box-shadow .2s ease;
 }
-.switch-user-btn:hover,
-.switch-user-btn:focus-visible {
+.switch-user-btn:hover {
+  outline: none;
+  background: #ffefd2;
+  box-shadow: 0 0 0 3px rgba(230, 162, 60, .16);
+}
+.switch-user-btn:focus {
   outline: none;
   background: #ffefd2;
   box-shadow: 0 0 0 3px rgba(230, 162, 60, .16);
@@ -793,7 +847,8 @@ button { color: inherit; }
   cursor: pointer;
 }
 
-.search-result:hover, .search-result:focus-visible { outline: none; background: #edf6fd; }
+.search-result:hover { outline: none; background: #edf6fd; }
+.search-result:focus { outline: none; background: #edf6fd; }
 .search-result > span:nth-child(2) { display: flex; min-width: 0; margin-left: 10px; flex: 1; flex-direction: column; }
 .search-result small { margin-top: 2px; font-size: 12px; }
 .search-result > i { color: #7790aa; }
@@ -811,7 +866,8 @@ button { color: inherit; }
 }
 
 .round-action { color: #29435f; background: #eaf3fb; font-size: 20px; }
-.round-action:hover, .round-action:focus-visible { outline: 3px solid rgba(8, 124, 229, .16); background: #dcecf9; }
+.round-action:hover { outline: 3px solid rgba(8, 124, 229, .16); background: #dcecf9; }
+.round-action:focus { outline: 3px solid rgba(8, 124, 229, .16); background: #dcecf9; }
 .user-entry { overflow: hidden; color: #fff; background: $primary; font-size: 19px; font-weight: 700; }
 .user-entry img { width: 100%; height: 100%; object-fit: cover; }
 .notice-badge ::v-deep .el-badge__content { top: 8px; right: 10px; }
@@ -859,15 +915,18 @@ button { color: inherit; }
   margin-top: 20px;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
 }
-.workbench-tabs { display: flex; min-width: 0; gap: 7px; flex: 1 1 auto; }
+.workbench-tabs-row > * + * {
+  margin-left: 10px;
+}
+.workbench-tabs { display: flex; min-width: 0; flex: 1 1 auto; }
+.workbench-tabs > * + * { margin-left: 7px; }
 .workbench-tabs-actions {
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 8px;
 }
+.workbench-tabs-actions > * + * { margin-left: 8px; }
 .workbench-action {
   display: grid;
   width: 32px;
@@ -882,8 +941,12 @@ button { color: inherit; }
   cursor: pointer;
   transition: background .18s ease, color .18s ease;
 }
-.workbench-action:hover,
-.workbench-action:focus-visible {
+.workbench-action:hover {
+  outline: none;
+  color: #087ce5;
+  background: rgba(255, 255, 255, .92);
+}
+.workbench-action:focus {
   outline: none;
   color: #087ce5;
   background: rgba(255, 255, 255, .92);
@@ -911,8 +974,9 @@ button { color: inherit; }
 .workbench-tabs button:hover { background: rgba(255, 255, 255, .9); }
 .workbench-tabs button.active { color: #fff; background: $primary; }
 .workbench-tabs button:active { transform: scale(.98); }
-.workbench-tabs button:focus-visible { outline: 3px solid rgba(8, 124, 229, .2); outline-offset: 2px; }
-.task-list { display: flex; min-height: 0; margin-top: 16px; overflow: auto; gap: 10px; flex: 1 1 auto; flex-direction: column; scrollbar-color: #aac0d3 transparent; scrollbar-width: thin; }
+.workbench-tabs button:focus { outline: 3px solid rgba(8, 124, 229, .2); outline-offset: 2px; }
+.task-list { display: flex; min-height: 0; margin-top: 16px; overflow: auto; flex: 1 1 auto; flex-direction: column; scrollbar-color: #aac0d3 transparent; scrollbar-width: thin; }
+.task-list > * + * { margin-top: 10px; }
 .task-empty {
   display: flex;
   min-height: 120px;
@@ -926,7 +990,8 @@ button { color: inherit; }
   font-size: 13px;
 }
 .task-item { display: flex; width: 100%; padding: 16px 14px; align-items: flex-start; justify-content: space-between; border: 1px solid rgba(255, 255, 255, .78); border-radius: 12px; background: linear-gradient(135deg, rgba(255, 255, 255, .76), rgba(222, 240, 253, .66)); text-align: left; cursor: pointer; transition: background .18s ease, transform .18s ease; }
-.task-item:hover, .task-item:focus-visible { outline: none; background: rgba(255, 255, 255, .94); transform: translateY(-1px); }
+.task-item:hover { outline: none; background: rgba(255, 255, 255, .94); transform: translateY(-1px); }
+.task-item:focus { outline: none; background: rgba(255, 255, 255, .94); transform: translateY(-1px); }
 .task-item:active { transform: translateY(0) scale(.995); }
 .task-item > span { display: flex; min-width: 0; padding-right: 8px; flex-direction: column; }
 .task-item strong { font-size: 14px; }
@@ -951,8 +1016,8 @@ button { color: inherit; }
   cursor: pointer;
   transition: background .18s ease, transform .18s ease;
 }
-.workbench-more:hover,
-.workbench-more:focus-visible { outline: 3px solid rgba(8, 124, 229, .14); background: #d5eafb; }
+.workbench-more:hover { outline: 3px solid rgba(8, 124, 229, .14); background: #d5eafb; }
+.workbench-more:focus { outline: 3px solid rgba(8, 124, 229, .14); background: #d5eafb; }
 .workbench-more:active { transform: scale(.995); }
 .workbench-more span { margin-left: 7px; color: #637b95; font-size: 11px; font-weight: 400; }
 .workbench-more i { margin-left: auto; }
@@ -971,7 +1036,8 @@ button { color: inherit; }
 
 @media (max-width: 1080px) {
   .jump-portal { height: auto; min-height: 100vh; overflow-x: hidden; overflow-y: auto; padding-right: 18px; padding-bottom: 98px; padding-left: 18px; }
-  .portal-header { align-items: flex-start; gap: 12px; flex-direction: column; }
+  .portal-header { align-items: flex-start; flex-direction: column; }
+  .portal-header > * + * { margin-top: 12px; }
   .header-actions { width: 100%; }
   .app-search { width: auto; flex: 1; }
   .portal-main { min-height: auto; grid-template-columns: 1fr; flex: none; }

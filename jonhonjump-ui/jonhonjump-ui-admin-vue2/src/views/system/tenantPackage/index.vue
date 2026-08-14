@@ -107,6 +107,7 @@
 import { createTenantPackage, updateTenantPackage, deleteTenantPackage, getTenantPackage, getTenantPackagePage, deleteTenantPackageList} from "@/api/system/tenantPackage";
 import {CommonStatusEnum} from "@/utils/constants";
 import {listSimpleMenus} from "@/api/system/menu";
+import { restoreRoleMenuCheckedKeys } from "@/utils/roleMenuTree";
 
 export default {
   name: "SystemTenantPackage",
@@ -222,13 +223,12 @@ export default {
       // 获得菜单列表
       getTenantPackage(id).then(response => {
         this.form = response.data;
-        // 设置菜单项
-        // 设置为严格，避免设置父节点自动选中子节点，解决半选中问题
-        this.menuCheckStrictly = true
-        // 设置选中
-        this.$refs.menu.setCheckedKeys(response.data.menuIds);
-        // 设置为非严格，继续使用半选中
-        this.menuCheckStrictly = false
+        restoreRoleMenuCheckedKeys(
+          this,
+          this.$refs.menu,
+          response.data.menuIds,
+          value => { this.menuCheckStrictly = value }
+        )
       });
     },
     /** 获得菜单 */

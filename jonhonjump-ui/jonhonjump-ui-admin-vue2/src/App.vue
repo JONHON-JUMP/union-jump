@@ -17,6 +17,7 @@ import { getAccessToken } from "@/utils/auth";
 import { initSessionGuard, destroySessionGuard, pauseSessionGuard } from "@/utils/sessionGuard";
 import { loadSessionIdleTimeoutConfig, getSessionIdleTimeoutMinutes } from "@/utils/sessionIdleConfig";
 import { redirectToLogin } from "@/utils/switchUser";
+import { broadcastForceLoginHome } from "@/utils/portalLogoutBroadcast";
 
 export default {
   name: "App",
@@ -24,7 +25,7 @@ export default {
   data() {
     return {
       sessionLocked: false,
-      sessionIdleMinutes: 10
+      sessionIdleMinutes: 60
     }
   },
   watch: {
@@ -52,6 +53,7 @@ export default {
       if (!getAccessToken()) {
         return
       }
+      // 并行加载空闲锁屏时长（来自参数配置，非写死）
       loadSessionIdleTimeoutConfig(true).then(timeoutMs => {
         this.sessionIdleMinutes = getSessionIdleTimeoutMinutes()
         if (timeoutMs <= 0) {
@@ -59,6 +61,7 @@ export default {
         }
         initSessionGuard(() => {
           pauseSessionGuard()
+          broadcastForceLoginHome()
           this.$store.dispatch('LogOut').finally(() => {
             this.sessionLocked = true
           })
@@ -67,7 +70,7 @@ export default {
     },
     handleRelogin() {
       destroySessionGuard()
-      redirectToLogin(this.$route.fullPath)
+      redirectToLogin('/index')
     }
   },
   metaInfo() {

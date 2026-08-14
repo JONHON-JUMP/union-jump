@@ -214,7 +214,10 @@ export default {
   padding: 16px 20px 0;
   border-bottom: 1px solid #f0f0f0;
   flex-wrap: wrap;
-  gap: 12px;
+  margin: -6px 0 0 -6px;
+}
+.task-panel__header > * {
+  margin: 6px 0 0 6px;
 }
 
 .task-panel__tabs {

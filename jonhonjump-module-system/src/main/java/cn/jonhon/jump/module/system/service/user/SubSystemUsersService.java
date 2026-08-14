@@ -72,6 +72,11 @@ public interface SubSystemUsersService {
     Set<Long> getAllowedQuickNavMenuIds(Long userId, Long subSystemId);
 
     /**
+     * 仅校验候选菜单是否可作为快捷导航（冷路径用，避免每次拉该子系统全量菜单）
+     */
+    Set<Long> retainAllowedQuickNavMenuIds(Long userId, Long subSystemId, Collection<Long> candidateIds);
+
+    /**
 
      * 获得外部系统精简列表
 

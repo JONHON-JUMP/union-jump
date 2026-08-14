@@ -110,7 +110,9 @@
 import { mapGetters } from 'vuex'
 import { confirmSwitchUser, confirmLogout } from '@/utils/switchUser'
 import { isExternal } from '@/utils/validate'
-import { parsePortalClientId, resolvePortalFrameRoute, isMainBusinessPath } from '@/utils/portalRoute'
+import { parsePortalClientId, resolvePortalFrameRoute, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath } from '@/utils/portalRoute'
+import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
+import { startCamstarOpenTrace, markCamstarOpen } from '@/utils/camstarOpenDiag'
 import AllAppsDrawer from '@/views/components/AllAppsDrawer.vue'
 import PortalDock from './PortalDock.vue'
 import PortalSystemSwitch from './PortalSystemSwitch.vue'
@@ -122,6 +124,8 @@ import {
   getQuickNavCache,
   setQuickNavCache
 } from '@/utils/portalQuickNavCache'
+import { startQuickNavWatch, stopQuickNavWatch, rememberQuickNavSignature } from '@/utils/portalQuickNavWatch'
+import { startPortalPermWatch, stopPortalPermWatch } from '@/utils/portalPermWatch'
 import { getTodoTaskPage } from '@/api/bpm/task'
 import { checkPermi } from '@/utils/permission'
 
@@ -165,10 +169,20 @@ export default {
         return 0
       }
       const sys = (this.portalSystemList || []).find(item => item.clientId === this.currentSystem)
-      return sys ? Number(sys.subSystemId) : 0
+      if (!sys || sys.subSystemId == null) {
+        return null
+      }
+      return Number(sys.subSystemId) || null
     },
     quickNavScopeKey() {
-      return buildQuickNavScopeKey(this.currentSystem, this.currentSubSystemId)
+      if (this.currentSystem === 'main') {
+        return 'main'
+      }
+      const id = this.currentSubSystemId
+      if (id == null || id <= 0) {
+        return `pending:${this.currentSystem}`
+      }
+      return buildQuickNavScopeKey(this.currentSystem, id)
     },
     displayName() {
       return this.nickname || this.name || '制造同仁'
@@ -188,7 +202,7 @@ export default {
       return this.searchFocused && Boolean(this.searchKeyword)
     },
     isPortalIframeRoute() {
-      const route = resolvePortalFrameRoute(this.$route, this.$store.state.portal.pathLinkMap)
+      const route = resolvePortalFrameRoute(this.$route, this.$store.state.portal.pathLinkMap, this.$store.state.portal.systemList)
       return Boolean(route.meta && route.meta.link)
     }
   },
@@ -198,6 +212,15 @@ export default {
       this.searchFocused = false
       this.restoreQuickNavFromCache()
       this.loadQuickNav()
+    },
+    currentSubSystemId(newId, oldId) {
+      if (this.currentSystem === 'main') {
+        return
+      }
+      if (newId != null && newId > 0 && newId !== oldId) {
+        this.restoreQuickNavFromCache()
+        this.loadQuickNav()
+      }
     },
     drawerVisible(visible) {
       if (visible) {
@@ -230,7 +253,11 @@ export default {
       })
     }
     this._onPortalQuickNavChanged = (payload) => {
-      if (!payload || payload.scopeKey !== this.quickNavScopeKey || payload.source === 'shell') {
+      if (!payload || payload.scopeKey !== this.quickNavScopeKey) {
+        return
+      }
+      // shell 自己发出的不回写；watch / panel / drawer 都要同步到 Dock
+      if (payload.source === 'shell') {
         return
       }
       this.handleQuickNavChange(payload)
@@ -239,12 +266,16 @@ export default {
     this.$root.$on('portal-quick-nav-changed', this._onPortalQuickNavChanged)
     this.restoreQuickNavFromCache()
     this.loadQuickNav()
+    startQuickNavWatch(this.$router)
+    startPortalPermWatch(this.$router)
     this.loadTodoCount()
     this.todoRefreshTimer = window.setInterval(() => {
       this.loadTodoCount()
     }, 60000)
   },
   beforeDestroy() {
+    stopQuickNavWatch()
+    stopPortalPermWatch()
     if (this._onPortalOpenAllApps) {
       this.$root.$off('portal-open-all-apps', this._onPortalOpenAllApps)
       this._onPortalOpenAllApps = null
@@ -285,8 +316,12 @@ export default {
     },
     loadQuickNav() {
       const scopeKey = this.quickNavScopeKey
+      if (this.currentSystem !== 'main' && (this.currentSubSystemId == null || this.currentSubSystemId <= 0)) {
+        return Promise.resolve()
+      }
       return this.$store.dispatch('portal/loadQuickNavConfig', {
-        subSystemId: this.currentSubSystemId
+        subSystemId: this.currentSubSystemId,
+        force: false
       }).then(config => {
         if (scopeKey !== this.quickNavScopeKey) {
           return
@@ -294,10 +329,14 @@ export default {
         const menuIds = (config && config.menuIds) || []
         const lockedMenuIds = (config && config.lockedMenuIds) || []
         const configured = !!(config && config.configured)
+        const apps = config && Object.prototype.hasOwnProperty.call(config, 'apps')
+          ? (Array.isArray(config.apps) ? config.apps : [])
+          : null
         this.quickNavMenuIds = menuIds
         this.quickNavLockedMenuIds = lockedMenuIds
         this.quickNavConfigured = configured
-        setQuickNavCache(scopeKey, menuIds, configured, lockedMenuIds)
+        setQuickNavCache(scopeKey, menuIds, configured, lockedMenuIds, apps)
+        rememberQuickNavSignature(scopeKey, menuIds, lockedMenuIds)
       }).catch(() => {
         if (scopeKey === this.quickNavScopeKey) {
           this.quickNavMenuIds = []
@@ -314,7 +353,7 @@ export default {
       const apps = payload && Object.prototype.hasOwnProperty.call(payload, 'apps')
         ? (payload.apps || [])
         : undefined
-      setQuickNavCache(this.quickNavScopeKey, menuIds, configured, lockedMenuIds)
+      setQuickNavCache(this.quickNavScopeKey, menuIds, configured, lockedMenuIds, apps)
       this.$root.$emit('portal-quick-nav-changed', {
         menuIds,
         lockedMenuIds,
@@ -329,15 +368,10 @@ export default {
     },
     handleSubsystemChange(value) {
       if (value === this.currentSystem) return
-      const loading = this.$loading({
-        lock: true,
-        text: '正在切换系统...',
-        spinner: 'el-icon-loading'
-      })
-      this.$store.dispatch('portal/switchSystem', { system: value, stayOnPortalHome: false }).catch(err => {
+      // 切换系统停在门户首页：先快捷导航（watch currentSystem → loadQuickNav），
+      // 全量 my-menus / 主系统菜单树后台 warm，与登录约定一致
+      this.$store.dispatch('portal/switchSystem', { system: value, stayOnPortalHome: true }).catch(err => {
         this.$message.error(typeof err === 'string' ? err : (err.message || '切换系统失败'))
-      }).finally(() => {
-        loading.close()
       })
     },
     flattenRoutes(routes, basePath = '', group = '') {
@@ -370,13 +404,12 @@ export default {
       this.drawerVisible = false
       if (!app || !app.path) return
       if (this.currentSystem !== 'main' && isMainBusinessPath(app.path)) {
-        const loading = this.$loading({ lock: true, text: '正在进入主系统...', spinner: 'el-icon-loading' })
+        // 禁止 lock 全屏：会挡住 dock/菜单，用户以为「卡死不能点」
         this.$store.dispatch('portal/switchSystem', { system: 'main', skipNavigate: true })
           .then(() => this.$router.push(app.path))
           .catch(err => {
             this.$message.error(typeof err === 'string' ? err : (err.message || '进入主系统失败'))
           })
-          .finally(() => loading.close())
         return
       }
       if (isExternal(app.path)) {
@@ -390,25 +423,112 @@ export default {
       }
       const clientId = parsePortalClientId(app.path)
       if (clientId) {
-        if (this.$route.path === app.path) {
+        // 快捷导航 apps 可能仍是旧斜杠编码；对齐侧栏 IP9port，否则 pathLinkMap 对不上、页打不开
+        let targetPath = app.path
+        const rest0 = String(app.path).replace(new RegExp('^/portal/' + clientId + '/'), '')
+        const asHttp0 = slashIpPortRestToHttp(String(rest0).replace(/:/g, '/'))
+        if (asHttp0) {
+          targetPath = `/portal/${clientId}/` + encodeHttpToMesPath(asHttp0)
+        }
+        if (this.$route.path === targetPath) {
           return
         }
         const menusReady = !!(this.$store.state.portal.loadedSubSystems || {})[clientId]
-        const loading = menusReady
-          ? null
-          : this.$loading({ lock: true, text: '加载子系统菜单...', spinner: 'el-icon-loading' })
-        this.$store.dispatch('portal/ensureSubSystemReady', clientId)
+        const activeMap = this.$store.state.portal.pathLinkMap || {}
+        const cachedMap = (this.$store.state.portal.subSystemPathLinkCache || {})[clientId] || {}
+        const entry = activeMap[targetPath] || lookupPathLinkEntry(targetPath, activeMap)
+          || cachedMap[targetPath] || lookupPathLinkEntry(targetPath, cachedMap)
+          || activeMap[app.path] || lookupPathLinkEntry(app.path, activeMap)
+          || cachedMap[app.path] || lookupPathLinkEntry(app.path, cachedMap)
+        const link = (entry && entry.link) || ''
+        const rest = String(targetPath).replace(new RegExp('^/portal/' + clientId + '/'), '')
+        const isDirect = (/^https?:\/\//i.test(link) && link.indexOf('#') < 0)
+          || !!slashIpPortRestToHttp(rest.replace(/:/g, '/'))
+        const resolvedLink = link || slashIpPortRestToHttp(rest.replace(/:/g, '/')) || ''
+
+        const pushWithTitle = () => {
+          return this.$router.push(targetPath).then(() => {
+            if (app.name) {
+              this.$store.dispatch('tagsView/updateVisitedView', {
+                path: targetPath,
+                name: 'PortalFrame',
+                title: app.name,
+                meta: {
+                  title: app.name,
+                  link: resolvedLink || undefined,
+                  icon: app.svgIcon || app.icon
+                }
+              })
+            }
+          }).catch(() => {})
+        }
+
+        const openDirect = () => {
+          // 对齐 4200：只切壳 + 立刻 push，绝不 await 全量菜单（那会到 10s+）
+          const traceId = startCamstarOpenTrace({
+            path: targetPath,
+            link: resolvedLink,
+            clientId,
+            title: app.name
+          })
+          const tCookie0 = Date.now()
+          ensureLocalCamstarCookie()
+          markCamstarOpen(traceId, 'cookie', { ms: Date.now() - tCookie0 })
+          if (resolvedLink) {
+            seedCamstarCookieForUrlInBackground(resolvedLink)
+          }
+          const afterPush = () => {
+            markCamstarOpen(traceId, 'navigate', { path: targetPath })
+            try {
+              sessionStorage.setItem('JUMP_CAMSTAR_TRACE', String(traceId))
+            } catch (e) { /* ignore */ }
+            if (!menusReady) {
+              this.$store.dispatch('portal/ensureSubSystemLoaded', {
+                clientId,
+                activate: false,
+                force: false
+              }).catch(() => {})
+            }
+          }
+          const needShell = this.$store.state.portal.currentSystem !== clientId
+            || !(this.$store.state.portal.pathLinkMap && Object.keys(this.$store.state.portal.pathLinkMap).length)
+          if (needShell) {
+            const tShell = Date.now()
+            return this.$store.dispatch('portal/activateSubSystemShell', { clientId })
+              .then(() => {
+                markCamstarOpen(traceId, 'shell', { ms: Date.now() - tShell })
+                return pushWithTitle()
+              })
+              .then(afterPush)
+          }
+          markCamstarOpen(traceId, 'shell', { ms: 0, skipped: true })
+          return Promise.resolve(pushWithTitle()).then(afterPush)
+        }
+
+        // Camstar：一律直开（有 path 编码或 link 即可）
+        if (isDirect) {
+          return openDirect().catch(err => {
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
+          })
+        }
+
+        // 若依：菜单未就绪时后台拉，不锁全屏；业务区由 InnerLink 自己提示
+        if (!menusReady) {
+          this.$message({ message: '正在准备子系统菜单…', type: 'info', duration: 1500 })
+        }
+        this.$store.dispatch('portal/ensureSubSystemReady', {
+          clientId,
+          skipSso: false
+        })
           .then(() => {
-            // ensureSubSystemReady 已按需激活；若加载期间用户已切走，不再跳转
             if (this.$store.state.portal.currentSystem !== clientId) {
               return
             }
-            return this.$router.push(app.path)
+            return pushWithTitle()
           })
           .catch(err => {
             this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
           })
-          .finally(() => loading && loading.close())
         return
       }
       if (this.$route.path !== app.path) {
@@ -465,10 +585,11 @@ export default {
       this.$router.push({ path: '/index', query: { workbench: 'todo' } }).catch(() => {})
     },
     handleSwitchUser() {
-      confirmSwitchUser(this.$store, this.$route.fullPath)
+      // 换人后固定 /index，由 bootstrap 按新用户星标默认系统进入
+      confirmSwitchUser(this.$store)
     },
     handleLogout() {
-      confirmLogout(this.$store, this.$route.fullPath)
+      confirmLogout(this.$store)
     },
     handleUserCommand(command) {
       if (command === 'profile') this.$router.push('/user/profile')
@@ -559,7 +680,8 @@ button { color: inherit; }
 }
 .brand-copy strong { overflow: hidden; font-size: 22px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
 .brand-copy small { margin-top: 3px; color: $muted; font-size: 13px; }
-.header-actions { display: flex; align-items: center; gap: 10px; }
+.header-actions { display: flex; align-items: center; }
+.header-actions > * + * { margin-left: 10px; }
 .switch-user-btn {
   height: 38px;
   padding: 0 14px;
@@ -572,8 +694,12 @@ button { color: inherit; }
   cursor: pointer;
   transition: background .2s ease, box-shadow .2s ease;
 }
-.switch-user-btn:hover,
-.switch-user-btn:focus-visible {
+.switch-user-btn:hover {
+  outline: none;
+  background: #ffefd2;
+  box-shadow: 0 0 0 3px rgba(230, 162, 60, .16);
+}
+.switch-user-btn:focus {
   outline: none;
   background: #ffefd2;
   box-shadow: 0 0 0 3px rgba(230, 162, 60, .16);
@@ -612,8 +738,8 @@ button { color: inherit; }
 .search-panel__title small,
 .search-result small { color: $muted; }
 .search-result { display: flex; width: 100%; padding: 9px 8px; align-items: center; border: 0; border-radius: 10px; background: transparent; text-align: left; cursor: pointer; }
-.search-result:hover,
-.search-result:focus-visible { outline: none; background: #edf6fd; }
+.search-result:hover { outline: none; background: #edf6fd; }
+.search-result:focus { outline: none; background: #edf6fd; }
 .search-result > span:nth-child(2) { display: flex; min-width: 0; margin-left: 10px; flex: 1; flex-direction: column; }
 .search-result small { margin-top: 2px; font-size: 12px; }
 .search-result > i { color: #7790aa; }
@@ -634,15 +760,15 @@ button { color: inherit; }
 }
 .system-chip strong { color: #075eb5; }
 .system-switch { height: 30px; margin-left: 9px; padding: 0 10px; border: 0; border-radius: 15px; color: #075eb5; background: rgba(255, 255, 255, .72); font-size: 12px; font-weight: 600; cursor: pointer; }
-.system-switch:hover,
-.system-switch:focus-visible { outline: none; background: #fff; }
+.system-switch:hover { outline: none; background: #fff; }
+.system-switch:focus { outline: none; background: #fff; }
 .status-dot { display: inline-block; width: 9px; height: 9px; margin-right: 8px; border-radius: 50%; background: #11a574; box-shadow: 0 0 0 4px rgba(17, 165, 116, .12); }
 
 .round-action,
 .user-entry { display: grid; width: 50px; height: 50px; padding: 0; place-items: center; border: 0; border-radius: 50%; cursor: pointer; }
 .round-action { color: #29435f; background: #eaf3fb; font-size: 20px; }
-.round-action:hover,
-.round-action:focus-visible { outline: 3px solid rgba(8, 124, 229, .16); background: #dcecf9; }
+.round-action:hover { outline: 3px solid rgba(8, 124, 229, .16); background: #dcecf9; }
+.round-action:focus { outline: 3px solid rgba(8, 124, 229, .16); background: #dcecf9; }
 .user-entry { overflow: hidden; color: #fff; background: $primary; font-size: 19px; font-weight: 700; }
 .user-entry img { width: 100%; height: 100%; object-fit: cover; }
 .notice-badge ::v-deep .el-badge__content { top: 8px; right: 10px; }
@@ -691,7 +817,8 @@ button { color: inherit; }
 
 @media (max-width: 1080px) {
   .jump-portal-shell { padding-right: 18px; padding-left: 18px; }
-  .portal-header { align-items: flex-start; gap: 12px; flex-direction: column; }
+  .portal-header { align-items: flex-start; flex-direction: column; }
+  .portal-header > * + * { margin-top: 12px; }
   .header-actions { width: 100%; }
   .app-search { width: auto; flex: 1; }
 }

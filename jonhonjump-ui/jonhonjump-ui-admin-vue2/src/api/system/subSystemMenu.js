@@ -48,6 +48,15 @@ export function deleteSubSystemMenuList(ids) {
   })
 }
 
+/** 清门户 my-menus Redis 缓存（改菜单后仍见旧路由时手动调用） */
+export function clearPortalMenuCache(subSystemId) {
+  return request({
+    url: '/system/sub-system-menu/clear-portal-cache',
+    method: 'post',
+    params: { subSystemId }
+  })
+}
+
 /** 下载外部系统菜单导入模板 */
 export function importSubSystemMenuTemplate() {
   return request({

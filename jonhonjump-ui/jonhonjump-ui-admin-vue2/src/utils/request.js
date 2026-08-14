@@ -29,8 +29,8 @@ const service = axios.create({
   baseURL: process.env.VUE_APP_BASE_API + '/admin-api/', // 此处的 /admin-api/ 地址，原因是后端的基础路径为 /admin-api/
   // 超时
   timeout: 30000,
-  // 禁用 Cookie 等信息
-  withCredentials: false,
+  // 跨域请求携带 Cookie（与 4200 一致，便于同站/带凭证接口）
+  withCredentials: true,
 })
 // request拦截器
 service.interceptors.request.use(config => {
@@ -136,6 +136,10 @@ service.interceptors.response.use(async res => {
   if (ignoreMsgs.indexOf(msg) !== -1) { // 如果是忽略的错误码，直接返回 msg 异常
     return Promise.reject(msg)
   } else if (code === 401) {
+    // 静默探测（如 boot-id）：发版窗口勿触发全局重登弹窗
+    if (res.config && res.config.isSilent) {
+      return Promise.reject('error')
+    }
     // 如果未认证，并且未进行刷新令牌，说明可能是访问令牌过期了
     if (!isRefreshToken) {
       isRefreshToken = true;
@@ -243,15 +247,18 @@ export function getBaseHeader() {
 function handleAuthorized() {
   if (!isRelogin.show) {
     isRelogin.show = true;
-    MessageBox.confirm('登录状态已过期，您可以继续留在该页面，或者重新登录', '系统提示', {
+    MessageBox.confirm('登录状态已过期，重新登录后将进入门户默认首页', '系统提示', {
         confirmButtonText: '重新登录',
         cancelButtonText: '取消',
-        type: 'warning'
+        type: 'warning',
+        closeOnClickModal: false
       }
     ).then(() => {
       isRelogin.show = false;
       store.dispatch('LogOut').then(() => {
-        redirectToLogin(window.location.pathname + window.location.search);
+        redirectToLogin('/index');
+      }).catch(() => {
+        redirectToLogin('/index');
       })
     }).catch(() => {
       isRelogin.show = false;

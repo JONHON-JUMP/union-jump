@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn"
+             xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+             xmlns:omgdc="http://www.omg.org/spec/DD/20100524/DC"
+             xmlns:omgdi="http://www.omg.org/spec/DD/20100524/DI"
+             targetNamespace="http://flowable.org/processdef"
+             xsi:schemaLocation="http://www.omg.org/spec/BPMN/20100524/MODEL BPMN20.xsd">
+
+  <process id="oa_leave" name="OA请假" isExecutable="true">
+
+    <startEvent id="StartEvent_1" name="开始"/>
+
+    <!-- 审批人：指定用户 ID=1（管理员），可在设计器中改为「发起人部门负责人」等策略 -->
+    <userTask id="Activity_leader_audit" name="领导审批">
+      <extensionElements>
+        <flowable:candidateStrategy>30</flowable:candidateStrategy>
+        <flowable:candidateParam>1</flowable:candidateParam>
+        <flowable:assignStartUserHandlerType>1</flowable:assignStartUserHandlerType>
+      </extensionElements>
+    </userTask>
+
+    <endEvent id="EndEvent_1" name="结束"/>
+
+    <sequenceFlow id="Flow_start_to_audit" sourceRef="StartEvent_1" targetRef="Activity_leader_audit"/>
+    <sequenceFlow id="Flow_audit_to_end" sourceRef="Activity_leader_audit" targetRef="EndEvent_1"/>
+
+  </process>
+
+  <bpmndi:BPMNDiagram id="BPMNDiagram_oa_leave">
+    <bpmndi:BPMNPlane id="BPMNPlane_oa_leave" bpmnElement="oa_leave">
+      <bpmndi:BPMNShape id="StartEvent_1_di" bpmnElement="StartEvent_1">
+        <omgdc:Bounds x="180" y="160" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Activity_leader_audit_di" bpmnElement="Activity_leader_audit">
+        <omgdc:Bounds x="280" y="138" width="100" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="EndEvent_1_di" bpmnElement="EndEvent_1">
+        <omgdc:Bounds x="450" y="160" width="36" height="36"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Flow_start_to_audit_di" bpmnElement="Flow_start_to_audit">
+        <omgdi:waypoint x="216" y="178"/>
+        <omgdi:waypoint x="280" y="178"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Flow_audit_to_end_di" bpmnElement="Flow_audit_to_end">
+        <omgdi:waypoint x="380" y="178"/>
+        <omgdi:waypoint x="450" y="178"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+
+</definitions>

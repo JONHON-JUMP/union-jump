@@ -64,7 +64,12 @@
 </template>
 
 <script>
-import { resolvePortalFrameRoute, isPortalSubSystemHomePath } from '@/utils/portalRoute'
+import {
+  resolvePortalFrameRoute,
+  isPortalSubSystemHomePath,
+  resolvePortalMenuTitle,
+  lookupPathLinkEntry
+} from '@/utils/portalRoute'
 import { syncPortalIframeView } from '@/utils/portalIframe'
 
 export default {
@@ -87,14 +92,64 @@ export default {
       return this.$store.state.tagsView.recentViewPaths
     },
     businessTabs() {
-      return this.visitedViews.filter(view => {
-        if (view.path === '/index' || view.path === '/') return false
-        if (!view.title || !view.name) return false
-        if (view.title === '外部系统') return false
-        if (view.meta && view.meta.portalHome) return false
-        if (isPortalSubSystemHomePath(view.path)) return false
-        return true
-      })
+      const map = this.$store.state.portal.pathLinkMap
+      const systems = this.$store.state.portal.systemList
+      const currentSystem = this.$store.state.portal.currentSystem || 'main'
+      return this.visitedViews
+        .filter(view => {
+          if (view.path === '/index' || view.path === '/') return false
+          if (!view.name && !(view.meta && view.meta.link)) return false
+          if (view.meta && view.meta.portalHome) return false
+          if (isPortalSubSystemHomePath(view.path)) return false
+          // 只展示当前系统页签：切走系统后不应再看到上一系统菜单
+          // 例外：主系统菜单（工作台下的页面）在子系统模式下也能打开，应显示在 Dock
+          const isPortal = /^\/portal\//.test(view.path || '')
+          if (currentSystem === 'main') {
+            if (isPortal) return false
+          } else if (isPortal && !(
+            view.path === `/portal/${currentSystem}`
+            || String(view.path).startsWith(`/portal/${currentSystem}/`)
+          )) {
+            // 其它子系统的 portal 页签过滤掉；主系统路由（非 portal）放行
+            return false
+          }
+          return true
+        })
+        .map(view => {
+          // 只有门户壳才按 PortalFrame 还原标题，勿把主系统页签强行改写
+          const isPortal = /^\/portal\//.test(view.path || '')
+          const resolved = isPortal
+            ? resolvePortalFrameRoute(
+              { ...view, name: view.name || 'PortalFrame' },
+              map,
+              systems
+            )
+            : view
+          const mapEntry = isPortal ? lookupPathLinkEntry(view.path, map) : null
+          const title = resolvePortalMenuTitle(
+            resolved.meta && resolved.meta.menuTitle,
+            resolved.meta && resolved.meta.title,
+            mapEntry && mapEntry.title,
+            mapEntry && mapEntry.menuTitle,
+            view.title,
+            view.meta && view.meta.menuTitle,
+            view.meta && view.meta.title
+          ) || '业务页'
+          if (!title || title === 'no-name') {
+            return null
+          }
+          return {
+            ...view,
+            title,
+            meta: {
+              ...(view.meta || {}),
+              ...((isPortal && resolved.meta) || {}),
+              title,
+              menuTitle: title
+            }
+          }
+        })
+        .filter(Boolean)
     },
     isHome() {
       return this.$route.path === '/index' || this.$route.path === '/'
@@ -205,9 +260,11 @@ $primary: #087ce5;
   min-width: 0;
   height: 66px;
   align-items: center;
-  gap: 7px;
   opacity: 1;
   transition: opacity .14s ease .08s;
+}
+.taskbar-content > * + * {
+  margin-left: 7px;
 }
 
 .portal-taskbar.collapsed .taskbar-content {
@@ -239,9 +296,12 @@ $primary: #087ce5;
 }
 
 .fixed-entry:hover,
-.fixed-entry:focus-visible,
-.fixed-actions > button:hover,
-.fixed-actions > button:focus-visible {
+.fixed-actions > button:hover {
+  outline: none;
+  background: #edf5fc;
+}
+.fixed-entry:focus,
+.fixed-actions > button:focus {
   outline: none;
   background: #edf5fc;
 }
@@ -272,10 +332,12 @@ $primary: #087ce5;
   overflow-x: auto;
   overflow-y: hidden;
   align-items: center;
-  gap: 7px;
   flex: 0 1 auto;
   scrollbar-color: #abc0d3 transparent;
   scrollbar-width: thin;
+}
+.business-tabs > * + * {
+  margin-left: 7px;
 }
 
 .business-tabs::-webkit-scrollbar { height: 4px; }
@@ -296,8 +358,12 @@ $primary: #087ce5;
   transition: color .18s ease, background .18s ease, transform .18s ease;
 }
 
-.business-tab:hover,
-.business-tab:focus-visible {
+.business-tab:hover {
+  outline: none;
+  color: #075eb5;
+  background: #edf5fc !important;
+}
+.business-tab:focus {
   outline: none;
   color: #075eb5;
   background: #edf5fc !important;
@@ -345,8 +411,8 @@ $primary: #087ce5;
 }
 
 .business-tab:hover .close-tab,
-.business-tab:focus-visible .close-tab,
 .business-tab.active .close-tab { opacity: 1; }
+.business-tab:focus .close-tab { opacity: 1; }
 .business-tab.active .close-tab { color: #075eb5; background: rgba(255, 255, 255, .88); }
 .close-tab:hover {
   color: #fff;
@@ -357,7 +423,9 @@ $primary: #087ce5;
   display: flex;
   flex: 0 0 auto;
   align-items: center;
-  gap: 7px;
+}
+.fixed-actions > * + * {
+  margin-left: 7px;
 }
 
 .fixed-actions .all-apps {
@@ -374,7 +442,10 @@ $primary: #087ce5;
 
 .taskbar-indicator {
   position: absolute;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   display: grid;
   width: 100%;
   height: 100%;
@@ -383,8 +454,11 @@ $primary: #087ce5;
   border-radius: inherit;
 }
 
-.taskbar-indicator:hover,
-.taskbar-indicator:focus-visible {
+.taskbar-indicator:hover {
+  outline: none;
+  background: rgba(255, 255, 255, .72);
+}
+.taskbar-indicator:focus {
   outline: none;
   background: rgba(255, 255, 255, .72);
 }
@@ -397,8 +471,11 @@ $primary: #087ce5;
   transition: width .18s ease, background .18s ease;
 }
 
-.taskbar-indicator:hover span,
-.taskbar-indicator:focus-visible span {
+.taskbar-indicator:hover span {
+  width: 104px;
+  background: $primary;
+}
+.taskbar-indicator:focus span {
   width: 104px;
   background: $primary;
 }

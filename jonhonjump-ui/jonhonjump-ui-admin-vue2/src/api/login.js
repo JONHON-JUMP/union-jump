@@ -39,6 +39,25 @@ export function getInfo(includeMenus = false, redisOnly = false) {
   })
 }
 
+/** 探测权限版本是否仍有效（菜单/角色/数据权限变更后需重登） */
+export function checkPermission(rbacVersion) {
+  return request({
+    url: '/system/auth/check-permission',
+    method: 'get',
+    params: { rbacVersion }
+  })
+}
+
+/** 主系统进程启动标识；重启/发版后变化，供门户自动重连子系统 */
+export function getBootId() {
+  return request({
+    url: '/system/auth/get-boot-id',
+    method: 'get',
+    // 发版窗口主系统可能短暂不可用 / 旧 Token 失效：静默探测，勿弹全局错误或重登框
+    headers: { isSilent: true, isToken: false }
+  })
+}
+
 // 退出方法
 export function logout() {
   return request({

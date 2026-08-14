@@ -205,6 +205,7 @@ import {listSimpleMenus} from "@/api/system/menu";
 import {assignRoleMenu, listRoleMenus, assignRoleDataScope} from "@/api/system/permission";
 import { getRoleQuickNavList, saveRoleQuickNav } from "@/api/system/roleQuickNav";
 import { buildMainRoleQuickNavCheckTree, getMainQuickNavLeafIds } from "@/utils/roleQuickNavMenus";
+import { restoreRoleMenuCheckedKeys } from "@/utils/roleMenuTree";
 import RoleQuickNavDialog from "@/views/system/components/RoleQuickNavDialog.vue";
 import {listSimpleDepts} from "@/api/system/dept";
 import {CommonStatusEnum, SystemDataScopeEnum} from "@/utils/constants";
@@ -443,12 +444,12 @@ export default {
         this.menuOptions.push(...this.handleTree(response.data, "id"));
         // 获取角色拥有的菜单权限
         listRoleMenus(id).then(response => {
-          // 设置为严格，避免设置父节点自动选中子节点，解决半选中问题
-          this.form.menuCheckStrictly = true
-          // 设置选中
-          this.$refs.menu.setCheckedKeys(response.data);
-          // 设置为非严格，继续使用半选中
-          this.form.menuCheckStrictly = false
+          restoreRoleMenuCheckedKeys(
+            this,
+            this.$refs.menu,
+            response.data,
+            value => { this.form.menuCheckStrictly = value }
+          )
         })
       });
 

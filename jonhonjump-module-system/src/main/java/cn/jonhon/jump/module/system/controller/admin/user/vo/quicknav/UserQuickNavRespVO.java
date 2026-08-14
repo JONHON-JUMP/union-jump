@@ -22,4 +22,13 @@ public class UserQuickNavRespVO {
     @Schema(description = "角色默认快捷导航（不可删除，仅可调整顺序）")
     private List<Long> lockedMenuIds;
 
+    @Schema(description = "可直接渲染的快捷应用（门户首页优先用，无需等主菜单全树）")
+    private List<QuickNavAppItemVO> apps;
+
+    public UserQuickNavRespVO(List<Long> menuIds, Boolean configured, List<Long> lockedMenuIds) {
+        this.menuIds = menuIds;
+        this.configured = configured;
+        this.lockedMenuIds = lockedMenuIds;
+    }
+
 }

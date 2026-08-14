@@ -43,4 +43,12 @@ public interface UserQuickNavMapper extends BaseMapperX<UserQuickNavDO> {
             + "</script>")
     void deleteByMenuIds(@Param("menuIds") Collection<Long> menuIds);
 
+    @Delete("<script>DELETE FROM system_user_quick_nav WHERE user_id IN "
+            + "<foreach collection='userIds' item='uid' open='(' separator=',' close=')'>#{uid}</foreach>"
+            + " AND menu_id IN "
+            + "<foreach collection='menuIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>"
+            + "</script>")
+    void deleteByUserIdsAndMenuIds(@Param("userIds") Collection<Long> userIds,
+                                   @Param("menuIds") Collection<Long> menuIds);
+
 }

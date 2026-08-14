@@ -1,0 +1,7 @@
+{
+  "java.configuration.maven.userSettings": "C:\\Users\\Administrator\\.m2\\settings.xml",
+  "java.configuration.maven.globalSettings": "D:\\java\\apache-maven-3.6.3\\conf\\settings.xml",
+  "maven.executable.path": "D:\\java\\apache-maven-3.6.3\\bin\\mvn.cmd",
+  "java.import.maven.offline": true,
+  "maven.terminal.customEnv": []
+}

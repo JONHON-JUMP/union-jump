@@ -47,6 +47,9 @@ public class SubSystemUsersController {
     @Resource
     private SubSystemUserImportService subSystemUserImportService;
 
+    @Resource
+    private cn.jonhon.jump.module.system.service.user.SubSystemPermissionContextService subSystemPermissionContextService;
+
 
 
     @GetMapping("/client-simple-list")
@@ -323,6 +326,12 @@ public class SubSystemUsersController {
     public CommonResult<List<SubSystemPortalMenuRespVO>> getMyPortalMenus(
             @RequestParam("subSystemId") Long subSystemId) {
         return success(subSystemUsersService.getMyPortalMenus(getLoginUserId(), subSystemId));
+    }
+
+    @GetMapping("/my-menus-version")
+    @Operation(summary = "获得指定外部系统 RBAC 版本（菜单/角色变更递增，门户轻量比对）")
+    public CommonResult<Long> getMyPortalMenusVersion(@RequestParam("subSystemId") Long subSystemId) {
+        return success(subSystemPermissionContextService.getRbacVersion(subSystemId));
     }
 
     @GetMapping("/get-import-template")

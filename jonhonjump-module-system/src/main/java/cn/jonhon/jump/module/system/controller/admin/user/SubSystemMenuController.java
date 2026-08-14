@@ -5,6 +5,7 @@ import cn.jonhon.jump.framework.excel.core.util.ExcelUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
 import cn.jonhon.jump.module.system.service.user.SubSystemMenuService;
 import cn.jonhon.jump.module.system.service.user.SubSystemMetaImportService;
+import cn.jonhon.jump.module.system.service.user.SubSystemPermissionContextService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -34,6 +35,8 @@ public class SubSystemMenuController {
     private SubSystemMenuService subSystemMenuService;
     @Resource
     private SubSystemMetaImportService subSystemMetaImportService;
+    @Resource
+    private SubSystemPermissionContextService subSystemPermissionContextService;
 
     @GetMapping("/list")
     @Operation(summary = "获得外部系统菜单列表")
@@ -64,6 +67,15 @@ public class SubSystemMenuController {
     @PreAuthorize("@ss.hasPermission('sub-system:menu:update')")
     public CommonResult<Boolean> updateSubSystemMenu(@Valid @RequestBody SubSystemMenuSaveReqVO updateReqVO) {
         subSystemMenuService.updateSubSystemMenu(updateReqVO);
+        return success(true);
+    }
+
+    @PostMapping("/clear-portal-cache")
+    @Operation(summary = "清门户菜单 Redis 缓存（改菜单后仍见旧路由时手动调用）")
+    @Parameter(name = "subSystemId", description = "外部系统编号", required = true)
+    @PreAuthorize("@ss.hasPermission('sub-system:menu:update')")
+    public CommonResult<Boolean> clearPortalMenuCache(@RequestParam("subSystemId") Long subSystemId) {
+        subSystemPermissionContextService.evictBySubSystemId(subSystemId);
         return success(true);
     }
 

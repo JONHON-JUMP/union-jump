@@ -21,6 +21,24 @@ public interface SubSystemUserQuickNavService {
 
     void deleteByMenuIds(List<Long> menuIds);
 
+    /** 是否被用户个人快捷导航引用 */
+    boolean existsByMenuId(Long menuId);
+
+    /** 是否被用户个人快捷导航引用（任一菜单） */
+    boolean existsByMenuIds(List<Long> menuIds);
+
+    /**
+     * 角色取消菜单权限后：去掉指定用户在该子系统个人快捷导航中的对应菜单
+     */
+    void removeMenusForUsers(Long subSystemId, Collection<Long> userIds, Collection<Long> menuIds);
+
+    /**
+     * 角色默认快捷导航保存后：仅清理「本角色本次从默认里取消」的项，保留用户自己加星的入口，再并入全部角色默认
+     */
+    void alignUsersAfterRoleQuickNavSave(Long subSystemId, Collection<Long> userIds,
+                                         Collection<Long> cancelledRoleDefaultMenuIds,
+                                         Collection<Long> roleValidMenuIds);
+
     /**
      * 按角色合并默认快捷导航，写入关联用户的数据库记录，并清除 Redis 缓存
      */

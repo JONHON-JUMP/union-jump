@@ -74,6 +74,8 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
 
         SubSystemMenuDO menu = convertToDO(createReqVO);
         subSystemMenuMapper.insert(menu);
+        // 新建后也要失效门户 my-menus / 权限缓存，否则首页卡片仍是旧树
+        subSystemPermissionContextService.evictByMenuId(menu.getId());
         return menu.getId();
     }
 
@@ -98,11 +100,10 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         }
         validateSubSystemMenuExists(id);
         validateMenuNotAssigned(id);
+        validateMenuNotInQuickNav(id);
         subSystemPermissionContextService.evictByMenuId(id);
         subSystemMenuMapper.deleteById(id);
         subSystemRoleMenuMapper.deleteListByMenuId(id);
-        subSystemUserQuickNavService.deleteByMenuId(id);
-        subSystemRoleQuickNavService.deleteByMenuId(id);
     }
 
     @Override
@@ -114,12 +115,11 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
             }
             validateSubSystemMenuExists(id);
             validateMenuNotAssigned(id);
+            validateMenuNotInQuickNav(id);
             subSystemPermissionContextService.evictByMenuId(id);
         });
         subSystemMenuMapper.deleteByIds(ids);
         subSystemRoleMenuMapper.deleteListByMenuIds(ids);
-        subSystemUserQuickNavService.deleteByMenuIds(ids);
-        subSystemRoleQuickNavService.deleteByMenuIds(ids);
     }
 
     private List<SubSystemMenuRespVO> buildRespList(List<SubSystemMenuDO> list) {
@@ -242,6 +242,13 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         Long count = subSystemRoleMenuMapper.selectCountByMenuId(menuId);
         if (count != null && count > 0) {
             throw exception(SUB_SYSTEM_MENU_HAS_ROLES);
+        }
+    }
+
+    private void validateMenuNotInQuickNav(Long menuId) {
+        if (subSystemUserQuickNavService.existsByMenuId(menuId)
+                || subSystemRoleQuickNavService.existsByMenuId(menuId)) {
+            throw exception(SUB_SYSTEM_MENU_HAS_QUICK_NAV);
         }
     }
 

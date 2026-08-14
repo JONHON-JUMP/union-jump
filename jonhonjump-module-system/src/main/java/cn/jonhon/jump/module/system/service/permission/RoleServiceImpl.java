@@ -86,6 +86,9 @@ public class RoleServiceImpl implements RoleService {
         // 2. 更新到数据库
         RoleDO updateObj = BeanUtils.toBean(updateReqVO, RoleDO.class);
         roleMapper.updateById(updateObj);
+        // 角色信息变更：失效关联用户权限包并抬版本
+        SpringUtil.getBean(cn.jonhon.jump.module.system.service.auth.AuthPermissionInfoService.class)
+                .evictUsersByRoleId(updateReqVO.getId());
 
         // 3. 记录操作日志上下文
         LogRecordContext.putVariable(DiffParseFunction.OLD_OBJECT, BeanUtils.toBean(role, RoleSaveReqVO.class));

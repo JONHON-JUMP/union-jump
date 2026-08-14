@@ -23,6 +23,15 @@ export function getMyPortalMenus(subSystemId) {
   })
 }
 
+/** 子系统 RBAC 版本（菜单/角色变更递增）；与本地缓存比对，有变化才重拉 my-menus */
+export function getMyPortalMenusVersion(subSystemId) {
+  return request({
+    url: '/system/sub-system-users/my-menus-version',
+    method: 'get',
+    params: { subSystemId }
+  })
+}
+
 export function getSubSystemClientSimpleList() {
   return request({
     url: '/system/sub-system-users/client-simple-list',

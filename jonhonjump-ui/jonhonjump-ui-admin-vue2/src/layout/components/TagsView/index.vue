@@ -130,6 +130,9 @@ export default {
       }
     },
     addTags() {
+      if (this.$store.state.portal.iframeSyncSuspended) {
+        return false
+      }
       const { name } = this.$route
       if (name) {
         this.$store.dispatch('tagsView/addView', this.$route)

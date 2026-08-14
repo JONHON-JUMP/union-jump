@@ -18,7 +18,15 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import javax.annotation.Resource;
-import java.util.*;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -43,9 +51,13 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     @Resource
     private SubSystemUserRoleMapper subSystemUserRoleMapper;
     @Resource
+    private SubSystemUsersMapper subSystemUsersMapper;
+    @Resource
     private SubSystemRoleQuickNavService subSystemRoleQuickNavService;
     @Resource
     private SubSystemPermissionContextService subSystemPermissionContextService;
+    @Resource
+    private SubSystemUserQuickNavService subSystemUserQuickNavService;
 
     @Override
     public PageResult<SubSystemRoleRespVO> getSubSystemRolePage(SubSystemRolePageReqVO pageReqVO) {
@@ -163,9 +175,10 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     @Transactional(rollbackFor = Exception.class)
     public void assignRoleMenu(SubSystemRoleAssignMenuReqVO reqVO) {
         SubSystemRoleDO role = validateSubSystemRoleExists(reqVO.getRoleId());
-        Set<Long> menuIds = CollUtil.emptyIfNull(reqVO.getMenuIds());
+        List<SubSystemMenuDO> menus = subSystemMenuMapper.selectListBySubSystemId(role.getSubSystemId());
+        // 门户只勾页面；保存时自动带上按钮（F），供 permissions 下发。数据范围仍由子系统本地管。
+        Set<Long> menuIds = expandWithButtonChildren(menus, CollUtil.emptyIfNull(reqVO.getMenuIds()));
         if (CollUtil.isNotEmpty(menuIds)) {
-            List<SubSystemMenuDO> menus = subSystemMenuMapper.selectListBySubSystemId(role.getSubSystemId());
             Set<Long> validMenuIds = convertSet(menus, SubSystemMenuDO::getId);
             for (Long menuId : menuIds) {
                 if (!validMenuIds.contains(menuId)) {
@@ -178,6 +191,12 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
                 SubSystemRoleMenuDO::getMenuId);
         Collection<Long> createMenuIds = CollUtil.subtract(menuIds, dbMenuIds);
         Collection<Long> deleteMenuIds = CollUtil.subtract(dbMenuIds, menuIds);
+        if (CollUtil.isNotEmpty(deleteMenuIds)) {
+            List<Long> quickNavMenuIds = subSystemRoleQuickNavService.getRoleQuickNav(reqVO.getRoleId()).getMenuIds();
+            if (CollUtil.isNotEmpty(quickNavMenuIds) && CollUtil.containsAny(quickNavMenuIds, deleteMenuIds)) {
+                throw exception(SUB_SYSTEM_ROLE_MENU_HAS_QUICK_NAV);
+            }
+        }
         if (CollUtil.isNotEmpty(createMenuIds)) {
             subSystemRoleMenuMapper.insertBatch(CollectionUtils.convertList(createMenuIds, menuId -> {
                 SubSystemRoleMenuDO entity = new SubSystemRoleMenuDO();
@@ -188,6 +207,17 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         }
         if (CollUtil.isNotEmpty(deleteMenuIds)) {
             subSystemRoleMenuMapper.deleteListByRoleIdAndMenuIds(reqVO.getRoleId(), deleteMenuIds);
+            // 个人快捷导航不拦截；取消角色菜单后，去掉该角色用户个人快捷导航中的对应项
+            List<SubSystemUserRoleDO> userRoles = subSystemUserRoleMapper.selectListByRoleId(reqVO.getRoleId());
+            if (CollUtil.isNotEmpty(userRoles)) {
+                Set<Long> subUserIds = convertSet(userRoles, SubSystemUserRoleDO::getUserId);
+                Set<Long> mainUserIds = subSystemUsersMapper.selectBatchIds(subUserIds).stream()
+                        .filter(user -> Objects.equals(user.getSubSystemId(), role.getSubSystemId()))
+                        .map(SubSystemUsersDO::getMainUserId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+                subSystemUserQuickNavService.removeMenusForUsers(role.getSubSystemId(), mainUserIds, deleteMenuIds);
+            }
         }
         // 权限变更后失效权限包，子系统下一次请求重建
         subSystemPermissionContextService.evictByRoleId(reqVO.getRoleId());
@@ -195,12 +225,38 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
 
     @Override
     public void assignRoleDataScope(SubSystemRoleAssignDataScopeReqVO reqVO) {
+        // 主系统不管子系统数据权限；请在各子系统本地角色中配置
         validateSubSystemRoleExists(reqVO.getRoleId());
-        SubSystemRoleDO updateObj = new SubSystemRoleDO();
-        updateObj.setId(reqVO.getRoleId());
-        updateObj.setDataScope(reqVO.getDataScope());
-        updateObj.setDataScopeDeptIds(reqVO.getDataScopeDeptIds());
-        subSystemRoleMapper.updateById(updateObj);
+    }
+
+    /**
+     * 勾选目录/菜单时，自动带上其下按钮（F）。
+     */
+    private Set<Long> expandWithButtonChildren(List<SubSystemMenuDO> menus, Set<Long> selectedIds) {
+        if (CollUtil.isEmpty(selectedIds) || CollUtil.isEmpty(menus)) {
+            return new LinkedHashSet<>(CollUtil.emptyIfNull(selectedIds));
+        }
+        Map<Long, List<SubSystemMenuDO>> childrenMap = menus.stream()
+                .filter(m -> m.getParentId() != null)
+                .collect(Collectors.groupingBy(SubSystemMenuDO::getParentId));
+        LinkedHashSet<Long> result = new LinkedHashSet<>(selectedIds);
+        ArrayDeque<Long> queue = new ArrayDeque<>(selectedIds);
+        while (!queue.isEmpty()) {
+            Long parentId = queue.poll();
+            List<SubSystemMenuDO> children = childrenMap.get(parentId);
+            if (CollUtil.isEmpty(children)) {
+                continue;
+            }
+            for (SubSystemMenuDO child : children) {
+                if (!"F".equals(child.getType())) {
+                    continue;
+                }
+                if (result.add(child.getId())) {
+                    queue.add(child.getId());
+                }
+            }
+        }
+        return result;
     }
 
     private List<SubSystemRoleRespVO> buildRespList(List<SubSystemRoleDO> list) {

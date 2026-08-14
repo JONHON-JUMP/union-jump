@@ -25,6 +25,9 @@ public class AuthPermissionInfoRespVO {
     @Schema(description = "操作权限数组", requiredMode = Schema.RequiredMode.REQUIRED)
     private Set<String> permissions;
 
+    @Schema(description = "权限变更版本；登录时写入前端，动作时与服务端比对决定是否重登")
+    private Long rbacVersion;
+
     @Schema(description = "菜单树", requiredMode = Schema.RequiredMode.REQUIRED)
     private List<MenuVO> menus;
 

@@ -1,6 +1,19 @@
 import {login, logout, getInfo, socialLogin, smsLogin} from '@/api/login'
-import {setToken, removeToken} from '@/utils/auth'
+import {setToken, removeToken, removeVisitTenantId, removeUsername, setUsername} from '@/utils/auth'
 import { resolveUserAvatar, loadRoleAvatarConfig } from '@/utils/defaultAvatar'
+import { ensureLocalCamstarCookie } from '@/utils/camstarCookie'
+
+function applyLoginSession(commit, tokenRes, username) {
+  // 清门户菜单内存
+  commit('portal/RESET_PORTAL', null, { root: true })
+  setToken(tokenRes)
+  if (username) {
+    setUsername(username)
+  }
+  // 登录即写 Camstar Cookie（子系统页面用，不依赖 OAuth SSO）
+  ensureLocalCamstarCookie()
+  return Promise.resolve()
+}
 
 function normalizePermissions(permissions) {
   if (!permissions) {
@@ -17,7 +30,9 @@ const user = {
     avatar: '',
     rawAvatar: '',
     roles: [],
-    permissions: []
+    permissions: [],
+    /** 登录时权限版本；与服务端比对决定是否提示重登 */
+    permRbacVersion: null
   },
 
   mutations: {
@@ -41,6 +56,9 @@ const user = {
     },
     SET_PERMISSIONS: (state, permissions) => {
       state.permissions = permissions
+    },
+    SET_PERM_RBAC_VERSION: (state, version) => {
+      state.permRbacVersion = version == null ? null : Number(version)
     }
   },
 
@@ -57,10 +75,7 @@ const user = {
       return new Promise((resolve, reject) => {
         login(username, password, captchaVerification, socialType, socialCode, socialState, loginType).then(res => {
           res = res.data;
-          // 新登录清门户会话：首进走星标默认；避免 Token 过期未走 LogOut 时仍按上次系统进
-          commit('portal/RESET_PORTAL', null, { root: true })
-          setToken(res)
-          resolve()
+          return applyLoginSession(commit, res, username).then(resolve)
         }).catch(error => {
           reject(error)
         })
@@ -75,9 +90,7 @@ const user = {
       return new Promise((resolve, reject) => {
         socialLogin(type, code, state).then(res => {
           res = res.data;
-          commit('portal/RESET_PORTAL', null, { root: true })
-          setToken(res)
-          resolve()
+          return applyLoginSession(commit, res, null).then(resolve)
         }).catch(error => {
           reject(error)
         })
@@ -91,9 +104,7 @@ const user = {
       return new Promise((resolve, reject) => {
         smsLogin(mobile,mobileCode).then(res => {
           res = res.data;
-          commit('portal/RESET_PORTAL', null, { root: true })
-          setToken(res)
-          resolve()
+          return applyLoginSession(commit, res, mobile).then(resolve)
         }).catch(error => {
           reject(error)
         })
@@ -131,11 +142,18 @@ const user = {
           const roles = res.roles && res.roles.length > 0 ? res.roles : ['ROLE_DEFAULT']
           commit('SET_ROLES', roles)
           commit('SET_PERMISSIONS', normalizePermissions(res.permissions))
+          commit('SET_PERM_RBAC_VERSION', res.rbacVersion != null ? res.rbacVersion : 0)
           commit('SET_ID', user.id)
           commit('SET_NAME', user.userName || user.username)
           commit('SET_NICKNAME', user.nickname)
           commit('SET_RAW_AVATAR', user.avatar || '')
           commit('SET_AVATAR', resolveUserAvatar(user.avatar, roles))
+          const uname = user.userName || user.username
+          if (uname) {
+            setUsername(uname)
+          }
+          // 刷新会话时补种 Camstar Cookie（对齐 4200 登录后 setCookie）
+          ensureLocalCamstarCookie()
           resolve(res)
           loadRoleAvatarConfig().then(() => {
             commit('SET_AVATAR', resolveUserAvatar(user.avatar, roles))
@@ -187,11 +205,17 @@ const user = {
         logout().finally(() => {
           commit('SET_ROLES', [])
           commit('SET_PERMISSIONS', [])
+          commit('SET_PERM_RBAC_VERSION', null)
           commit('SET_ID', 0)
           commit('SET_NAME', '')
           commit('SET_NICKNAME', '')
           commit('portal/RESET_PORTAL', null, { root: true })
+          commit('tagsView/CLEAR_WARM_IFRAME_VIEWS', null, { root: true })
+          commit('tagsView/DEL_ALL_VISITED_VIEWS', null, { root: true })
+          commit('tagsView/DEL_ALL_CACHED_VIEWS', null, { root: true })
           removeToken()
+          removeVisitTenantId()
+          removeUsername()
           resolve()
         })
       })

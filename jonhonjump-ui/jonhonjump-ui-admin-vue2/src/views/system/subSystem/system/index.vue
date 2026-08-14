@@ -198,7 +198,10 @@
 
         <el-form-item label="访问地址" prop="systemUrl">
 
-          <el-input v-model="form.systemUrl" placeholder="请输入系统访问地址" />
+          <el-input v-model="form.systemUrl" placeholder="MES 入口，如 http://192.168.240.127:4221" />
+          <div style="line-height: 18px; margin-top: 4px; color: #909399; font-size: 12px;">
+            填老 MES（4221）入口即可，可与门户跨域。不要填 Camstar（4200）；Camstar 由 MES 菜单内链打开。
+          </div>
 
         </el-form-item>
 
@@ -591,8 +594,6 @@ export default {
 
   align-items: flex-start;
 
-  gap: 10px;
-
   padding: 10px 12px;
 
   background: #f5f7fa;
@@ -600,6 +601,12 @@ export default {
   border-radius: 6px;
 
 
+
+  & > * + * {
+
+    margin-left: 10px;
+
+  }
 
   &__info {
 

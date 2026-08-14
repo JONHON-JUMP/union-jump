@@ -114,7 +114,7 @@ export default {
       this.$store.dispatch('app/toggleSideBar')
     },
     handleLogout() {
-      confirmLogout(this.$store, this.$route.fullPath)
+      confirmLogout(this.$store)
     },
     async logout() {
       this.handleLogout()

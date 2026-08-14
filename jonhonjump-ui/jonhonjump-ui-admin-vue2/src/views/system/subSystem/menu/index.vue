@@ -80,6 +80,17 @@
               v-hasPermi="['sub-system:menu:delete']"
             >批量删除</el-button>
           </el-col>
+          <el-col :span="1.5">
+            <el-button
+              type="warning"
+              plain
+              icon="el-icon-refresh"
+              size="mini"
+              :disabled="!selectedClient"
+              @click="handleClearPortalCache"
+              v-hasPermi="['sub-system:menu:update']"
+            >清门户缓存</el-button>
+          </el-col>
           <right-toolbar :showSearch.sync="showSearch" @queryTable="getList" />
         </el-row>
 
@@ -95,8 +106,9 @@
             </template>
           </el-table-column>
           <el-table-column prop="sort" label="排序" width="60"/>
+          <el-table-column prop="path" label="路由地址" :show-overflow-tooltip="true" min-width="160"/>
           <el-table-column prop="permission" label="权限标识" :show-overflow-tooltip="true" />
-          <el-table-column prop="component" label="组件路径" :show-overflow-tooltip="true" />
+          <el-table-column prop="component" label="组件路径" :show-overflow-tooltip="true" min-width="120"/>
           <el-table-column prop="status" label="状态" width="80">
             <template v-slot="scope">
               <dict-tag :type="DICT_TYPE.COMMON_STATUS" :value="scope.row.status"/>
@@ -172,7 +184,14 @@
           </el-col>
           <el-col :span="12">
             <el-form-item v-if="form.type !== MenuTypeEnum.BUTTON" label="路由地址" prop="path">
-              <el-input v-model="form.path" placeholder="请输入路由地址" />
+              <el-input v-model="form.path" placeholder="与4200 SYS_MENU.PATH 一致：Camstar 填完整 http 地址" />
+              <div v-if="form.type === MenuTypeEnum.MENU" style="line-height: 18px; margin-top: 4px; color: #909399; font-size: 12px;">
+                对齐 4200：PATH 填 Camstar 业务完整 http（iframe 直开，不经 4221）。
+                推荐：http://192.168.240.127:4200/Process/...（门户壳会编成 192.168.240.12794200/...）；
+                若只填壳 path、不要冒号：写成 192.168.240.12794200/Process/...。
+                若门户机已用 nginx 监听 4200 反代到 Camstar：可填 http://192.168.240.129:4200/Process/...（勿填 /camstar- 路径）。
+                组件路径留空。上方「访问地址」填 MES，只给若依页用。
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="24" v-if="form.type !== MenuTypeEnum.BUTTON">
@@ -185,9 +204,16 @@
               <el-input v-model="form.permission" placeholder="请输入权限标识" maxlength="100" />
             </el-form-item>
           </el-col>
-          <el-col :span="12" v-if="form.type === MenuTypeEnum.MENU">
+          <el-col :span="12" v-if="form.type === MenuTypeEnum.MENU || (form.type === MenuTypeEnum.DIR && form.component)">
             <el-form-item label="组件路径" prop="component">
-              <el-input v-model="form.component" placeholder="例如说：system/user/index" />
+              <el-input
+                v-model="form.component"
+                :placeholder="form.type === MenuTypeEnum.DIR ? '目录一般为空；若误填可清空后保存' : '例如说：system/user/index'"
+                clearable
+              />
+              <div v-if="form.type === MenuTypeEnum.DIR" style="line-height: 18px; margin-top: 4px; color: #909399; font-size: 12px;">
+                目录不需要组件路径。「15」应填在上方「路由地址」（对齐 4200 工艺管理 path），不要填在组件路径。
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12" v-if="form.type === MenuTypeEnum.MENU">
@@ -281,6 +307,7 @@ import IconSelect from '@/components/IconSelect'
 import MenuStyleSelect from '@/components/MenuStyleSelect'
 import FileUpload from '@/components/FileUpload'
 import {
+  clearPortalMenuCache,
   createSubSystemMenu,
   deleteSubSystemMenu,
   deleteSubSystemMenuList,
@@ -562,15 +589,39 @@ export default {
           return
         }
         if (this.form.type === SystemMenuTypeEnum.DIR || this.form.type === SystemMenuTypeEnum.MENU) {
-          const path = this.form.path
+          let path = this.form.path
           // 子系统菜单路由由前端拼接为 /portal/{clientId}/...，path 应为相对段，不能以 / 开头
           if (path && !isExternal(path) && path.charAt(0) === '/') {
             this.$modal.msgError('子系统菜单路由地址不能以 / 开头')
             return
           }
+          // Camstar 内链：点分 IP:端口 → IP9端口（如 192.168.240.12794200）；http(s) 完整 URL 不要改
+          if (path && !isExternal(path) && /(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})/.test(path)) {
+            const fixed = path.replace(/(\d{1,3}(?:\.\d{1,3}){3}):(\d{2,5})/g, '$19$2')
+            this.form.path = fixed
+            path = fixed
+            this.$modal.msgWarning('端口冒号已自动改成 9（如 192.168.240.12794200）。Camstar 更推荐直接填 http://192.168.240.127:4200/WorkOrder/...')
+            return
+          }
+          if (path && !isExternal(path) && /:\d+/.test(path)) {
+            const fixed = path.replace(/:/g, '/')
+            this.form.path = fixed
+            path = fixed
+            this.$modal.msgWarning('路由里的端口冒号已自动改成 /。Camstar 更推荐直接填 http://192.168.240.127:4200/WorkOrder/...')
+            return
+          }
+          if (this.form.type === SystemMenuTypeEnum.MENU && path && !isExternal(path) && /WorkOrder\/?$/.test(path)) {
+            this.$modal.msgError('路由地址不完整，请填到页面名，或直接填 Camstar 的 http 完整地址')
+            return
+          }
         }
         this.warnDuplicateMenuName()
         const payload = { ...this.form }
+        // 目录不需要组件；列表曾把误填的「15」显示在组件路径且无法编辑，保存时清空
+        if (payload.type === SystemMenuTypeEnum.DIR) {
+          payload.component = ''
+          payload.componentName = ''
+        }
         if (!checkFirstLevelMenu(payload.parentId)) {
           payload.styleId = null
         }
@@ -614,6 +665,17 @@ export default {
         this.checkedIds = []
         this.getList()
         this.loadClientList()
+      }).catch(() => {})
+    },
+    handleClearPortalCache() {
+      if (!this.selectedClient || !this.selectedClient.id) {
+        this.$modal.msgWarning('请先选择外部系统')
+        return
+      }
+      this.$modal.confirm('将清除该系统门户菜单 Redis 缓存，用户下次进入会重新从数据库加载。是否继续？').then(() => {
+        return clearPortalMenuCache(this.selectedClient.id)
+      }).then(() => {
+        this.$modal.msgSuccess('门户缓存已清除')
       }).catch(() => {})
     },
     handleRowCheckboxChange(records) {

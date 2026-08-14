@@ -117,8 +117,6 @@
                          v-hasPermi="['sub-system:role:update']">菜单权限</el-button>
               <el-button size="mini" type="text" icon="el-icon-menu" @click="handleQuickNav(scope.row)"
                          v-hasPermi="['sub-system:role:update']">快捷导航</el-button>
-              <el-button size="mini" type="text" icon="el-icon-circle-check" @click="handleDataScope(scope.row)"
-                         v-hasPermi="['sub-system:role:update']">数据权限</el-button>
               <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)"
                          v-hasPermi="['sub-system:role:delete']">删除</el-button>
             </template>
@@ -157,49 +155,7 @@
       </div>
     </el-dialog>
 
-    <!-- 分配数据权限 -->
-    <el-dialog title="分配数据权限" :visible.sync="openDataScope" width="500px" append-to-body>
-      <el-form :model="form" label-width="80px">
-        <el-form-item label="角色名称">
-          <el-input v-model="form.name" disabled />
-        </el-form-item>
-        <el-form-item label="角色标识">
-          <el-input v-model="form.code" disabled />
-        </el-form-item>
-        <el-form-item label="权限范围">
-          <el-select v-model="form.dataScope">
-            <el-option
-              v-for="item in dataScopeDictDatas"
-              :key="parseInt(item.value)"
-              :label="item.label"
-              :value="parseInt(item.value)"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="数据权限" v-show="form.dataScope === SysDataScopeEnum.DEPT_CUSTOM">
-          <el-checkbox :checked="!form.deptCheckStrictly" @change="handleCheckedTreeConnect($event, 'dept')">父子联动(选中父节点，自动选择子节点)</el-checkbox>
-          <el-checkbox v-model="deptExpand" @change="handleCheckedTreeExpand($event, 'dept')">展开/折叠</el-checkbox>
-          <el-checkbox v-model="deptNodeAll" @change="handleCheckedTreeNodeAll($event, 'dept')">全选/全不选</el-checkbox>
-          <el-tree
-            class="tree-border"
-            :data="deptOptions"
-            show-checkbox
-            default-expand-all
-            ref="dept"
-            node-key="id"
-            :check-strictly="form.deptCheckStrictly"
-            empty-text="加载中，请稍后"
-            :props="defaultProps"
-          />
-        </el-form-item>
-      </el-form>
-      <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitDataScope">确 定</el-button>
-        <el-button @click="openDataScope = false">取 消</el-button>
-      </div>
-    </el-dialog>
-
-    <!-- 分配菜单权限 -->
+    <!-- 分配菜单权限（含目录/页面/按钮；数据范围在子系统本地配置） -->
     <el-dialog title="分配菜单权限" :visible.sync="openMenu" width="500px" append-to-body>
       <el-form :model="menuForm" label-width="80px">
         <el-form-item label="角色名称">
@@ -209,6 +165,7 @@
           <el-input v-model="menuForm.code" disabled />
         </el-form-item>
         <el-form-item label="菜单权限">
+          <div style="margin-bottom: 8px; color: #909399; font-size: 12px;">可勾选目录、页面及按钮权限；勾选页面时也会自动带上该页按钮。数据范围请在子系统本地配置。</div>
           <el-checkbox v-model="menuExpand" @change="handleCheckedTreeExpand($event, 'menu')">展开/折叠</el-checkbox>
           <el-checkbox v-model="menuNodeAll" @change="handleCheckedTreeNodeAll($event, 'menu')">全选/全不选</el-checkbox>
           <el-tree
@@ -280,7 +237,6 @@
 
 <script>
 import {
-  assignSubSystemRoleDataScope,
   assignSubSystemRoleMenu,
   createSubSystemRole,
   deleteSubSystemRole,
@@ -296,10 +252,10 @@ import {
 } from '@/api/system/subSystemRole'
 import { getSubSystemRoleQuickNavList, saveSubSystemRoleQuickNav } from '@/api/system/subSystem/roleQuickNav'
 import { buildSubSystemRoleQuickNavCheckTree, getSubSystemQuickNavLeafIds } from '@/utils/roleQuickNavMenus'
+import { restoreRoleMenuCheckedKeys } from '@/utils/roleMenuTree'
 import RoleQuickNavDialog from '@/views/system/components/RoleQuickNavDialog.vue'
-import { listSimpleDepts } from '@/api/system/dept'
-import { CommonStatusEnum, SystemDataScopeEnum } from '@/utils/constants'
-import { DICT_TYPE, getDictDatas } from '@/utils/dict'
+import { CommonStatusEnum } from '@/utils/constants'
+import { DICT_TYPE, ensureDictDatas, getDictDatas } from '@/utils/dict'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
 
@@ -318,7 +274,6 @@ export default {
       selectedClient: null,
       title: '',
       open: false,
-      openDataScope: false,
       openMenu: false,
       openQuickNav: false,
       quickNavSaving: false,
@@ -328,14 +283,11 @@ export default {
       quickNavMenuIds: [],
       menuExpand: false,
       menuNodeAll: false,
-      deptExpand: true,
-      deptNodeAll: false,
       menuCheckStrictly: true,
       menuOptions: [],
-      deptOptions: [],
-      depts: [],
       menuForm: {},
       checkedIds: [],
+      flatMenuList: [],
       upload: {
         open: false,
         title: '',
@@ -361,13 +313,13 @@ export default {
         code: [{ required: true, message: '角色标识不能为空', trigger: 'blur' }],
         sort: [{ required: true, message: '角色顺序不能为空', trigger: 'blur' }],
         status: [{ required: true, message: '状态不能为空', trigger: 'change' }]
-      },
-      statusDictDatas: getDictDatas(DICT_TYPE.COMMON_STATUS),
-      dataScopeDictDatas: getDictDatas(DICT_TYPE.SYSTEM_DATA_SCOPE),
-      SysDataScopeEnum: SystemDataScopeEnum
+      }
     }
   },
   computed: {
+    statusDictDatas() {
+      return getDictDatas(DICT_TYPE.COMMON_STATUS)
+    },
     uploadAction() {
       const id = this.selectedClient && this.selectedClient.id
       const update = this.upload.updateSupport ? 'true' : 'false'
@@ -387,7 +339,9 @@ export default {
     }
   },
   created() {
-    this.loadClientList()
+    ensureDictDatas(DICT_TYPE.COMMON_STATUS).finally(() => {
+      this.loadClientList()
+    })
   },
   methods: {
     loadClientList() {
@@ -572,12 +526,17 @@ export default {
       this.menuNodeAll = false
       this.openMenu = true
       getSubSystemMenuSimpleList(row.subSystemId).then(res => {
-        this.menuOptions = this.handleTree(res.data || [], 'id')
+        const allMenus = res.data || []
+        this.flatMenuList = allMenus
+        this.menuOptions = this.handleTree(allMenus, 'id')
         this.$nextTick(() => {
           getSubSystemRoleMenuIds(row.id).then(menuRes => {
-            this.menuCheckStrictly = true
-            this.$refs.menu.setCheckedKeys(menuRes.data || [])
-            this.menuCheckStrictly = false
+            restoreRoleMenuCheckedKeys(
+              this,
+              this.$refs.menu,
+              menuRes.data || [],
+              value => { this.menuCheckStrictly = value }
+            )
           })
         })
       })
@@ -621,70 +580,18 @@ export default {
         this.quickNavSaving = false
       })
     },
-    handleDataScope(row) {
-      this.form = {
-        id: row.id,
-        name: row.name,
-        code: row.code,
-        dataScope: undefined,
-        deptCheckStrictly: false
-      }
-      this.deptExpand = true
-      this.deptNodeAll = false
-      this.openDataScope = true
-      listSimpleDepts().then(res => {
-        this.deptOptions = this.handleTree(res.data || [], 'id')
-        this.depts = res.data || []
-        getSubSystemRole(row.id).then(roleRes => {
-          this.form.dataScope = roleRes.data.dataScope
-          this.form.deptCheckStrictly = roleRes.data.deptCheckStrictly === 1
-          this.$nextTick(() => {
-            if (this.$refs.dept) {
-              this.$refs.dept.setCheckedKeys(roleRes.data.dataScopeDeptIds || [], false)
-            }
-          })
-        })
-      })
-    },
     handleCheckedTreeExpand(value, type) {
       if (type === 'menu') {
         const treeList = this.menuOptions
         for (let i = 0; i < treeList.length; i++) {
           this.$refs.menu.store.nodesMap[treeList[i].id].expanded = value
         }
-      } else if (type === 'dept') {
-        const treeList = this.deptOptions
-        for (let i = 0; i < treeList.length; i++) {
-          this.$refs.dept.store.nodesMap[treeList[i].id].expanded = value
-        }
       }
     },
     handleCheckedTreeNodeAll(value, type) {
       if (type === 'menu') {
         this.$refs.menu.setCheckedNodes(value ? this.menuOptions : [])
-      } else if (type === 'dept') {
-        this.$refs.dept.setCheckedNodes(value ? this.depts : [])
       }
-    },
-    handleCheckedTreeConnect(value, type) {
-      if (type === 'dept') {
-        this.form.deptCheckStrictly = !value
-      }
-    },
-    submitDataScope() {
-      if (this.form.id === undefined) {
-        return
-      }
-      assignSubSystemRoleDataScope({
-        roleId: this.form.id,
-        dataScope: this.form.dataScope,
-        dataScopeDeptIds: this.form.dataScope !== SystemDataScopeEnum.DEPT_CUSTOM ? [] :
-          this.$refs.dept.getCheckedKeys()
-      }).then(() => {
-        this.$modal.msgSuccess('修改成功')
-        this.openDataScope = false
-        this.getList()
-      })
     },
     submitMenu() {
       assignSubSystemRoleMenu({

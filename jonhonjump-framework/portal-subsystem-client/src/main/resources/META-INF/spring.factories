@@ -1,0 +1,2 @@
+org.springframework.boot.autoconfigure.EnableAutoConfiguration=\
+cn.jonhon.jump.framework.portalsubsystem.config.PortalSubSystemAutoConfiguration

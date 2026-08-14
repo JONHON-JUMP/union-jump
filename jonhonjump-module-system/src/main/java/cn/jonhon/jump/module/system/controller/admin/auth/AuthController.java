@@ -23,6 +23,7 @@ import javax.annotation.Resource;
 import javax.annotation.security.PermitAll;
 import javax.servlet.http.HttpServletRequest;
 import javax.validation.Valid;
+import java.util.UUID;
 
 import static cn.jonhon.jump.framework.common.pojo.CommonResult.success;
 import static cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId;
@@ -33,6 +34,9 @@ import static cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils
 @Validated
 @Slf4j
 public class AuthController {
+
+    /** 进程级启动标识：主系统重新发布后变化，供门户探测发版并自动重连子系统 */
+    private static final String BOOT_ID = UUID.randomUUID().toString().replace("-", "");
 
     @Resource
     private AdminAuthService authService;
@@ -80,6 +84,29 @@ public class AuthController {
             @RequestParam(value = "includeMenus", defaultValue = "false") boolean includeMenus,
             @RequestParam(value = "redisOnly", defaultValue = "false") boolean redisOnly) {
         return success(authPermissionInfoService.getPermissionInfo(getLoginUserId(), includeMenus, redisOnly));
+    }
+
+    @GetMapping("/check-permission")
+    @Operation(summary = "探测权限是否仍有效（菜单/角色/数据权限变更后需重登）")
+    @Parameter(name = "rbacVersion", description = "登录时下发的权限版本")
+    public CommonResult<AuthPermissionCheckRespVO> checkPermission(
+            @RequestParam(value = "rbacVersion", required = false) Long rbacVersion) {
+        Long userId = getLoginUserId();
+        long current = authPermissionInfoService.getRbacVersion(userId);
+        boolean alive = authPermissionInfoService.isPermissionAlive(userId, rbacVersion);
+        AuthPermissionCheckRespVO vo = new AuthPermissionCheckRespVO();
+        vo.setAlive(alive);
+        vo.setNeedRelogin(!alive);
+        vo.setRbacVersion(current);
+        return success(vo);
+    }
+
+    @GetMapping("/get-boot-id")
+    @PermitAll
+    @Operation(summary = "获取主系统进程启动标识（发版/重启后变化，供门户自动重连子系统）")
+    public CommonResult<AuthBootIdRespVO> getBootId() {
+        // 进程级只读标识，匿名可访问；前端探测发版时勿依赖登录态，避免发版窗口误弹重登
+        return success(new AuthBootIdRespVO(BOOT_ID));
     }
 
     @PostMapping("/register")

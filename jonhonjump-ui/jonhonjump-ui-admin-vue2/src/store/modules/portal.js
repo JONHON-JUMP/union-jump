@@ -1,26 +1,32 @@
 import router, { constantRoutes } from '@/router'
-import { authorize } from '@/api/login'
-import { getMyExternalSystemList, getMyPortalMenus } from '@/api/system/subSystemUsers'
+import { getMyExternalSystemList, getMyPortalMenus, getMyPortalMenusVersion } from '@/api/system/subSystemUsers'
 import { getUserPortalDefault } from '@/api/system/user/portalDefault'
 import { getUserQuickNavList } from '@/api/system/user/quickNav'
 import { getSubSystemUserQuickNavList } from '@/api/system/user/subSystemQuickNav'
-import { isPortalSubSystemHomePath, isMainBusinessPath, parsePortalClientId } from '@/utils/portalRoute'
 import {
-  buildSubsystemSsoCallbackUri,
-  isSubsystemSsoDoneMessage,
-  loadPersistedSsoDone,
-  persistSsoDoneMap,
-  clearPersistedSsoDone,
+  isPortalSubSystemHomePath,
+  isMainBusinessPath,
+  parsePortalClientId,
+  normalizeSubsystemIframeLink,
+  isGenericPortalTitle,
+  resolvePortalMenuTitle
+} from '@/utils/portalRoute'
+import {
   loadPersistedPortalCache,
   persistPortalCache,
   clearPersistedPortalCache
-} from '@/utils/portalSso'
-import { pingSubsystemUi } from '@/utils/subsystemHealth'
+} from '@/utils/portalMenuCache'
 import { resolveRuleBasedPortalDefault } from '@/utils/portalSubsystem'
 import {
   buildQuickNavScopeKey,
-  setQuickNavCache
+  getQuickNavCache,
+  setQuickNavCache,
+  clearAllQuickNavCache
 } from '@/utils/portalQuickNavCache'
+import {
+  collectCamstarPrefetchEntries,
+  prepareCamstarSessionFromEntries
+} from '@/utils/camstarPrefetch'
 import cache from '@/plugins/cache'
 
 const PORTAL_LAST_SYSTEM_KEY = 'portal_last_system'
@@ -41,6 +47,7 @@ function snapshotPortalCache(state) {
     currentSystem: state.currentSystem,
     loadedSubSystems: state.loadedSubSystems,
     subSystemMenuSignatures: state.subSystemMenuSignatures,
+    subSystemRbacVersions: state.subSystemRbacVersions,
     subSystemEntryPaths: state.subSystemEntryPaths,
     subSystemSidebarCache: state.subSystemSidebarCache,
     subSystemPathLinkCache: state.subSystemPathLinkCache
@@ -73,13 +80,13 @@ function createInitialPortalState() {
     mainSidebarRouters: null,
     loadedSubSystems: {},
     subSystemMenuSignatures: {},
+    /** clientId → 主系统 RBAC 版本；进入子系统时比对，变化才重拉 my-menus */
+    subSystemRbacVersions: {},
     subSystemEntryPaths: (persisted && persisted.subSystemEntryPaths) || {},
     subSystemSidebarCache: {},
     subSystemPathLinkCache: (persisted && persisted.subSystemPathLinkCache) || {},
     pathLinkMap,
-    ssoDone: loadPersistedSsoDone(),
     loadingSubSystems: {},
-    loadingSso: {},
     quickNavInFlight: {},
     /** 快捷导航拉取代数：保存/强制刷新后递增，丢弃过期 GET，防止旧响应盖掉新数据 */
     quickNavLoadEpoch: {},
@@ -88,24 +95,10 @@ function createInitialPortalState() {
     portalBootstrapped: false,
     /** 单飞：并发 beforeEach 共用同一个 bootstrap Promise */
     bootstrapInFlight: null,
-    portalDefaultCache: null,
-    /** clientId → true|false|undefined；false 表示健康探测失败 */
-    subsystemHealthy: {},
-    /** clientId → 错误文案；SSO 失败时展示 */
-    ssoError: {},
-    /** clientId → 递增序号；会话重绑后强制重挂业务 iframe */
-    iframeReloadNonce: {},
-    /** clientId → Promise；避免 401 风暴重复重认证 */
-    reauthInFlight: {}
+    portalDefaultCache: null
   }
 }
 
-const HEALTH_POLL_MS = 30000
-const HEALTH_FAIL_THRESHOLD = 2
-/** @type {Record<string, { timer: any, fails: number }>} */
-const healthProbeRuntime = {}
-/** @type {Record<string, number>} 401 重认证冷却截止时间 */
-const sessionExpiredCooldownUntil = {}
 /** 切换系统时递增，用于作废尚未执行的后台预热，防止抢回默认子系统 */
 let portalWarmGeneration = 0
 
@@ -147,7 +140,7 @@ const mutations = {
   SET_PORTAL_DEFAULT_CACHE(state, config) {
     state.portalDefaultCache = config || null
   },
-  MARK_SUB_SYSTEM_LOADED(state, { clientId, signature, entryPath }) {
+  MARK_SUB_SYSTEM_LOADED(state, { clientId, signature, entryPath, rbacVersion }) {
     state.loadedSubSystems = {
       ...state.loadedSubSystems,
       [clientId]: true
@@ -155,6 +148,12 @@ const mutations = {
     state.subSystemMenuSignatures = {
       ...state.subSystemMenuSignatures,
       [clientId]: signature
+    }
+    if (rbacVersion != null) {
+      state.subSystemRbacVersions = {
+        ...state.subSystemRbacVersions,
+        [clientId]: Number(rbacVersion) || 0
+      }
     }
     if (entryPath) {
       state.subSystemEntryPaths = {
@@ -178,76 +177,18 @@ const mutations = {
     }
     persistPortalCache(snapshotPortalCache(state))
   },
-  MARK_SSO_DONE(state, clientId) {
-    state.ssoDone = {
-      ...state.ssoDone,
-      [clientId]: true
-    }
-    persistSsoDoneMap(state.ssoDone)
-  },
-  /** 清除单个子系统 SSO 标记，用于发版/会话失效后重新静默登录 */
-  CLEAR_SSO_DONE(state, clientId) {
-    const key = normalizeSystemKey(clientId)
-    if (!key || !state.ssoDone[key]) {
-      return
-    }
-    const next = { ...state.ssoDone }
-    delete next[key]
-    state.ssoDone = next
-    persistSsoDoneMap(state.ssoDone)
-  },
-  SET_SUBSYSTEM_HEALTHY(state, { clientId, healthy }) {
-    const key = normalizeSystemKey(clientId)
-    if (!key) {
-      return
-    }
-    state.subsystemHealthy = {
-      ...state.subsystemHealthy,
-      [key]: healthy === true
-    }
-  },
-  SET_SSO_ERROR(state, { clientId, message }) {
-    const key = normalizeSystemKey(clientId)
-    if (!key) {
-      return
-    }
-    state.ssoError = {
-      ...state.ssoError,
-      [key]: message || '子系统登录失败'
-    }
-  },
-  CLEAR_SSO_ERROR(state, clientId) {
-    const key = normalizeSystemKey(clientId)
-    if (!key || !state.ssoError[key]) {
-      return
-    }
-    const next = { ...state.ssoError }
-    delete next[key]
-    state.ssoError = next
-  },
-  BUMP_IFRAME_RELOAD(state, clientId) {
-    const key = normalizeSystemKey(clientId)
-    if (!key) {
-      return
-    }
-    state.iframeReloadNonce = {
-      ...state.iframeReloadNonce,
-      [key]: (state.iframeReloadNonce[key] || 0) + 1
-    }
-  },
   RESET_PORTAL(state) {
     state.currentSystem = 'main'
     state.systemList = []
     state.mainSidebarRouters = null
     state.loadedSubSystems = {}
     state.subSystemMenuSignatures = {}
+    state.subSystemRbacVersions = {}
     state.subSystemEntryPaths = {}
     state.subSystemSidebarCache = {}
     state.subSystemPathLinkCache = {}
     state.pathLinkMap = {}
-    state.ssoDone = {}
     state.loadingSubSystems = {}
-    state.loadingSso = {}
     state.quickNavInFlight = {}
     state.quickNavLoadEpoch = {}
     state.iframeSyncSuspended = false
@@ -255,15 +196,11 @@ const mutations = {
     state.portalBootstrapped = false
     state.bootstrapInFlight = null
     state.portalDefaultCache = null
-    state.subsystemHealthy = {}
-    state.ssoError = {}
-    state.iframeReloadNonce = {}
-    state.reauthInFlight = {}
     bumpPortalWarmGeneration()
-    stopAllHealthProbes()
-    clearPersistedSsoDone()
     clearPersistedPortalCache()
     clearPortalSystemChoice()
+    // 换人/登出必须清快捷导航 session，避免串用户或无 apps 的旧缓存
+    clearAllQuickNavCache()
   }
 }
 
@@ -276,7 +213,7 @@ const actions = {
   },
 
   /**
-   * 快捷导航单飞：Shell 与首页 Panel 共用，避免同屏双请求 + 丢 action 后退化成侧栏假菜单
+   * 快捷导航单飞：Shell / 首页 Panel / bootstrap 预取共用，避免同屏双请求
    * @param payload.force 强制新开请求；配合 epoch 丢弃保存前发出的过期响应
    */
   loadQuickNavConfig({ state }, payload = {}) {
@@ -297,16 +234,40 @@ const actions = {
       ? getSubSystemUserQuickNavList(subSystemId)
       : getUserQuickNavList()
     const task = request.then(res => {
-      // 过期响应不写缓存，改跟当前 in-flight（若有）或直接丢弃 data
+      // 过期响应：绝不回写 stale data，否则保存加星后会被旧 GET 立刻盖掉
       if (epoch !== state.quickNavLoadEpoch[cacheKey]) {
-        return state.quickNavInFlight[cacheKey] || ((res && res.data) || {})
+        if (state.quickNavInFlight[cacheKey] && state.quickNavInFlight[cacheKey] !== task) {
+          return state.quickNavInFlight[cacheKey]
+        }
+        const cached = getQuickNavCache(cacheKey)
+        if (cached && Array.isArray(cached.apps)) {
+          return {
+            menuIds: cached.menuIds || [],
+            configured: !!cached.configured,
+            lockedMenuIds: cached.lockedMenuIds || [],
+            apps: cached.apps
+          }
+        }
+        return { menuIds: [], configured: false, lockedMenuIds: [], apps: [] }
       }
-      const config = (res && res.data) || {}
+      const raw = (res && res.data) || {}
+      // 有 apps 字段则信接口（含空数组）；无字段视为旧后端，apps=null 允许侧栏过渡
+      const hasAppsField = Object.prototype.hasOwnProperty.call(raw, 'apps')
+      const apps = hasAppsField
+        ? (Array.isArray(raw.apps) ? raw.apps : [])
+        : null
+      const config = {
+        menuIds: raw.menuIds || [],
+        configured: !!raw.configured,
+        lockedMenuIds: raw.lockedMenuIds || [],
+        apps
+      }
       setQuickNavCache(
         cacheKey,
-        config.menuIds || [],
-        !!config.configured,
-        config.lockedMenuIds || []
+        config.menuIds,
+        config.configured,
+        config.lockedMenuIds,
+        config.apps
       )
       return config
     }).finally(() => {
@@ -331,16 +292,24 @@ const actions = {
     const cacheKey = subSystemId > 0
       ? buildQuickNavScopeKey('x', subSystemId)
       : 'main'
-    const config = payload.config || {}
+    const raw = payload.config || {}
+    const hasAppsField = Object.prototype.hasOwnProperty.call(raw, 'apps')
+    const config = {
+      menuIds: raw.menuIds || [],
+      configured: !!raw.configured,
+      lockedMenuIds: raw.lockedMenuIds || [],
+      apps: hasAppsField ? (Array.isArray(raw.apps) ? raw.apps : []) : null
+    }
     state.quickNavLoadEpoch = {
       ...state.quickNavLoadEpoch,
       [cacheKey]: (state.quickNavLoadEpoch[cacheKey] || 0) + 1
     }
     setQuickNavCache(
       cacheKey,
-      config.menuIds || [],
-      !!config.configured,
-      config.lockedMenuIds || []
+      config.menuIds,
+      config.configured,
+      config.lockedMenuIds,
+      config.apps
     )
     return config
   },
@@ -373,13 +342,11 @@ const actions = {
   },
 
   /**
-   * 登录后门户初始化（与产品约定一致）：
-   * 【仅首次登录/会话清空后】按星标/规则默认进入系统
-   * 【同会话内】之后一律跟用户当前所在系统（portal_last_system），后台预热不得抢壳
-   * 【首屏必载】不论默认主/子系统：快捷导航 + 工作台（首页组件拉取）
-   * 【默认主系统·后台】懒加载主系统用户角色/菜单/权限（Redis 优先，首次/变更才打库）
-   * 【默认子系统·后台】懒加载子系统 + 主系统 的角色/菜单/权限（同上 Redis 优先）
-   * 【OAuth】后台预热（不挡首屏）；进入业务页时若未完成再由 ensureSubSystemReady 补踢
+   * 门户加载产品约定（跨界快捷导航，菜单数据均在主系统）：
+   * 1) 首次进入 = 默认系统：先加载该系统快捷导航（后端 Redis → 未命中再现场重建写回），
+   *    全量菜单后台懒加载，绝不挡卡片。
+   * 2) 切换系统：同样先查快捷导航（Redis / 重建），再切壳出卡片；全量菜单后台懒加载。
+   * 3) 主系统、子系统同一套节奏，只换 subSystemId（0=主）。
    */
   bootstrapAfterAuth({ commit, dispatch, state }) {
     if (state.portalBootstrapped) {
@@ -394,7 +361,17 @@ const actions = {
       dispatch('loadSystemList'),
       dispatch('fetchPortalDefault', { force: true }).catch(() => ({}))
     ]).then(([list, defaultConfig]) => {
-      return dispatch('applyPortalBootstrapSystem', { list, defaultConfig, applyGen })
+      const targetSystem = resolveBootstrapTargetSystem(list, defaultConfig)
+      const subSystemId = resolveQuickNavSubSystemIdFromList(list, targetSystem)
+      // 默认系统快捷导航与切壳并行；都完成再放行首页，避免先进页再等卡片
+      // 只等 quick-nav（通常 Redis），不等全量菜单
+      return Promise.all([
+        dispatch('loadQuickNavConfig', { subSystemId }).catch(err => {
+          console.warn('[portal] bootstrap quick-nav prefetch failed:', err)
+          return {}
+        }),
+        dispatch('applyPortalBootstrapSystem', { list, defaultConfig, applyGen })
+      ])
     }).catch(err => {
       console.warn('[portal] bootstrapAfterAuth failed:', err)
     }).finally(() => {
@@ -493,10 +470,10 @@ const actions = {
   },
 
   /**
-   * 后台：子系统 my-menus/权限包 + OAuth，以及主系统角色菜单权限。
+   * 后台：子系统 my-menus/权限包，以及主系统角色菜单权限。
    * 只预热缓存，不抢当前壳；用户已切走时作废本次预热。
    */
-  warmSubSystemDefaultInBackground({ dispatch, state }, clientId) {
+  warmSubSystemDefaultInBackground({ dispatch }, clientId) {
     const key = normalizeSystemKey(clientId)
     const warmGen = portalWarmGeneration
     const subWarm = new Promise(resolve => {
@@ -506,17 +483,6 @@ const actions = {
           return
         }
         dispatch('ensureSubSystemLoaded', { clientId: key, activate: false })
-          .then(() => {
-            if (warmGen !== portalWarmGeneration) {
-              return
-            }
-            // SSO 仅在用户仍停留在该子系统时后台预热
-            if (state.currentSystem === key && !state.ssoDone[key]) {
-              dispatch('runSilentSso', key).catch(err => {
-                console.warn('[portal] background SSO warm failed:', err)
-              })
-            }
-          })
           .catch(err => {
             console.warn('[portal] warm sub menus/perm failed:', err)
           })
@@ -529,24 +495,25 @@ const actions = {
 
   /**
    * 只切换「当前系统」标记与已有缓存侧栏，不等待 my-menus / SSO。
+   * 必须同步完成：禁止 await 任何请求，否则点菜单会被卡住、全屏 loading 锁死交互。
    */
   activateSubSystemShell({ commit, dispatch, state }, { clientId, skipPersist }) {
     const key = normalizeSystemKey(clientId)
-    return dispatch('cacheMainSidebar').then(() => {
-      if (!skipPersist) {
-        persistPortalSystemChoice(key)
-      }
-      commit('SET_CURRENT_SYSTEM', key)
-      const cachedSidebar = state.subSystemSidebarCache[key]
-      if (cachedSidebar && cachedSidebar.length) {
-        commit('SET_SIDEBAR_ROUTERS', cachedSidebar, { root: true })
-      }
-      const cachedLinks = state.subSystemPathLinkCache[key]
-      if (cachedLinks) {
-        commit('SET_PORTAL_PATH_LINKS', sanitizePathLinkMap(cachedLinks))
-      }
-      return key
-    })
+    if (!skipPersist) {
+      persistPortalSystemChoice(key)
+    }
+    commit('SET_CURRENT_SYSTEM', key)
+    const cachedSidebar = state.subSystemSidebarCache[key]
+    if (cachedSidebar && cachedSidebar.length) {
+      commit('SET_SIDEBAR_ROUTERS', cachedSidebar, { root: true })
+    }
+    const cachedLinks = state.subSystemPathLinkCache[key]
+    if (cachedLinks) {
+      commit('SET_PORTAL_PATH_LINKS', sanitizePathLinkMap(cachedLinks))
+    }
+    // 主系统侧栏快照后台做，绝不挡本次打开
+    dispatch('cacheMainSidebar').catch(() => {})
+    return Promise.resolve(key)
   },
 
   /**
@@ -557,128 +524,45 @@ const actions = {
   },
 
   /**
-   * 进入子系统业务页：
-   * 1) my-menus / 权限包（Redis 优先）
-   * 2) OAuth：后台预热未完成时这里补踢（仍不阻塞菜单就绪返回）
+   * 进入 / 切换到子系统时判断权限版本：变化才重拉 my-menus，否则复用内存树。
+   * 签名兼容旧调用（可传 clientId 或 { clientId, skipSso }，skipSso 现为 noop）。
    */
-  ensureSubSystemReady({ dispatch, state }, clientId) {
-    const key = normalizeSystemKey(clientId)
-    const startGen = portalWarmGeneration
-    return dispatch('ensureSubSystemLoaded', { clientId: key, activate: true, startGen }).then(() => {
-      if (!state.ssoDone[key]) {
-        dispatch('runSilentSso', key).catch(err => {
-          console.warn('[portal] SSO lazy start failed:', err)
-        })
-      }
-      return key
+  ensureSubSystemReady({ dispatch, state, commit }, clientIdOrOpts) {
+    const opts = (typeof clientIdOrOpts === 'object' && clientIdOrOpts !== null) ? clientIdOrOpts : { clientId: clientIdOrOpts }
+    const key = normalizeSystemKey(opts.clientId)
+    return dispatch('resolveSubSystemReload', key).then(force => {
+      return dispatch('ensureSubSystemLoaded', { clientId: key, activate: true, force })
+        .then(() => key)
     })
   },
 
   /**
-   * 文档加载失败或会话失效：清 SSO 标记、等待静默登录完成，并强制重挂业务 iframe。
-   * 只刷新认证与缓存，不抢当前壳。
+   * 与主系统 RBAC 版本比对：未加载或版本变化 → 需要重拉；否则复用内存树。
    */
-  reauthSubSystem({ commit, dispatch, state }, clientId) {
+  resolveSubSystemReload({ state }, clientId) {
     const key = normalizeSystemKey(clientId)
-    if (state.reauthInFlight[key]) {
-      return state.reauthInFlight[key]
+    if (!state.loadedSubSystems[key] || !state.subSystemSidebarCache[key]
+        || !state.subSystemSidebarCache[key].length) {
+      return Promise.resolve(true)
     }
-    commit('CLEAR_SSO_DONE', key)
-    commit('CLEAR_SSO_ERROR', key)
-    const task = dispatch('ensureSubSystemLoaded', { clientId: key, activate: false })
-      .then(() => dispatch('runSilentSso', key))
-      .then(() => {
-        // 用户仍停留在该系统时，同步活动侧栏/链路；否则只 bump 隐藏 iframe
-        if (state.currentSystem === key) {
-          const pathLinkMap = state.subSystemPathLinkCache[key]
-          if (pathLinkMap) {
-            commit('SET_PORTAL_PATH_LINKS', sanitizePathLinkMap(pathLinkMap))
-          }
-          const sidebar = state.subSystemSidebarCache[key]
-          if (sidebar && sidebar.length) {
-            commit('SET_SIDEBAR_ROUTERS', sidebar, { root: true })
-          }
-        }
-        commit('BUMP_IFRAME_RELOAD', key)
-        return key
-      })
-      .catch(err => {
-        commit('SET_SSO_ERROR', {
-          clientId: key,
-          message: (err && err.message) || '子系统重新认证失败'
-        })
-        return Promise.reject(err)
-      })
-      .finally(() => {
-        const next = { ...state.reauthInFlight }
-        delete next[key]
-        state.reauthInFlight = next
-      })
-    state.reauthInFlight = {
-      ...state.reauthInFlight,
-      [key]: task
+    const target = findSystemByClientId(state, key)
+    if (!target || target.subSystemId == null) {
+      return Promise.resolve(true)
     }
-    return task
-  },
-
-  /** 子系统 iframe 内 401 → 自动重认证（带去重与冷却，避免死循环） */
-  handleSubsystemSessionExpired({ dispatch }, clientId) {
-    const key = normalizeSystemKey(clientId)
-    const now = Date.now()
-    if (sessionExpiredCooldownUntil[key] && now < sessionExpiredCooldownUntil[key]) {
-      return Promise.resolve(key)
-    }
-    sessionExpiredCooldownUntil[key] = now + 15000
-    return dispatch('reauthSubSystem', key)
-  },
-
-  /** 当前可见子系统时启动健康探测；离开时停止 */
-  syncHealthProbe({ dispatch }, clientId) {
-    stopAllHealthProbes()
-    const key = clientId ? normalizeSystemKey(clientId) : null
-    if (!key || key === 'main') {
-      return Promise.resolve()
-    }
-    return dispatch('startHealthProbe', key)
-  },
-
-  startHealthProbe({ commit, state }, clientId) {
-    const key = normalizeSystemKey(clientId)
-    clearHealthProbeTimer(key)
-    const runtime = { timer: null, fails: 0 }
-    healthProbeRuntime[key] = runtime
-
-    const tick = () => {
-      return pingSubsystemUi(key).then(ok => {
-        if (!healthProbeRuntime[key]) {
-          return
-        }
-        if (ok) {
-          const wasDown = state.subsystemHealthy[key] === false
-          runtime.fails = 0
-          commit('SET_SUBSYSTEM_HEALTHY', { clientId: key, healthy: true })
-          if (wasDown) {
-            commit('BUMP_IFRAME_RELOAD', key)
-          }
-        } else {
-          runtime.fails += 1
-          if (runtime.fails >= HEALTH_FAIL_THRESHOLD) {
-            commit('SET_SUBSYSTEM_HEALTHY', { clientId: key, healthy: false })
-          }
-        }
-      })
-    }
-
-    return tick().then(() => {
-      if (!healthProbeRuntime[key]) {
-        return
+    const localVersion = state.subSystemRbacVersions[key]
+    return getMyPortalMenusVersion(Number(target.subSystemId)).then(res => {
+      const remoteVersion = Number(res.data)
+      const remote = Number.isFinite(remoteVersion) ? remoteVersion : 0
+      if (localVersion == null || Number(localVersion) !== remote) {
+        return true
       }
-      runtime.timer = setInterval(tick, HEALTH_POLL_MS)
+      return false
+    }).catch(() => {
+      // 版本比对请求失败（网络抖动/超时）时，若本地已有缓存版本则信任本地缓存，避免单次抖动误走
+      // 全量重拉+iframe重载的慢路径（表现为“同一页面有时快有时慢”）。
+      // 仅当本地从未拿到过版本号时，才保守地触发一次重拉以兜底。
+      return localVersion == null
     })
-  },
-
-  stopHealthProbe(_, clientId) {
-    clearHealthProbeTimer(normalizeSystemKey(clientId))
   },
 
   /** 门户首页不预拉菜单；进入业务页时由 ensureSubSystemReady 负责 */
@@ -705,7 +589,11 @@ const actions = {
     }
   },
 
-  switchSystem({ dispatch, state }, payload) {
+  /**
+   * 切换系统：先快捷导航（主系统 Redis），再切壳；全量菜单后台懒加载。
+   * 与首次进入默认系统同一节奏，禁止等 8s 全量菜单才出卡片。
+   */
+  switchSystem({ commit, dispatch, state }, payload) {
     const system = typeof payload === 'object' && payload !== null ? payload.system : payload
     const stayOnPortalHome = typeof payload === 'object' && payload !== null && payload.stayOnPortalHome === true
     const skipNavigate = typeof payload === 'object' && payload !== null && payload.skipNavigate === true
@@ -717,16 +605,29 @@ const actions = {
       if (!skipPersist) {
         persistPortalSystemChoice('main')
       }
-      return dispatch('cacheMainSidebar').then(() => {
-        const enter = state.currentSystem !== 'main'
-          ? dispatch('tagsView/clearDockBusinessTabs', null, { root: true }).then(() => {
-            return dispatch('enterMainSystem', { stayOnPortalHome, skipNavigate })
-          })
-          : dispatch('enterMainSystem', { stayOnPortalHome, skipNavigate })
-        return enter.then(() => {
-          if (stayOnPortalHome) {
+      // 先拉主系统快捷导航再切壳：切系统秒出卡片，绝不跟 8s 全量菜单绑在一起
+      return dispatch('loadQuickNavConfig', { subSystemId: 0 }).catch(err => {
+        console.warn('[portal] switch main quick-nav failed:', err)
+        return {}
+      }).then(() => dispatch('cacheMainSidebar')).then(() => {
+        const switchingAway = state.currentSystem !== 'main'
+        const enter = () => dispatch('enterMainSystem', {
+          stayOnPortalHome: stayOnPortalHome || !skipNavigate,
+          skipNavigate,
+          clearDock: switchingAway
+        })
+        if (!switchingAway) {
+          return enter().then(() => {
             schedulePortalBootstrap(() => dispatch('warmMainSystemInBackground'))
-          }
+          })
+        }
+        commit('SET_IFRAME_SYNC_SUSPENDED', true)
+        return dispatch('tagsView/clearDockBusinessTabs', null, { root: true }).then(() => {
+          return enter().finally(() => {
+            commit('SET_IFRAME_SYNC_SUSPENDED', false)
+          })
+        }).then(() => {
+          schedulePortalBootstrap(() => dispatch('warmMainSystemInBackground'))
         })
       })
     }
@@ -740,45 +641,41 @@ const actions = {
       }
       const targetSystem = ref.clientId
       const currentSystem = state.currentSystem
+      const subSystemId = Number(ref.subSystemId) || 0
       if (!skipPersist) {
         persistPortalSystemChoice(targetSystem)
       }
-      return dispatch('cacheMainSidebar').then(() => {
+      // 先拉目标子系统快捷导航再切壳；全量 my-menus / SSO 仍后台
+      return dispatch('loadQuickNavConfig', { subSystemId }).catch(err => {
+        console.warn('[portal] switch sub quick-nav failed:', err)
+        return {}
+      }).then(() => dispatch('cacheMainSidebar')).then(() => {
         if (targetSystem === currentSystem) {
-          if (stayOnPortalHome) {
-            // 门户首页：只保持壳，不预拉 my-menus / OAuth
+          schedulePortalBootstrap(() => dispatch('ensureSubSystemReady', targetSystem))
+          if (skipNavigate) {
             return Promise.resolve()
           }
-          return dispatch('ensureSubSystemReady', targetSystem).then(() => {
-            return dispatch('navigateToPortalHome')
-          })
+          return dispatch('navigateToPortalHome')
         }
+        // 切系统：挂起 iframe/页签登记，清 dock + iframe，再回首页，避免旧路由把页签加回来
+        commit('SET_IFRAME_SYNC_SUSPENDED', true)
         return dispatch('tagsView/clearDockBusinessTabs', null, { root: true }).then(() => {
-          // 停在门户首页：先切壳出子快捷导航；后台懒加载子权限 + 主系统资源
-          if (stayOnPortalHome) {
-            return dispatch('activateSubSystemShell', {
-              clientId: targetSystem,
-              skipPersist: true
-            }).then(() => {
-              schedulePortalBootstrap(() => dispatch('warmSubSystemDefaultInBackground', targetSystem))
-              if (skipNavigate) {
-                return Promise.resolve()
-              }
-              return dispatch('navigateToPortalHome')
-            })
-          }
-          return dispatch('enterSubSystem', {
+          return dispatch('activateSubSystemShell', {
             clientId: targetSystem,
-            navigate: false,
-            stayOnPortalHome: false
+            skipPersist: true
           }).then(() => {
-            if (isMainBusinessPath(router.currentRoute.path)) {
-              return dispatch('navigateToPortalHome')
-            }
+            schedulePortalBootstrap(() =>
+              dispatch('ensureSubSystemReady', targetSystem).then(() =>
+                dispatch('warmSubSystemDefaultInBackground', targetSystem)
+              )
+            )
             if (skipNavigate) {
+              commit('SET_IFRAME_SYNC_SUSPENDED', false)
               return Promise.resolve()
             }
-            return dispatch('navigateToPortalHome')
+            return dispatch('navigateToPortalHome', { clearDock: true }).finally(() => {
+              commit('SET_IFRAME_SYNC_SUSPENDED', false)
+            })
           })
         })
       })
@@ -788,6 +685,7 @@ const actions = {
   enterMainSystem({ commit, dispatch, state, rootState }, payload) {
     const stayOnPortalHome = payload && payload.stayOnPortalHome
     const skipNavigate = payload && payload.skipNavigate
+    const clearDock = payload && payload.clearDock === true
     const ensureMainMenus = () => {
       // 门户首页：快捷导航走独立接口，完整菜单树交给后台 warm，不挡首屏
       if (stayOnPortalHome) {
@@ -812,7 +710,7 @@ const actions = {
         return Promise.resolve()
       }
       if (stayOnPortalHome) {
-        return dispatch('navigateToPortalHome')
+        return dispatch('navigateToPortalHome', { clearDock })
       }
       return dispatch('tagsView/keepMainViews', null, { root: true }).then(() => {
         return dispatch('goMain')
@@ -824,15 +722,35 @@ const actions = {
     return goPortalIndex()
   },
 
-  /** 回到门户 /index，保留 dock 已打开页签（仅隐藏当前页）；不改变当前系统 */
-  navigateToPortalHome({ commit, dispatch, state }) {
+  /** 回到门户 /index。clearDock=true：切系统场景，不保留上一系统页签 */
+  navigateToPortalHome({ commit, dispatch, state }, payload) {
+    const clearDock = payload && payload.clearDock === true
     if (state.currentSystem) {
       persistPortalSystemChoice(state.currentSystem)
     }
-    commit('SET_PRESERVE_DOCK_TABS', true)
-    commit('SET_PORTAL_PATH_LINKS', {})
-    return dispatch('tagsView/prunePortalHomeViews', null, { root: true }).then(() => {
+    // 切系统：禁止 preserve，落地 /index 时 beforeEach 还会再清一次
+    commit('SET_PRESERVE_DOCK_TABS', !clearDock)
+    if (clearDock) {
+      commit('SET_IFRAME_SYNC_SUSPENDED', true)
+    }
+    const cachedLinks = state.currentSystem && state.currentSystem !== 'main'
+      ? state.subSystemPathLinkCache[state.currentSystem]
+      : null
+    if (cachedLinks) {
+      commit('SET_PORTAL_PATH_LINKS', sanitizePathLinkMap(cachedLinks))
+    }
+    const prune = clearDock
+      ? dispatch('tagsView/clearDockBusinessTabs', null, { root: true })
+      : dispatch('tagsView/prunePortalHomeViews', null, { root: true })
+    return prune.then(() => {
       return goPortalIndex().finally(() => {
+        if (clearDock) {
+          // 路由已到首页后再清一次，杜绝旧 path 的 TagsView.addTags 回写
+          return dispatch('tagsView/clearDockBusinessTabs', null, { root: true }).finally(() => {
+            commit('SET_IFRAME_SYNC_SUSPENDED', false)
+            commit('SET_PRESERVE_DOCK_TABS', false)
+          })
+        }
         commit('SET_PRESERVE_DOCK_TABS', false)
       })
     })
@@ -845,7 +763,12 @@ const actions = {
     }
     commit('SET_IFRAME_SYNC_SUSPENDED', true)
     commit('SET_PRESERVE_DOCK_TABS', true)
-    commit('SET_PORTAL_PATH_LINKS', {})
+    const cachedLinks = state.currentSystem && state.currentSystem !== 'main'
+      ? state.subSystemPathLinkCache[state.currentSystem]
+      : null
+    if (cachedLinks) {
+      commit('SET_PORTAL_PATH_LINKS', sanitizePathLinkMap(cachedLinks))
+    }
     return dispatch('tagsView/prunePortalHomeViews', null, { root: true }).then(() => {
       return goPortalIndex().finally(() => {
         commit('SET_IFRAME_SYNC_SUSPENDED', false)
@@ -903,17 +826,12 @@ const actions = {
       payload && typeof payload === 'object' ? payload.clientId : payload
     )
     const activate = !(payload && typeof payload === 'object' && payload.activate === false)
+    const force = !!(payload && typeof payload === 'object' && payload.force)
     const startGen = payload && typeof payload === 'object' && payload.startGen != null
       ? payload.startGen
       : portalWarmGeneration
 
-    const ensureCached = () => {
-      if (state.loadedSubSystems[key]) {
-        return Promise.resolve(state.subSystemEntryPaths[key])
-      }
-      if (state.loadingSubSystems[key]) {
-        return state.loadingSubSystems[key]
-      }
+    const startLoad = () => {
       const task = dispatch('loadSubSystemPortal', key).finally(() => {
         const nextMap = { ...state.loadingSubSystems }
         delete nextMap[key]
@@ -924,6 +842,21 @@ const actions = {
         [key]: task
       }
       return task
+    }
+
+    const ensureCached = () => {
+      // 非强制：已加载则复用内存树（性能）
+      if (!force && state.loadedSubSystems[key]) {
+        return Promise.resolve(state.subSystemEntryPaths[key])
+      }
+      if (!force && state.loadingSubSystems[key]) {
+        return state.loadingSubSystems[key]
+      }
+      // 强制刷新：若已有进行中的加载，等结束后再拉一次，保证拿到最新 my-menus
+      if (force && state.loadingSubSystems[key]) {
+        return state.loadingSubSystems[key].catch(() => null).then(() => startLoad())
+      }
+      return startLoad()
     }
 
     return ensureCached().then(entryPath => {
@@ -961,21 +894,30 @@ const actions = {
         const portalHome = null
         const signature = buildMenuSignature(menus, portalHome)
         dispatch('ensureMainSidebarCached')
-        return dispatch('GenerateSubSystemRoutes', {
-          subSystemId,
-          clientId: target.clientId,
-          menus,
-          portalHome,
-          applyToLive: false
-        }, { root: true }).then(({ sidebarRoutes }) => {
+        return Promise.all([
+          dispatch('GenerateSubSystemRoutes', {
+            subSystemId,
+            clientId: target.clientId,
+            menus,
+            portalHome,
+            applyToLive: false
+          }, { root: true }),
+          getMyPortalMenusVersion(subSystemId).catch(() => ({ data: 0 }))
+        ]).then(([{ sidebarRoutes }, versionRes]) => {
           const sidebarRouters = sidebarRoutes || []
           const pathLinkMap = sanitizePathLinkMap(buildPortalPathLinkMap(sidebarRouters))
           if (Object.keys(pathLinkMap).length === 0) {
             return Promise.reject(new Error('外部系统菜单未配置有效链接'))
           }
           const entryPath = '/index'
+          const rbacVersion = Number(versionRes && versionRes.data)
           commit('SET_SUB_SYSTEM_PATH_LINK_CACHE', { clientId: target.clientId, pathLinkMap })
-          commit('MARK_SUB_SYSTEM_LOADED', { clientId: target.clientId, signature, entryPath })
+          commit('MARK_SUB_SYSTEM_LOADED', {
+            clientId: target.clientId,
+            signature,
+            entryPath,
+            rbacVersion: Number.isFinite(rbacVersion) ? rbacVersion : 0
+          })
           commit('SET_SUB_SYSTEM_SIDEBAR_CACHE', {
             clientId: target.clientId,
             sidebarRouters
@@ -985,9 +927,33 @@ const actions = {
             commit('SET_PORTAL_PATH_LINKS', pathLinkMap)
             commit('SET_SIDEBAR_ROUTERS', sidebarRouters, { root: true })
           }
+          // 菜单就绪后后台预热 Camstar 页面壳（缩小与原生 4200 的首开差距）
+          dispatch('prefetchCamstarShells', { clientId: target.clientId, pathLinkMap })
           return entryPath
         })
       })
+    })
+  },
+
+  /**
+   * 进入含 Camstar 的子系统后：本机 Cookie + 源站探活。
+   * 禁止 CLEAR 保温 iframe（对齐 4200：已开页面用 v-show，再点应瞬间切回）。
+   */
+  prefetchCamstarShells(_ctx, { clientId, pathLinkMap, limit }) {
+    const map = pathLinkMap || {}
+    const entries = collectCamstarPrefetchEntries(map, limit == null ? 6 : limit)
+    if (!entries.length) {
+      return Promise.resolve(0)
+    }
+    return prepareCamstarSessionFromEntries(entries).then(count => {
+      if (typeof console !== 'undefined' && console.log) {
+        console.log(
+          `%c[camstar-prefetch] cookie+origin client=${clientId || '-'} count=${count}`,
+          'color:#909399',
+          entries.map(e => e.path)
+        )
+      }
+      return count
     })
   },
 
@@ -1007,6 +973,7 @@ const actions = {
       const pathLinkMap = state.subSystemPathLinkCache[key]
       if (pathLinkMap) {
         commit('SET_PORTAL_PATH_LINKS', sanitizePathLinkMap(pathLinkMap))
+        dispatch('prefetchCamstarShells', { clientId: key, pathLinkMap })
       }
       const sidebarRouters = state.subSystemSidebarCache[key]
       if (sidebarRouters && sidebarRouters.length) {
@@ -1053,60 +1020,6 @@ const actions = {
         return dispatch('navigateToPortalHome')
       })
     })
-  },
-
-  runSilentSso({ commit, state }, clientId) {
-    const key = normalizeSystemKey(clientId)
-    if (state.ssoDone[key]) {
-      commit('CLEAR_SSO_ERROR', key)
-      return Promise.resolve()
-    }
-    if (state.loadingSso[key]) {
-      return state.loadingSso[key]
-    }
-    const ref = findSystemByClientId(state, key)
-    if (!ref) {
-      const err = new Error('无效的外部系统')
-      commit('SET_SSO_ERROR', { clientId: key, message: err.message })
-      return Promise.reject(err)
-    }
-    commit('CLEAR_SSO_ERROR', key)
-    const oauthClientId = ref.clientId
-    const redirectUri = buildSubsystemSsoCallbackUri(oauthClientId)
-    const scopes = ['user.read']
-    const task = authorize('code', oauthClientId, redirectUri, oauthClientId, true, scopes, []).then(res => {
-      const href = res && res.data
-      if (!href) {
-        return Promise.reject(new Error(
-          `SSO 自动授权未通过，请检查 OAuth2 应用 ${oauthClientId} 的 redirect_uris 与 auto_approve_scopes`
-        ))
-      }
-      return loadHiddenSsoIframe(href, oauthClientId)
-    }).then(() => {
-      commit('MARK_SSO_DONE', key)
-      commit('CLEAR_SSO_ERROR', key)
-    }).catch(err => {
-      commit('CLEAR_SSO_DONE', key)
-      commit('SET_SSO_ERROR', {
-        clientId: key,
-        message: (err && err.message) || `${key} SSO 登录失败`
-      })
-      return Promise.reject(err)
-    }).finally(() => {
-      const nextMap = { ...state.loadingSso }
-      delete nextMap[key]
-      state.loadingSso = nextMap
-    })
-    state.loadingSso = {
-      ...state.loadingSso,
-      [key]: task
-    }
-    return task
-  },
-
-  /** 已废弃：首页禁止预热 OAuth，保留空实现以免旧调用报错 */
-  preAuthSso() {
-    return Promise.resolve()
   }
 }
 
@@ -1139,6 +1052,15 @@ function resolveBootstrapTargetSystem(systemList, defaultConfig) {
   return resolvePortalBootstrapSystem(defaultConfig, list)
 }
 
+/** 按系统 clientId 解析快捷导航接口所需的 subSystemId（主系统为 0） */
+function resolveQuickNavSubSystemIdFromList(systemList, systemKey) {
+  if (!systemKey || systemKey === 'main') {
+    return 0
+  }
+  const sys = (systemList || []).find(item => item.clientId === systemKey)
+  return sys && sys.subSystemId != null ? Number(sys.subSystemId) || 0 : 0
+}
+
 function resolvePortalBootstrapSystem(defaultConfig, systemList) {
   const list = systemList || []
   const ruleDefault = resolveRuleBasedPortalDefault(list)
@@ -1147,51 +1069,6 @@ function resolvePortalBootstrapSystem(defaultConfig, systemList) {
     return 'main'
   }
   return list.some(item => item.clientId === preferred) ? preferred : ruleDefault
-}
-
-function loadHiddenSsoIframe(src, clientId) {
-  return new Promise((resolve, reject) => {
-    const iframe = document.createElement('iframe')
-    iframe.style.cssText = 'position:fixed;width:0;height:0;border:0;opacity:0;pointer-events:none'
-    let finished = false
-    const cleanup = () => {
-      window.removeEventListener('message', onMessage)
-      clearTimeout(timer)
-      if (iframe.parentNode) {
-        iframe.parentNode.removeChild(iframe)
-      }
-    }
-    const finish = (success, err) => {
-      if (finished) {
-        return
-      }
-      finished = true
-      cleanup()
-      if (success) {
-        resolve()
-      } else {
-        reject(err || new Error(`${clientId} SSO 登录失败`))
-      }
-    }
-    const onMessage = (event) => {
-      const data = event && event.data
-      if (!isSubsystemSsoDoneMessage(data, clientId)) {
-        return
-      }
-      finish(
-        !!data.success,
-        data.success ? null : new Error(`${clientId} SSO 登录失败，请确认门户账号在子系统中存在`)
-      )
-    }
-    window.addEventListener('message', onMessage)
-    // 子系统回调慢或门户鉴权高峰时，5s 极易误报超时；与守卫超时对齐放宽
-    const timer = setTimeout(() => {
-      finish(false, new Error(`${clientId} SSO 登录超时`))
-    }, 10000)
-    iframe.onerror = () => finish(false, new Error(`${clientId} SSO iframe 加载失败`))
-    document.body.appendChild(iframe)
-    iframe.src = src
-  })
 }
 
 function isPortalIndexPath(path) {
@@ -1231,6 +1108,10 @@ function joinPortalMenuPath(base, segment) {
   if (!segment) {
     return base || ''
   }
+  // 与 permission.joinPortalRoutePath 一致：勿把 Camstar http 拼进门户地址
+  if (/^(https?:|mailto:|tel:)/i.test(segment) || /https?:\/\//i.test(segment)) {
+    return base || ''
+  }
   if (segment.startsWith('/')) {
     return segment.replace(/\/+/g, '/')
   }
@@ -1248,10 +1129,19 @@ function buildPortalPathLinkMap(routes, parentPath = '', map = {}) {
       return
     }
     if (route.meta && route.meta.link) {
+      const clientId = parsePortalClientId(currentPath) || (route.meta && route.meta.clientId)
+      const title = resolvePortalMenuTitle(
+        route.meta.menuTitle,
+        route.meta.title,
+        route.name
+      ) || '业务页'
       const entry = {
-        link: route.meta.link,
-        title: route.meta.title || route.name || '外部系统',
-        icon: route.meta.icon
+        link: normalizeSubsystemIframeLink(route.meta.link, clientId),
+        title,
+        menuTitle: title,
+        icon: route.meta.icon,
+        // camstar=主系统直开（无 SSO）；ruoyi=子系统 OAuth
+        kind: route.meta.portalKind || (String(route.meta.link).indexOf('#') >= 0 ? 'ruoyi' : 'camstar')
       }
       map[currentPath] = entry
       if (currentPath.endsWith('/index')) {
@@ -1260,31 +1150,19 @@ function buildPortalPathLinkMap(routes, parentPath = '', map = {}) {
           map[parentAlias] = entry
         }
       }
+      // 旧书签 /portal/x/m{id} → 仍可命中，并带 canonicalPath 跳到 MES 对齐 path
+      const menuId = route.meta.menuId
+      if (clientId && menuId != null && menuId !== '') {
+        const legacyEntry = { ...entry, canonicalPath: currentPath }
+        const legacyShort = `/portal/${clientId}/m${menuId}`
+        map[legacyShort] = legacyEntry
+      }
     }
     if (route.children && route.children.length) {
       buildPortalPathLinkMap(route.children, currentPath, map)
     }
   })
   return map
-}
-
-function parseSsoParams(ssoUrl) {
-  try {
-    const absoluteUrl = ssoUrl.startsWith('http')
-      ? ssoUrl
-      : `${window.location.origin}${ssoUrl}`
-    const url = new URL(absoluteUrl)
-    const scope = url.searchParams.get('scope') || 'user.read'
-    return {
-      responseType: url.searchParams.get('response_type') || 'code',
-      clientId: url.searchParams.get('client_id'),
-      redirectUri: url.searchParams.get('redirect_uri'),
-      state: url.searchParams.get('state') || undefined,
-      scopes: scope.split(' ').filter(Boolean)
-    }
-  } catch (e) {
-    return null
-  }
 }
 
 function parseEnterSubSystemPayload(payload) {
@@ -1302,21 +1180,6 @@ function parseEnterSubSystemPayload(payload) {
     navigate: true,
     stayOnPortalHome: false
   }
-}
-
-function clearHealthProbeTimer(clientId) {
-  const runtime = healthProbeRuntime[clientId]
-  if (!runtime) {
-    return
-  }
-  if (runtime.timer) {
-    clearInterval(runtime.timer)
-  }
-  delete healthProbeRuntime[clientId]
-}
-
-function stopAllHealthProbes() {
-  Object.keys(healthProbeRuntime).forEach(clearHealthProbeTimer)
 }
 
 function normalizeSystemKey(system) {

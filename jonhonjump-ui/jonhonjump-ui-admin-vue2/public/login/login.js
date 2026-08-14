@@ -29,8 +29,16 @@
     // 已登录误进登录页：回门户，保留当前系统会话
     window.location.href = portalUrl
   } else {
-    // 真正重新登录：清门户会话，首进走星标默认
-    ;['portal_last_system', 'portal_subsystem_cache', 'portal_sso_done', 'portal_quick_nav_cache_v1'].forEach(function (key) {
+    // 真正重新登录：清门户会话，首进走星标默认（含各版快捷导航缓存，防串用户）
+    ;[
+      'portal_last_system',
+      'portal_subsystem_cache',
+      'portal_sso_done',
+      'portal_quick_nav_cache_v1',
+      'portal_quick_nav_cache_v2',
+      'portal_quick_nav_cache_v3',
+      'portal_main_boot_id'
+    ].forEach(function (key) {
       try { sessionStorage.removeItem(key) } catch (e) { /* ignore */ }
     })
   }

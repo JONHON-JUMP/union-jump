@@ -44,4 +44,14 @@ public interface SubSystemUserQuickNavMapper extends BaseMapperX<SubSystemUserQu
             + "</script>")
     void deleteByMenuIds(@Param("menuIds") Collection<Long> menuIds);
 
+    @Delete("<script>DELETE FROM sub_system_user_quick_nav WHERE sub_system_id = #{subSystemId}"
+            + " AND user_id IN "
+            + "<foreach collection='userIds' item='uid' open='(' separator=',' close=')'>#{uid}</foreach>"
+            + " AND menu_id IN "
+            + "<foreach collection='menuIds' item='id' open='(' separator=',' close=')'>#{id}</foreach>"
+            + "</script>")
+    void deleteByUserIdsAndSubSystemIdAndMenuIds(@Param("userIds") Collection<Long> userIds,
+                                                 @Param("subSystemId") Long subSystemId,
+                                                 @Param("menuIds") Collection<Long> menuIds);
+
 }
