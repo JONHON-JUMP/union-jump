@@ -1,1 +1,0 @@
--- 已迁移至 system_menu_style_admin_menu.sql（菜单样式 + system:menu-style:* 权限）
