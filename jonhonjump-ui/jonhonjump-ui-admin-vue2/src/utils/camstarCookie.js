@@ -26,6 +26,12 @@ export function saveCamstarCookieKey(key) {
 }
 
 export function resolveCamstarCookieKey() {
+  // 当前登录用户永远最权威：换号登录/刷新会话时自动纠偏旧 Cookie，避免残留上一个账号的 key
+  const username = getUsername()
+  const fromUser = username ? toBase64Utf8(username) : ''
+  if (fromUser) {
+    return fromUser
+  }
   const saved = sessionStorage.getItem(COOKIEKEY_STORE)
   if (saved) {
     return saved
@@ -34,11 +40,13 @@ export function resolveCamstarCookieKey() {
   if (existing) {
     return existing
   }
-  const username = getUsername()
-  if (!username) {
-    return ''
-  }
-  return toBase64Utf8(username)
+  return ''
+}
+
+/** 退出登录时清残留：同一浏览器换号后不得再带上一账号的 Camstar 会话 */
+export function clearCamstarCookie() {
+  sessionStorage.removeItem(COOKIEKEY_STORE)
+  Cookies.remove(CAMSTAR_COOKIE, { path: '/' })
 }
 
 /** 对齐 4200 setCookie：在当前页 host 写入 Cookie（打开 Camstar 前调用即可） */
