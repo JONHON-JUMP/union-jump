@@ -39,6 +39,8 @@ public class ProcessServiceImpl implements ProcessService{
     private CaoeTableMapper caoeTableMapper;
     @Resource
     private TemporaryProcessTreeAssembler temporaryProcessTreeAssembler;
+    @Resource
+    private FormalProcessTreeAssembler formalProcessTreeAssembler;
 
     /**
      * 查看工艺卡片
@@ -49,50 +51,8 @@ public class ProcessServiceImpl implements ProcessService{
     public List<ProcessCardRespVO> queryCard(ProcessCardReqVO reqVO) {
 
         // 正式工艺
-        if (reqVO.getAccno().startsWith(CommonConstant.PDM_FORMAL_ACCNO_PREFIX) || reqVO.getAccno().startsWith(CommonConstant.MPM_FORMAL_ACCNO_PREFIX)) {
-
-            // 调用接口获取工艺信息
-
-
-            // MPM正式工艺
-            if (reqVO.getAccno().startsWith(CommonConstant.MPM_FORMAL_ACCNO_PREFIX)) {
-
-            }
-
-            // PDM正式工艺
-            if (reqVO.getAccno().startsWith(CommonConstant.PDM_FORMAL_ACCNO_PREFIX)) {
-
-            }
-
-            FormalProcessReqVO queryRouteStructInfoReqVO = FormalProcessReqVO.builder().fnumber(reqVO.getAccno()).build();
-            String reqParam = JSON.toJSONString(queryRouteStructInfoReqVO);
-
-            JSONArray ppopLinkJsonArray = thirdPartyRouteService.invoke(
-                    InvokeIdConstant.GetPrtRoutInfo,
-                    CommonConstant.JUMP,
-                    CommonConstant.WXD,
-                    reqParam,
-            null,
-            response -> {
-                    if (StringUtils.isEmpty(response.getBody())) {
-                        throw exception(new ErrorCode(500, "工艺信息查询失败"));
-                    }
-
-                    JSONObject jsonObject = JSONObject.parseObject(response.getBody());
-                    if (!jsonObject.containsKey(CommonConstant.DATA)) {
-                        throw exception(new ErrorCode(500, "工艺信息查询失败"));
-                    }
-                    else {
-                        if (!jsonObject.containsKey(CommonConstant.CAOE_PPOP_LINK)) {
-                            throw exception(new ErrorCode(500, "工艺信息查询失败"));
-                        }
-                        else {
-                            return jsonObject.getJSONArray(CommonConstant.CAOE_PPOP_LINK);
-                        }
-                    }
-                }
-            );
-
+        if (reqVO.getAccno().startsWith(CommonConstant.PDM_FORMAL_ACCNO_PREFIX)) {
+            return queryFormalCard(reqVO.getAccno());
         }
         // 临时工艺
         else {
@@ -196,7 +156,66 @@ public class ProcessServiceImpl implements ProcessService{
                     .build();
             return Collections.singletonList(card);
         }
+    }
 
-        return null;
+    private List<ProcessCardRespVO> queryFormalCard(String accno) {
+        FormalProcessReqVO request = FormalProcessReqVO.builder()
+                .objType("com.glaway.dtp.business.model.process.ProcessModel")
+                .objNumbers(Collections.singletonList(accno))
+                .isLatest("true")
+                .build();
+
+        JSONObject responseBody = thirdPartyRouteService.invoke(
+                InvokeIdConstant.queryRouteStructInfo,
+                CommonConstant.JUMP,
+                CommonConstant.WXD,
+                JSON.toJSONString(request),
+                null,
+                response -> parseFormalVersionResponse(response.getBody())
+        );
+        JSONArray result = responseBody.getJSONArray("result");
+        String fullVersion = result.getJSONObject(0).getString("version");
+        String version = fullVersion.substring(0, fullVersion.indexOf('.') >= 0
+                ? fullVersion.indexOf('.') : fullVersion.length());
+
+        String state = caoeTableMapper.queryProcessState(accno, version);
+        if (!CommonConstant.PUBLISHED.equals(state)) {
+            throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
+        }
+
+        boolean mpm = accno.startsWith(CommonConstant.MPM_FORMAL_ACCNO_PREFIX);
+        List<ProcessCardDetailsRespVO> details = formalProcessTreeAssembler.assemble(accno, version, mpm);
+        ProcessCardRespVO card = ProcessCardRespVO.builder()
+                .accno(accno)
+                .version(version)
+                .isFormal(YesOrNo.YES.getType())
+                .isFix(YesOrNo.NO.getType())
+                .details(details)
+                .build();
+        return Collections.singletonList(card);
+    }
+
+    private JSONObject parseFormalVersionResponse(String body) {
+        if (StringUtils.isBlank(body)) {
+            throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
+        }
+        JSONObject envelope;
+        try {
+            envelope = JSONObject.parseObject(body);
+        } catch (RuntimeException parseException) {
+            throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
+        }
+        if (envelope == null
+                || !Boolean.TRUE.equals(envelope.getBoolean("success"))
+                || !Integer.valueOf(HttpStatus.SC_OK).equals(envelope.getInteger("code"))
+                || !(envelope.get("result") instanceof JSONArray)) {
+            throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
+        }
+        JSONArray result = envelope.getJSONArray("result");
+        if (result.isEmpty() || !(result.get(0) instanceof JSONObject)
+                || StringUtils.isBlank(result.getJSONObject(0).getString("version"))) {
+            throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
+        }
+        return envelope;
     }
 }

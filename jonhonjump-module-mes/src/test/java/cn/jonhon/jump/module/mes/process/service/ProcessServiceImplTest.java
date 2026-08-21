@@ -49,6 +49,8 @@ class ProcessServiceImplTest {
     private CaoeTableMapper caoeTableMapper;
     @Mock
     private TemporaryProcessTreeAssembler treeAssembler;
+    @Mock
+    private FormalProcessTreeAssembler formalProcessTreeAssembler;
 
     private ProcessCardDetailsRespVO detail;
 
@@ -114,6 +116,66 @@ class ProcessServiceImplTest {
             assertEquals("430", thirdPartyRequest.getString("plndept"));
             assertEquals("0", thirdPartyRequest.getString("fxtype"));
             assertEquals(0, result.getIsFix());
+        }
+    }
+
+    @Test
+    void queryCard_buildsMpmFormalProcessCardFromLatestVersion() {
+        List<ProcessCardDetailsRespVO> details = Collections.singletonList(detail);
+        when(caoeTableMapper.queryProcessState("CX0000000048", "B")).thenReturn("已发行");
+        when(formalProcessTreeAssembler.assemble("CX0000000048", "B", true)).thenReturn(details);
+        AtomicReference<String> requestJson = new AtomicReference<>();
+
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockFormalRoute("B.1", requestJson)) {
+            ProcessCardRespVO result = service.queryCard(requestWithoutMaterial("CX0000000048")).get(0);
+
+            JSONObject thirdPartyRequest = JSON.parseObject(requestJson.get());
+            assertEquals("com.glaway.dtp.business.model.process.ProcessModel",
+                    thirdPartyRequest.getString("objType"));
+            assertEquals("CX0000000048", thirdPartyRequest.getJSONArray("objNumbers").getString(0));
+            assertEquals("true", thirdPartyRequest.getString("isLatest"));
+            assertEquals("B", result.getVersion());
+            assertEquals(1, result.getIsFormal());
+            assertEquals(0, result.getIsFix());
+            assertEquals(details, result.getDetails());
+            verify(formalProcessTreeAssembler).assemble("CX0000000048", "B", true);
+        }
+    }
+
+    @Test
+    void queryCard_buildsPdmFormalProcessCard() {
+        when(caoeTableMapper.queryProcessState("C0000000048", "A")).thenReturn("已发行");
+        when(formalProcessTreeAssembler.assemble("C0000000048", "A", false))
+                .thenReturn(Collections.singletonList(detail));
+
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockFormalRoute("A", new AtomicReference<>())) {
+            ProcessCardRespVO result = service.queryCard(requestWithoutMaterial("C0000000048")).get(0);
+
+            assertEquals("A", result.getVersion());
+            verify(formalProcessTreeAssembler).assemble("C0000000048", "A", false);
+        }
+    }
+
+    @Test
+    void queryCard_rejectsUnpublishedFormalProcess() {
+        when(caoeTableMapper.queryProcessState("CX0000000048", "B")).thenReturn("正在工作");
+
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockFormalRoute("B.1", new AtomicReference<>())) {
+            ServiceException exception = assertThrows(ServiceException.class,
+                    () -> service.queryCard(requestWithoutMaterial("CX0000000048")));
+
+            assertEquals("工艺未发行，无法查看", exception.getMessage());
+        }
+    }
+
+    @Test
+    void queryCard_rejectsMalformedFormalVersionResponse() {
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockFormalEnvelope(
+                "{\"success\":true,\"code\":200,\"result\":[]}")) {
+            ServiceException exception = assertThrows(ServiceException.class,
+                    () -> service.queryCard(requestWithoutMaterial("CX0000000048")));
+
+            assertEquals("工艺版本信息查询失败", exception.getMessage());
         }
     }
 
@@ -206,8 +268,39 @@ class ProcessServiceImplTest {
         return routeService;
     }
 
+    private MockedStatic<ThirdPartyRouteService> mockFormalRoute(String version,
+                                                                 AtomicReference<String> requestJson) {
+        String envelope = "{\"success\":true,\"code\":200,\"result\":[{\"version\":\""
+                + version + "\"}]}";
+        MockedStatic<ThirdPartyRouteService> routeService = mockStatic(ThirdPartyRouteService.class);
+        routeService.when(() -> ThirdPartyRouteService.invoke(
+                        eq("2"), eq("JUMP"), eq("WXD"), anyString(), isNull(), any()))
+                .thenAnswer(invocation -> {
+                    requestJson.set(invocation.getArgument(3));
+                    Function<ResponseEntity<String>, JSONObject> handler = invocation.getArgument(5);
+                    return handler.apply(ResponseEntity.ok(envelope));
+                });
+        return routeService;
+    }
+
+    @SuppressWarnings("unchecked")
+    private MockedStatic<ThirdPartyRouteService> mockFormalEnvelope(String envelope) {
+        MockedStatic<ThirdPartyRouteService> routeService = mockStatic(ThirdPartyRouteService.class);
+        routeService.when(() -> ThirdPartyRouteService.invoke(
+                        eq("2"), eq("JUMP"), eq("WXD"), anyString(), isNull(), any()))
+                .thenAnswer(invocation -> {
+                    Function<ResponseEntity<String>, JSONObject> handler = invocation.getArgument(5);
+                    return handler.apply(ResponseEntity.ok(envelope));
+                });
+        return routeService;
+    }
+
     private ProcessCardReqVO request(String accno) {
         return ProcessCardReqVO.builder().prtno("21ET0-009-39095-B1").accno(accno).build();
+    }
+
+    private ProcessCardReqVO requestWithoutMaterial(String accno) {
+        return ProcessCardReqVO.builder().accno(accno).build();
     }
 
     private JSONObject repairResponseBody() {
