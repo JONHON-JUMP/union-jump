@@ -9,4 +9,26 @@
             resultType="cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.CaoeDocInfoDTO">
         select oid AS oid, doc_sate AS docSate from caoe_doc where doc_number = #{docNumber}
     </select>
+
+    <select id="queryProcessState" resultType="java.lang.String">
+        SELECT pp_state FROM CAOE_PP
+        WHERE PP_NUMBER = #{accno} AND PP_VERSION = #{version}
+    </select>
+
+    <select id="queryChildOperations"
+            resultType="cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.ProcessOperationDTO">
+        SELECT cname, cnumber, label, cversion FROM CAOE_PPOPLINK
+        WHERE FNUMBER = #{number} AND FVERSION = #{version}
+        ORDER BY label ASC
+    </select>
+
+    <select id="queryPdmOperationLink" resultType="java.lang.String">
+        SELECT op_link FROM CAOE_OP
+        WHERE OP_NUMBER = #{number} AND OP_VERSION = #{version}
+    </select>
+
+    <select id="queryMpmOperationOid" resultType="java.lang.String">
+        SELECT oid FROM CAOE_OP
+        WHERE OP_NUMBER = #{number} AND OP_VERSION = #{version}
+    </select>
 </mapper>

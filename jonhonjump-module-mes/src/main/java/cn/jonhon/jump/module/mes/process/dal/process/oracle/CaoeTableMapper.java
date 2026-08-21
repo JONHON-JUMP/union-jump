@@ -1,9 +1,12 @@
 package cn.jonhon.jump.module.mes.process.dal.process.oracle;
 
 import cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.CaoeDocInfoDTO;
+import cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.ProcessOperationDTO;
 import com.baomidou.dynamic.datasource.annotation.DS;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
 
 /**
  * CAOE_PP Mapper。
@@ -21,4 +24,13 @@ public interface CaoeTableMapper {
      * @return
      */
     CaoeDocInfoDTO queryDocInfo(@Param("docNumber") String docNumber);
+
+    String queryProcessState(@Param("accno") String accno, @Param("version") String version);
+
+    List<ProcessOperationDTO> queryChildOperations(@Param("number") String number,
+                                                   @Param("version") String version);
+
+    String queryPdmOperationLink(@Param("number") String number, @Param("version") String version);
+
+    String queryMpmOperationOid(@Param("number") String number, @Param("version") String version);
 }
