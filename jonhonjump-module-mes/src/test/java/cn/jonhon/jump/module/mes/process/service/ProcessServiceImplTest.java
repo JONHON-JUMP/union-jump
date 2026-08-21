@@ -182,6 +182,21 @@ class ProcessServiceImplTest {
     }
 
     @Test
+    void queryCard_rejectsNonNumericFormalResponseCode() {
+        assertFormalVersionError("{\"success\":true,\"code\":{},\"result\":[{\"version\":\"B.1\"}]}");
+    }
+
+    @Test
+    void queryCard_rejectsNonStringFormalVersion() {
+        assertFormalVersionError("{\"success\":true,\"code\":200,\"result\":[{\"version\":1}]}");
+    }
+
+    @Test
+    void queryCard_rejectsBlankMajorFormalVersion() {
+        assertFormalVersionError("{\"success\":true,\"code\":200,\"result\":[{\"version\":\".1\"}]}");
+    }
+
+    @Test
     void queryFileUrl_usesLowercaseOidAndReturnsMpmUrl() {
         AtomicReference<String> requestJson = new AtomicReference<>();
 
@@ -205,6 +220,26 @@ class ProcessServiceImplTest {
                     () -> service.queryFileUrl(ProcessFileUrlReqVO.builder().oid("12345").build()));
 
             assertEquals("工艺文件地址获取失败", exception.getMessage());
+        }
+    }
+
+    @Test
+    void queryFileUrl_rejectsNonStringResultUrl() {
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockFileRoute(
+                "{\"success\":true,\"code\":200,\"result\":{\"url\":123}}",
+                new AtomicReference<>())) {
+            ServiceException exception = assertThrows(ServiceException.class,
+                    () -> service.queryFileUrl(ProcessFileUrlReqVO.builder().oid("12345").build()));
+
+            assertEquals("工艺文件地址获取失败", exception.getMessage());
+        }
+    }
+
+    private void assertFormalVersionError(String envelope) {
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockFormalEnvelope(envelope)) {
+            ServiceException exception = assertThrows(ServiceException.class,
+                    () -> service.queryCard(requestWithoutMaterial("CX0000000048")));
+            assertEquals("工艺版本信息查询失败", exception.getMessage());
         }
     }
 

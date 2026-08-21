@@ -172,7 +172,9 @@ export default {
       displayProcessTree: [],
       recentQueries: [],
       querySequence: 0,
-      viewLoadingId: ''
+      viewLoadingId: '',
+      viewSequence: 0,
+      viewWindow: null
     }
   },
   computed: {
@@ -291,6 +293,8 @@ export default {
         this.setAllExpanded(true)
       } catch (error) {
         if (querySequence !== this.querySequence) return
+        this.processTree = []
+        this.displayProcessTree = []
       } finally {
         if (querySequence === this.querySequence) this.loading = false
       }
@@ -306,7 +310,10 @@ export default {
       this.processTree = []
       this.displayProcessTree = []
       this.loading = false
+      this.viewSequence++
+      if (this.viewWindow && typeof this.viewWindow.close === 'function') this.viewWindow.close()
       this.viewLoadingId = ''
+      this.viewWindow = null
     },
     getNodeIndex(row) {
       return row.idx || '—'
@@ -324,18 +331,34 @@ export default {
         return
       }
       if (row.externalUrl) {
+        this.viewSequence++
+        if (this.viewWindow && typeof this.viewWindow.close === 'function') this.viewWindow.close()
+        this.viewLoadingId = ''
+        this.viewWindow = null
         const openedWindow = window.open(row.externalUrl, '_blank', 'noopener,noreferrer')
         if (openedWindow) openedWindow.opener = null
         return
       }
+      if (this.viewLoadingId === row.id) return
 
+      const viewSequence = ++this.viewSequence
+      if (this.viewWindow && typeof this.viewWindow.close === 'function') this.viewWindow.close()
       const openedWindow = window.open('about:blank', '_blank')
       if (openedWindow) openedWindow.opener = null
+      this.viewWindow = openedWindow
       this.viewLoadingId = row.id
+      let invalidPayload = false
       try {
         const response = await queryProcessFileUrl({ oid: row.oid })
         const payload = response && response.data ? response.data : response
-        if (!payload || !payload.url) throw new Error('工艺文件地址获取失败')
+        if (!payload || !payload.url) {
+          invalidPayload = true
+          throw new Error('工艺文件地址获取失败')
+        }
+        if (viewSequence !== this.viewSequence) {
+          if (openedWindow && typeof openedWindow.close === 'function') openedWindow.close()
+          return
+        }
         if (openedWindow) {
           openedWindow.location.href = payload.url
         } else {
@@ -343,10 +366,14 @@ export default {
           if (fallbackWindow) fallbackWindow.opener = null
         }
       } catch (error) {
+        if (viewSequence !== this.viewSequence) return
         if (openedWindow && typeof openedWindow.close === 'function') openedWindow.close()
-        this.$message.error('工艺文件地址获取失败')
+        if (invalidPayload) this.$message.error('工艺文件地址获取失败')
       } finally {
-        this.viewLoadingId = ''
+        if (viewSequence === this.viewSequence) {
+          this.viewLoadingId = ''
+          if (this.viewWindow === openedWindow) this.viewWindow = null
+        }
       }
     }
   }

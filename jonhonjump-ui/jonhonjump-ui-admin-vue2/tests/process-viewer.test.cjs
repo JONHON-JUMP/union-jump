@@ -123,7 +123,7 @@ test('queries with material and process numbers then expands the result tree', a
   assert.deepEqual(toggled, [['', true], ['10', true]])
 })
 
-test('keeps the current tree when queryCard fails', async () => {
+test('clears stale results when queryCard fails', async () => {
   const component = loadComponent({ queryProcessCard: () => Promise.reject(new Error('query failed')) })
   const staleTree = [{ id: 'stale' }]
   const context = createContext(component, {
@@ -133,8 +133,8 @@ test('keeps the current tree when queryCard fails', async () => {
   await component.methods.handleQuery.call(context)
 
   assert.equal(context.loading, false)
-  assert.equal(context.processTree, staleTree)
-  assert.equal(context.displayProcessTree, staleTree)
+  assert.equal(context.processTree.length, 0)
+  assert.equal(context.displayProcessTree.length, 0)
 })
 
 test('formal process query only sends the process number', () => {
@@ -238,6 +238,73 @@ test('requests and opens an MPM process link from its oid', async () => {
   assert.deepEqual(calls, [['about:blank', '_blank']])
   assert.equal(openedWindow.opener, null)
   assert.equal(openedWindow.location.href, 'http://mpm.example/12345')
+  assert.equal(context.viewLoadingId, '')
+})
+
+test('ignores a duplicate MPM view click while the same row is loading', async () => {
+  let resolveRequest
+  let requestCount = 0
+  let openCount = 0
+  const component = loadComponent({
+    openWindow: () => {
+      openCount++
+      return { opener: null, location: {}, close: () => {} }
+    },
+    queryProcessFileUrl: () => {
+      requestCount++
+      return new Promise(resolve => { resolveRequest = resolve })
+    }
+  })
+  const context = createContext(component, {
+    $message: { warning: () => {}, error: () => {} }
+  })
+  const row = { id: 'op-1', oid: '12345', externalUrl: '' }
+
+  const first = component.methods.handleView.call(context, row)
+  const duplicate = component.methods.handleView.call(context, row)
+
+  assert.equal(requestCount, 1)
+  assert.equal(openCount, 1)
+  resolveRequest({ data: { url: 'http://mpm.example/12345' } })
+  await Promise.all([first, duplicate])
+})
+
+test('only the newest MPM view request can navigate or clear loading', async () => {
+  const pending = []
+  const windows = []
+  const component = loadComponent({
+    openWindow: () => {
+      const openedWindow = {
+        opener: null,
+        location: {},
+        closed: false,
+        close() { this.closed = true }
+      }
+      windows.push(openedWindow)
+      return openedWindow
+    },
+    queryProcessFileUrl: data => new Promise(resolve => pending.push({ data, resolve }))
+  })
+  const context = createContext(component, {
+    $message: { warning: () => {}, error: () => {} }
+  })
+
+  const first = component.methods.handleView.call(
+    context, { id: 'op-1', oid: 'first', externalUrl: '' }
+  )
+  const second = component.methods.handleView.call(
+    context, { id: 'op-2', oid: 'second', externalUrl: '' }
+  )
+
+  assert.equal(windows[0].closed, true)
+  assert.equal(context.viewLoadingId, 'op-2')
+  pending[0].resolve({ data: { url: 'http://mpm.example/first' } })
+  await first
+  assert.equal(windows[0].location.href, undefined)
+  assert.equal(context.viewLoadingId, 'op-2')
+  pending[1].resolve({ data: { url: 'http://mpm.example/second' } })
+  await second
+  assert.equal(windows[1].location.href, 'http://mpm.example/second')
   assert.equal(context.viewLoadingId, '')
 })
 

@@ -167,7 +167,7 @@ public class ProcessServiceImpl implements ProcessService{
                 .isLatest("true")
                 .build();
 
-        JSONObject responseBody = thirdPartyRouteService.invoke(
+        String version = thirdPartyRouteService.invoke(
                 InvokeIdConstant.queryRouteStructInfo,
                 CommonConstant.JUMP,
                 CommonConstant.WXD,
@@ -175,10 +175,6 @@ public class ProcessServiceImpl implements ProcessService{
                 null,
                 response -> parseFormalVersionResponse(response.getBody())
         );
-        JSONArray result = responseBody.getJSONArray("result");
-        String fullVersion = result.getJSONObject(0).getString("version");
-        String version = fullVersion.substring(0, fullVersion.indexOf('.') >= 0
-                ? fullVersion.indexOf('.') : fullVersion.length());
 
         String state = caoeTableMapper.queryProcessState(accno, version);
         if (!CommonConstant.PUBLISHED.equals(state)) {
@@ -197,7 +193,7 @@ public class ProcessServiceImpl implements ProcessService{
         return Collections.singletonList(card);
     }
 
-    private JSONObject parseFormalVersionResponse(String body) {
+    private String parseFormalVersionResponse(String body) {
         if (StringUtils.isBlank(body)) {
             throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
         }
@@ -207,22 +203,37 @@ public class ProcessServiceImpl implements ProcessService{
         } catch (RuntimeException parseException) {
             throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
         }
+        Object code = envelope == null ? null : envelope.get("code");
         if (envelope == null
-                || !Boolean.TRUE.equals(envelope.getBoolean("success"))
-                || !Integer.valueOf(HttpStatus.SC_OK).equals(envelope.getInteger("code"))
+                || !Boolean.TRUE.equals(envelope.get("success"))
+                || !(code instanceof Number)
+                || ((Number) code).intValue() != HttpStatus.SC_OK
                 || !(envelope.get("result") instanceof JSONArray)) {
             throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
         }
         JSONArray result = envelope.getJSONArray("result");
-        if (result.isEmpty() || !(result.get(0) instanceof JSONObject)
-                || StringUtils.isBlank(result.getJSONObject(0).getString("version"))) {
+        if (result.isEmpty() || !(result.get(0) instanceof JSONObject)) {
             throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
         }
-        return envelope;
+        Object versionValue = result.getJSONObject(0).get("version");
+        if (!(versionValue instanceof String)) {
+            throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
+        }
+        String fullVersion = ((String) versionValue).trim();
+        int separatorIndex = fullVersion.indexOf('.');
+        String version = fullVersion.substring(0,
+                separatorIndex >= 0 ? separatorIndex : fullVersion.length()).trim();
+        if (StringUtils.isBlank(version)) {
+            throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
+        }
+        return version;
     }
 
     @Override
     public ProcessFileUrlRespVO queryFileUrl(ProcessFileUrlReqVO reqVO) {
+        if (reqVO == null || StringUtils.isBlank(reqVO.getOid())) {
+            throw exception(new ErrorCode(500, "工序oid不能为空"));
+        }
         JSONObject request = new JSONObject();
         request.put("oid", "OperationEntity:" + reqVO.getOid());
         return thirdPartyRouteService.invoke(
@@ -245,16 +256,18 @@ public class ProcessServiceImpl implements ProcessService{
         } catch (RuntimeException parseException) {
             throw exception(new ErrorCode(500, "工艺文件地址获取失败"));
         }
+        Object code = envelope == null ? null : envelope.get("code");
         if (envelope == null
-                || !Boolean.TRUE.equals(envelope.getBoolean("success"))
-                || !Integer.valueOf(HttpStatus.SC_OK).equals(envelope.getInteger("code"))
+                || !Boolean.TRUE.equals(envelope.get("success"))
+                || !(code instanceof Number)
+                || ((Number) code).intValue() != HttpStatus.SC_OK
                 || !(envelope.get("result") instanceof JSONObject)) {
             throw exception(new ErrorCode(500, "工艺文件地址获取失败"));
         }
-        String url = envelope.getJSONObject("result").getString("url");
-        if (StringUtils.isBlank(url)) {
+        Object urlValue = envelope.getJSONObject("result").get("url");
+        if (!(urlValue instanceof String) || StringUtils.isBlank((String) urlValue)) {
             throw exception(new ErrorCode(500, "工艺文件地址获取失败"));
         }
-        return ProcessFileUrlRespVO.builder().url(url).build();
+        return ProcessFileUrlRespVO.builder().url((String) urlValue).build();
     }
 }
