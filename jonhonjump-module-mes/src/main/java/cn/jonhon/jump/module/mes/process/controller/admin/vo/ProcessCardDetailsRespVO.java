@@ -31,6 +31,9 @@ public class ProcessCardDetailsRespVO {
     @Schema(description = "工艺文件url")
     private String url;
 
+    @Schema(description = "MPM 工序对象oid")
+    private String oid;
+
     @Schema(description = "子工序")
     @Builder.Default
     private List<ProcessCardDetailsRespVO> children = new ArrayList<>();
