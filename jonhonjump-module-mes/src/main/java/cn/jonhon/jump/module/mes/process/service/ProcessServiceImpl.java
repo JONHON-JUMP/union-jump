@@ -4,6 +4,7 @@ import cn.jonhon.jump.framework.common.exception.ErrorCode;
 import cn.jonhon.jump.module.mes.process.constant.CommonConstant;
 import cn.jonhon.jump.module.mes.process.constant.InvokeIdConstant;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardReqVO;
+import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardDetailsRespVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardRespVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.FormalProcessReqVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.TemporaryProcessReqVO;
@@ -21,6 +22,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
+import java.util.Collections;
 import java.util.List;
 
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -35,6 +37,8 @@ public class ProcessServiceImpl implements ProcessService{
     private RestTemplate restTemplate;
     @Resource
     private CaoeTableMapper caoeTableMapper;
+    @Resource
+    private TemporaryProcessTreeAssembler temporaryProcessTreeAssembler;
 
     /**
      * 查看工艺卡片
@@ -97,14 +101,17 @@ public class ProcessServiceImpl implements ProcessService{
                 throw exception(new ErrorCode(500, "临时工艺必须输入物料号"));
             }
 
-            TemporaryProcessReqVO temporaryProcessReqVO = TemporaryProcessReqVO.builder().prtno(reqVO.getPrtno()).build();
-
-            if (reqVO.getAccno().length() > 4) {
-                temporaryProcessReqVO.setFxtype(YesOrNo.YES.getType().toString());
+            if (reqVO.getAccno().length() < 4) {
+                throw exception(new ErrorCode(500, "工艺规程号至少需要4位"));
             }
-            else {
-                temporaryProcessReqVO.setFxtype(YesOrNo.NO.getType().toString());
-            }
+            int isFix = reqVO.getAccno().length() > 4
+                    ? YesOrNo.YES.getType() : YesOrNo.NO.getType();
+            TemporaryProcessReqVO temporaryProcessReqVO = TemporaryProcessReqVO.builder()
+                    .prtno(reqVO.getPrtno())
+                    .accno(reqVO.getAccno())
+                    .plndept(reqVO.getAccno().substring(0, 4))
+                    .fxtype(String.valueOf(isFix))
+                    .build();
             String reqParam = JSON.toJSONString(temporaryProcessReqVO);
 
             JSONObject responseBodyJsonObject = thirdPartyRouteService.invoke(
@@ -158,12 +165,26 @@ public class ProcessServiceImpl implements ProcessService{
             }
 
             CaoeDocInfoDTO caoeDocInfoDTO = caoeTableMapper.queryDocInfo(docNumber);
-            if (!caoeDocInfoDTO.getDocSate().equals(CommonConstant.PUBLISHED)) {
+            if (caoeDocInfoDTO == null) {
+                throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
+            }
+            if (!CommonConstant.PUBLISHED.equals(caoeDocInfoDTO.getDocSate())) {
                 throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
             }
+            if (StringUtils.isBlank(caoeDocInfoDTO.getOid())) {
+                throw exception(new ErrorCode(500, "临时工艺查看地址缺失"));
+            }
 
-
-
+            List<ProcessCardDetailsRespVO> details = temporaryProcessTreeAssembler
+                    .assemble(jsonArray, caoeDocInfoDTO.getOid());
+            ProcessCardRespVO card = ProcessCardRespVO.builder()
+                    .accno(reqVO.getAccno())
+                    .version(null)
+                    .isFormal(YesOrNo.NO.getType())
+                    .isFix(isFix)
+                    .details(details)
+                    .build();
+            return Collections.singletonList(card);
         }
 
         return null;
