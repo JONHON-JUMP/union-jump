@@ -8,14 +8,28 @@
         @submit.native.prevent
       >
         <el-form-item
-          prop="processNo"
+          prop="prtno"
           class="query-form__input"
+          :rules="[{ required: true, message: '请输入物料号', trigger: 'blur' }]"
         >
           <el-input
-            v-model.trim="queryParams.processNo"
+            v-model.trim="queryParams.prtno"
             clearable
             prefix-icon="el-icon-search"
-            placeholder="请输入工艺号，如 C12345"
+            placeholder="请输入物料号"
+            @keyup.enter.native="handleQuery"
+          />
+        </el-form-item>
+        <el-form-item
+          prop="accno"
+          class="query-form__input"
+          :rules="[{ required: true, message: '请输入工艺规程号', trigger: 'blur' }]"
+        >
+          <el-input
+            v-model.trim="queryParams.accno"
+            clearable
+            prefix-icon="el-icon-document"
+            placeholder="请输入工艺规程号"
             @keyup.enter.native="handleQuery"
           />
         </el-form-item>
@@ -36,11 +50,11 @@
         <span>最近查询：</span>
         <button
           v-for="item in recentQueries"
-          :key="item"
+          :key="`${item.prtno}-${item.accno}`"
           type="button"
           class="recent-query"
           @click="handleRecentQuery(item)"
-        >{{ item }}</button>
+        >{{ item.label }}</button>
         <span class="enter-tip">支持按 <strong>Enter</strong> 快速查询</span>
       </div>
     </section>
@@ -56,10 +70,10 @@
             <span class="version-tag">{{ activeProcess.version }}</span>
           </div>
           <dl class="summary-meta">
-            <div><dt>工艺名称</dt><dd>{{ activeProcess.name }}</dd></div>
+            <div><dt>工艺类型</dt><dd>{{ activeProcess.name }}</dd></div>
             <div><dt>工序数</dt><dd>{{ visibleOperationCount }}</dd></div>
-            <div><dt>工艺节点</dt><dd>{{ visibleProcessCount }}</dd></div>
-            <div><dt>更新时间</dt><dd>{{ activeProcess.updatedAt }}</dd></div>
+            <div><dt>工艺卡数</dt><dd>{{ visibleProcessCount }}</dd></div>
+            <div><dt>订单类型</dt><dd>{{ activeProcess.isFix === 1 ? '返修' : '普通' }}</dd></div>
           </dl>
         </div>
         <div class="summary-actions">
@@ -109,16 +123,17 @@
             </template>
           </el-table-column>
           <el-table-column
-            prop="processNo"
             label="工艺编码"
             min-width="150"
-          />
+          >
+            <template slot-scope="scope">{{ scope.row.code || scope.row.processNo || '—' }}</template>
+          </el-table-column>
           <el-table-column
             label="工序号"
             width="130"
             align="center"
           >
-            <template slot-scope="scope"><span class="operation-no">{{ scope.row.operationNo }}</span></template>
+            <template slot-scope="scope"><span class="operation-no">{{ scope.row.operationNo || '—' }}</span></template>
           </el-table-column>
           <el-table-column
             label="操作"
@@ -129,6 +144,7 @@
               <el-button
                 type="text"
                 class="view-button"
+                :disabled="!scope.row.externalUrl"
                 @click="handleView(scope.row)"
               >
                 <i class="el-icon-view" /> 查看
@@ -142,52 +158,17 @@
 </template>
 
 <script>
-const BASE_URL = 'https://example.com/process/view'
-const link = processNo => `${BASE_URL}?processNo=${encodeURIComponent(processNo)}`
-const leaf = (id, name, processNo, operationNo, parentName) => ({
-  id, name, processNo, operationNo, parentName, externalUrl: link(processNo)
-})
-const branch = (id, name, processNo, operationNo, parentName, children) => ({
-  id, name, processNo, operationNo, parentName, externalUrl: link(processNo), children
-})
-const MOCK_PROCESS_TREE = [{
-  id: 1,
-  name: '连接器总成制造工艺',
-  processNo: 'C12345',
-  operationNo: '0005',
-  version: 'V3.2',
-  updatedAt: '2026-08-18 16:42',
-  externalUrl: link('C12345'),
-  children: [
-    leaf(2, '端子高速冲压工艺', 'DX889001', '0005', '连接器总成制造工艺'),
-    branch(3, '精密模具冲压成型', 'DX889012', '0010', '连接器总成制造工艺', [
-      leaf(4, '铜带上料与矫平', 'DX889011', '0005', '精密模具冲压成型'),
-      leaf(5, '电镀表面处理（镀金 / 镀锡）', 'DX889013', '0015', '精密模具冲压成型')
-    ]),
-    branch(6, '胶壳精密注塑工艺', 'DX889002', '0010', '连接器总成制造工艺', [
-      leaf(7, '工程塑料干燥与喂料', 'DX889021', '0005', '胶壳精密注塑工艺'),
-      leaf(8, '高温熔融注射成型', 'DX889022', '0010', '胶壳精密注塑工艺')
-    ]),
-    branch(9, '自动化组装工艺', 'DX889003', '0015', '连接器总成制造工艺', [
-      leaf(10, '端子自动插入胶壳', 'DX889031', '0005', '自动化组装工艺'),
-      leaf(11, '外壳锁合与超声波焊接', 'DX889032', '0010', '自动化组装工艺')
-    ]),
-    branch(12, '电性能与外观检验', 'DX889004', '0020', '连接器总成制造工艺', [
-      leaf(13, '导通电阻与绝缘耐压测试', 'DX889041', '0005', '电性能与外观检验'),
-      leaf(14, 'CCD机器视觉外观缺陷检测', 'DX889042', '0010', '电性能与外观检验')
-    ])
-  ]
-}]
+import { queryProcessCard } from '@/api/mes/process/card'
 
 export default {
   name: 'MesProcessViewer',
   data() {
     return {
       loading: false,
-      queryParams: { processNo: 'C12345' },
-      processTree: MOCK_PROCESS_TREE,
-      displayProcessTree: MOCK_PROCESS_TREE,
-      recentQueries: ['C12345', 'DX889001']
+      queryParams: { prtno: '', accno: '' },
+      processTree: [],
+      displayProcessTree: [],
+      recentQueries: []
     }
   },
   computed: {
@@ -198,10 +179,10 @@ export default {
       return this.displayProcessTree.length ? this.displayProcessTree[0] : null
     },
     visibleOperationCount() {
-      return this.flatDisplayNodes.filter(item => !this.hasChildren(item)).length
+      return this.flatDisplayNodes.filter(item => item.nodeType === 'operation').length
     },
     visibleProcessCount() {
-      return this.flatDisplayNodes.filter(item => this.hasChildren(item)).length
+      return this.flatDisplayNodes.filter(item => item.nodeType === 'card').length
     }
   },
   methods: {
@@ -215,18 +196,39 @@ export default {
         return result
       }, [])
     },
-    filterProcessTree(nodes, keyword) {
-      const value = String(keyword || '').trim().toLowerCase()
-      if (!value) return nodes
-      return (nodes || []).reduce((result, node) => {
-        if (String(node.processNo || '').toLowerCase().includes(value)) {
-          result.push(node)
-          return result
-        }
-        const children = this.filterProcessTree(node.children || [], value)
-        if (children.length) result.push({ ...node, children })
-        return result
-      }, [])
+    normalizeCards(cards) {
+      const mapDetails = (details, parentName, cardIndex) => (details || []).map((detail, index) => ({
+        id: `card-${cardIndex}-${detail.no || 'invalid'}-${detail.idx || index}`,
+        idx: detail.idx,
+        name: detail.name || '未命名工序',
+        processNo: '',
+        operationNo: detail.no,
+        code: detail.code,
+        externalUrl: detail.url,
+        parentName,
+        nodeType: 'operation',
+        children: mapDetails(detail.children, detail.name || parentName, cardIndex)
+      }))
+      return (cards || []).map((card, cardIndex) => ({
+        id: `card-${cardIndex}-${card.accno}`,
+        idx: null,
+        name: card.isFormal === 1 ? '正式工艺' : '临时工艺',
+        processNo: card.accno,
+        operationNo: '',
+        code: card.accno,
+        version: card.version || '—',
+        isFormal: card.isFormal,
+        isFix: card.isFix,
+        externalUrl: '',
+        parentName: '',
+        nodeType: 'card',
+        children: mapDetails(card.details, card.accno, cardIndex)
+      }))
+    },
+    validateQueryForm() {
+      const form = this.$refs && this.$refs.queryForm
+      if (!form || typeof form.validate !== 'function') return Promise.resolve(true)
+      return new Promise(resolve => form.validate(valid => resolve(Boolean(valid))))
     },
     setAllExpanded(expanded) {
       const table = this.$refs && this.$refs.processTable
@@ -235,33 +237,47 @@ export default {
         .filter(item => item.children && item.children.length)
         .forEach(item => table.toggleRowExpansion(item, expanded))
     },
-    handleQuery() {
-      const keyword = this.queryParams.processNo.trim()
+    async handleQuery() {
+      const valid = await this.validateQueryForm()
+      if (!valid) return
       this.loading = true
-      this.displayProcessTree = this.filterProcessTree(this.processTree, keyword)
-      if (keyword && this.displayProcessTree.length) {
-        this.recentQueries = [keyword, ...this.recentQueries.filter(item => item !== keyword)].slice(0, 3)
-      }
-      this.$nextTick(() => {
+      try {
+        const requestData = { ...this.queryParams }
+        const response = await queryProcessCard(requestData)
+        const cards = Array.isArray(response) ? response : response && response.data
+        this.processTree = this.normalizeCards(cards)
+        this.displayProcessTree = this.processTree
+        if (this.processTree.length) {
+          const recent = { ...requestData, label: `${requestData.prtno} / ${requestData.accno}` }
+          this.recentQueries = [recent, ...this.recentQueries.filter(item => (
+            item.prtno !== recent.prtno || item.accno !== recent.accno
+          ))].slice(0, 3)
+        }
+        await this.$nextTick()
+        this.setAllExpanded(true)
+      } catch (error) {
+        this.processTree = []
+        this.displayProcessTree = []
+      } finally {
         this.loading = false
-        if (keyword && this.displayProcessTree.length) this.setAllExpanded(true)
-      })
+      }
     },
-    handleRecentQuery(processNo) {
-      this.queryParams.processNo = processNo
+    handleRecentQuery(item) {
+      this.queryParams = { prtno: item.prtno, accno: item.accno }
       this.handleQuery()
     },
     resetQuery() {
       if (this.$refs.queryForm) this.$refs.queryForm.resetFields()
-      this.queryParams.processNo = ''
-      this.displayProcessTree = this.processTree
-      this.$nextTick(() => this.setAllExpanded(false))
+      this.queryParams = { prtno: '', accno: '' }
+      this.processTree = []
+      this.displayProcessTree = []
     },
     getNodeIndex(row) {
-      return this.flatDisplayNodes.findIndex(item => item.id === row.id) + 1
+      return row.idx || '—'
     },
     getNodeMeta(row) {
-      return this.hasChildren(row) ? `${row.children.length} 个下级工序` : `所属：${row.parentName || '主工艺'}`
+      if (row.nodeType === 'card') return `${row.children.length} 个一级工序`
+      return this.hasChildren(row) ? `${row.children.length} 个子工序` : `所属：${row.parentName || '主工艺'}`
     },
     handleView(row) {
       if (!row.externalUrl) {
@@ -301,6 +317,7 @@ export default {
     ::v-deep .el-input__prefix { left: 13px; color: #8494aa; font-size: 21px; line-height: 52px; }
     ::v-deep .el-input__inner:focus { border-color: #3385f5; box-shadow: 0 0 0 3px rgba(51, 133, 245, .1); }
   }
+  &__input + &__input { margin-left: 12px; }
   &__actions {
     margin-left: 14px; white-space: nowrap;
     ::v-deep .el-button { height: 52px; padding: 0 25px; border-radius: 9px; font-size: 15px; }
@@ -382,6 +399,7 @@ export default {
   .process-viewer-page { padding: 18px 16px 28px; }
   .query-form {
     align-items: stretch; flex-direction: column;
+    &__input + &__input { margin: 12px 0 0; }
     &__actions {
       display: flex; margin: 12px 0 0;
       ::v-deep .el-button { flex: 1; }

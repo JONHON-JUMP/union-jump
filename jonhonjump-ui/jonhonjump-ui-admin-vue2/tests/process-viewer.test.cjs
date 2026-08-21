@@ -5,107 +5,168 @@ const test = require('node:test')
 const vm = require('node:vm')
 
 const vueFilePath = path.join(__dirname, '../src/views/mes/process/card/index.vue')
+const apiFilePath = path.join(__dirname, '../src/api/mes/process/card.js')
 
 function readVueFile() {
   return fs.readFileSync(vueFilePath, 'utf8')
 }
 
-function loadComponent(openWindow = () => null) {
+function loadComponent(options = {}) {
   const scriptMatch = readVueFile().match(/<script>([\s\S]*?)<\/script>/)
   assert.ok(scriptMatch, 'index.vue should contain a script block')
 
   const sandbox = {
     module: { exports: {} },
     exports: {},
-    window: { open: openWindow },
+    window: { open: options.openWindow || (() => null) },
+    queryProcessCard: options.queryProcessCard || (() => Promise.resolve({ data: [] })),
     encodeURIComponent
   }
-  const executableScript = scriptMatch[1].replace('export default', 'module.exports =')
+  const executableScript = scriptMatch[1]
+    .replace(/import \{ queryProcessCard \} from '@\/api\/mes\/process\/card'\s*/, '')
+    .replace('export default', 'module.exports =')
   vm.runInNewContext(executableScript, sandbox, { filename: 'index.vue' })
   return sandbox.module.exports
 }
 
-test('keeps ancestor nodes when a child process matches', () => {
-  const component = loadComponent()
-  const state = component.data()
-  const context = { ...state, filterProcessTree: component.methods.filterProcessTree }
+function responseCards() {
+  return [{
+    accno: '43091', version: null, isFormal: 0, isFix: 1,
+    details: [{
+      idx: 1, name: '铆接', code: null, no: '10', url: 'http://pdm.example/export?oid=1',
+      children: [{
+        idx: 2, name: '子工序', code: null, no: '10.1',
+        url: 'http://pdm.example/export?oid=1', children: []
+      }]
+    }]
+  }]
+}
 
-  const result = component.methods.filterProcessTree.call(context, state.processTree, ' dx889011 ')
+function createContext(component, overrides = {}) {
+  return {
+    ...component.data(),
+    ...component.methods,
+    $refs: {
+      queryForm: { validate: callback => callback(true), resetFields: () => {} },
+      processTable: { toggleRowExpansion: () => {} }
+    },
+    $nextTick: callback => {
+      if (callback) callback()
+      return Promise.resolve()
+    },
+    ...overrides
+  }
+}
 
-  assert.equal(result.length, 1)
-  assert.equal(result[0].processNo, 'C12345')
-  assert.equal(result[0].children.length, 1)
-  assert.equal(result[0].children[0].processNo, 'DX889012')
-  assert.equal(result[0].children[0].children[0].processNo, 'DX889011')
+test('declares the real queryCard API contract', () => {
+  const apiSource = fs.readFileSync(apiFilePath, 'utf8')
+  assert.match(apiSource, /url:\s*['"]\/mes\/process\/query\/card['"]/)
+  assert.match(apiSource, /method:\s*['"]post['"]/)
+  assert.match(apiSource, /\bdata\b/)
 })
 
-test('keeps the complete subtree when its parent process matches', () => {
+test('normalizes backend cards and nested operation details', () => {
   const component = loadComponent()
-  const state = component.data()
-  const context = { ...state, filterProcessTree: component.methods.filterProcessTree }
+  const result = component.methods.normalizeCards.call(createContext(component), responseCards())
 
-  const result = component.methods.filterProcessTree.call(context, state.processTree, 'c12345')
-  const flatNodes = component.methods.flattenProcessTree.call({
-    flattenProcessTree: component.methods.flattenProcessTree
-  }, result)
+  assert.equal(result.length, 1)
+  assert.equal(result[0].processNo, '43091')
+  assert.equal(result[0].version, '—')
+  assert.equal(result[0].name, '临时工艺')
+  assert.equal(result[0].children[0].operationNo, '10')
+  assert.equal(result[0].children[0].code, null)
+  assert.equal(result[0].children[0].children[0].operationNo, '10.1')
+})
 
-  assert.equal(flatNodes.length, 14)
+test('queries with material and process numbers then expands the result tree', async () => {
+  const calls = []
+  const component = loadComponent({
+    queryProcessCard: data => {
+      calls.push(data)
+      return Promise.resolve({ code: 0, data: responseCards() })
+    }
+  })
+  const toggled = []
+  const context = createContext(component, {
+    queryParams: { prtno: 'MAT-1', accno: '43091' },
+    $refs: {
+      queryForm: { validate: callback => callback(true), resetFields: () => {} },
+      processTable: { toggleRowExpansion: (node, expanded) => toggled.push([node.operationNo, expanded]) }
+    }
+  })
+
+  await component.methods.handleQuery.call(context)
+
+  assert.equal(calls.length, 1)
+  assert.equal(calls[0].prtno, 'MAT-1')
+  assert.equal(calls[0].accno, '43091')
+  assert.equal(context.loading, false)
+  assert.equal(context.processTree[0].children[0].operationNo, '10')
+  assert.equal(context.displayProcessTree, context.processTree)
+  assert.equal(context.recentQueries.length, 1)
+  assert.equal(context.recentQueries[0].label, 'MAT-1 / 43091')
+  assert.deepEqual(toggled, [['', true], ['10', true]])
+})
+
+test('clears stale results when queryCard fails', async () => {
+  const component = loadComponent({ queryProcessCard: () => Promise.reject(new Error('query failed')) })
+  const staleTree = [{ id: 'stale' }]
+  const context = createContext(component, {
+    queryParams: { prtno: 'MAT-1', accno: '43091' }, processTree: staleTree, displayProcessTree: staleTree
+  })
+
+  await component.methods.handleQuery.call(context)
+
+  assert.equal(context.loading, false)
+  assert.equal(context.processTree.length, 0)
+  assert.equal(context.displayProcessTree.length, 0)
+})
+
+test('replays both fields from a recent query', () => {
+  const component = loadComponent()
+  let queried = false
+  const context = createContext(component, { handleQuery: () => { queried = true } })
+
+  component.methods.handleRecentQuery.call(context, { prtno: 'MAT-2', accno: '4309', label: 'MAT-2 / 4309' })
+
+  assert.equal(context.queryParams.prtno, 'MAT-2')
+  assert.equal(context.queryParams.accno, '4309')
+  assert.equal(queried, true)
 })
 
 test('toggles every expandable row through the Element table instance', () => {
   const component = loadComponent()
-  const state = component.data()
+  const tree = component.methods.normalizeCards.call(createContext(component), responseCards())
   const toggled = []
-  const context = {
-    ...state,
-    displayProcessTree: state.processTree,
-    flattenProcessTree: component.methods.flattenProcessTree,
-    $refs: {
-      processTable: {
-        toggleRowExpansion: (node, expanded) => toggled.push([node.processNo, expanded])
-      }
-    }
-  }
+  const context = createContext(component, {
+    displayProcessTree: tree,
+    $refs: { processTable: { toggleRowExpansion: (node, expanded) => toggled.push([node.operationNo, expanded]) } }
+  })
 
   component.methods.setAllExpanded.call(context, false)
 
-  assert.deepEqual(toggled, [
-    ['C12345', false],
-    ['DX889012', false],
-    ['DX889002', false],
-    ['DX889003', false],
-    ['DX889004', false]
-  ])
+  assert.deepEqual(toggled, [['', false], ['10', false]])
 })
 
 test('opens the configured process link in a protected new window', () => {
   const openedWindow = { opener: 'source-window' }
   const calls = []
-  const component = loadComponent((...args) => {
-    calls.push(args)
-    return openedWindow
+  const component = loadComponent({
+    openWindow: (...args) => { calls.push(args); return openedWindow }
   })
   const messages = []
   const context = { $message: { warning: message => messages.push(message) } }
 
-  component.methods.handleView.call(context, {
-    externalUrl: 'https://example.com/process/C12345'
-  })
+  component.methods.handleView.call(context, { externalUrl: 'http://pdm.example/export?oid=1' })
 
-  assert.deepEqual(calls, [[
-    'https://example.com/process/C12345',
-    '_blank',
-    'noopener,noreferrer'
-  ]])
+  assert.deepEqual(calls, [['http://pdm.example/export?oid=1', '_blank', 'noopener,noreferrer']])
   assert.equal(openedWindow.opener, null)
   assert.deepEqual(messages, [])
 })
 
 test('warns instead of opening when a process link is missing', () => {
   let opened = false
-  const component = loadComponent(() => {
-    opened = true
-  })
+  const component = loadComponent({ openWindow: () => { opened = true } })
   const messages = []
   const context = { $message: { warning: message => messages.push(message) } }
 
