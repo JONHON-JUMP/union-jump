@@ -10,7 +10,7 @@
         <el-form-item
           prop="prtno"
           class="query-form__input"
-          :rules="[{ required: true, message: '请输入物料号', trigger: 'blur' }]"
+          :rules="materialRules"
         >
           <el-input
             v-model.trim="queryParams.prtno"
@@ -30,6 +30,7 @@
             clearable
             prefix-icon="el-icon-document"
             placeholder="请输入工艺规程号"
+            @input="handleAccnoInput"
             @keyup.enter.native="handleQuery"
           />
         </el-form-item>
@@ -144,7 +145,8 @@
               <el-button
                 type="text"
                 class="view-button"
-                :disabled="!scope.row.externalUrl"
+                :disabled="!canView(scope.row)"
+                :loading="viewLoadingId === scope.row.id"
                 @click="handleView(scope.row)"
               >
                 <i class="el-icon-view" /> 查看
@@ -158,7 +160,7 @@
 </template>
 
 <script>
-import { queryProcessCard } from '@/api/mes/process/card'
+import { queryProcessCard, queryProcessFileUrl } from '@/api/mes/process/card'
 
 export default {
   name: 'MesProcessViewer',
@@ -169,7 +171,8 @@ export default {
       processTree: [],
       displayProcessTree: [],
       recentQueries: [],
-      querySequence: 0
+      querySequence: 0,
+      viewLoadingId: ''
     }
   },
   computed: {
@@ -184,6 +187,11 @@ export default {
     },
     visibleProcessCount() {
       return this.flatDisplayNodes.filter(item => item.nodeType === 'card').length
+    },
+    materialRules() {
+      return this.isFormalProcess(this.queryParams.accno)
+        ? []
+        : [{ required: true, message: '请输入物料号', trigger: 'blur' }]
     }
   },
   methods: {
@@ -208,6 +216,7 @@ export default {
           operationNo: detail.no,
           code: detail.code,
           externalUrl: detail.url,
+          oid: detail.oid,
           parentName,
           nodeType: 'operation',
           children: mapDetails(detail.children, detail.name || parentName, cardIndex, nodePath)
@@ -234,6 +243,19 @@ export default {
       if (!form || typeof form.validate !== 'function') return Promise.resolve(true)
       return new Promise(resolve => form.validate(valid => resolve(Boolean(valid))))
     },
+    isFormalProcess(accno) {
+      return String(accno || '').trim().startsWith('C')
+    },
+    buildQueryRequest(params) {
+      const request = { accno: params.accno }
+      if (!this.isFormalProcess(params.accno)) request.prtno = params.prtno
+      return request
+    },
+    handleAccnoInput(value) {
+      if (this.isFormalProcess(value) && this.$refs.queryForm) {
+        this.$refs.queryForm.clearValidate('prtno')
+      }
+    },
     setAllExpanded(expanded) {
       const table = this.$refs && this.$refs.processTable
       if (!table || typeof table.toggleRowExpansion !== 'function') return
@@ -247,14 +269,20 @@ export default {
       const querySequence = ++this.querySequence
       this.loading = true
       try {
-        const requestData = { ...this.queryParams }
+        const querySnapshot = { ...this.queryParams }
+        const requestData = this.buildQueryRequest(querySnapshot)
         const response = await queryProcessCard(requestData)
         if (querySequence !== this.querySequence) return
         const cards = Array.isArray(response) ? response : response && response.data
         this.processTree = this.normalizeCards(cards)
         this.displayProcessTree = this.processTree
         if (this.processTree.length) {
-          const recent = { ...requestData, label: `${requestData.prtno} / ${requestData.accno}` }
+          const recent = {
+            ...querySnapshot,
+            label: querySnapshot.prtno
+              ? `${querySnapshot.prtno} / ${querySnapshot.accno}`
+              : querySnapshot.accno
+          }
           this.recentQueries = [recent, ...this.recentQueries.filter(item => (
             item.prtno !== recent.prtno || item.accno !== recent.accno
           ))].slice(0, 3)
@@ -263,8 +291,6 @@ export default {
         this.setAllExpanded(true)
       } catch (error) {
         if (querySequence !== this.querySequence) return
-        this.processTree = []
-        this.displayProcessTree = []
       } finally {
         if (querySequence === this.querySequence) this.loading = false
       }
@@ -280,6 +306,7 @@ export default {
       this.processTree = []
       this.displayProcessTree = []
       this.loading = false
+      this.viewLoadingId = ''
     },
     getNodeIndex(row) {
       return row.idx || '—'
@@ -288,13 +315,39 @@ export default {
       if (row.nodeType === 'card') return `${row.children.length} 个一级工序`
       return this.hasChildren(row) ? `${row.children.length} 个子工序` : `所属：${row.parentName || '主工艺'}`
     },
-    handleView(row) {
-      if (!row.externalUrl) {
+    canView(row) {
+      return Boolean(row && (row.externalUrl || row.oid))
+    },
+    async handleView(row) {
+      if (!this.canView(row)) {
         this.$message.warning('暂未配置工艺查看地址')
         return
       }
-      const openedWindow = window.open(row.externalUrl, '_blank', 'noopener,noreferrer')
+      if (row.externalUrl) {
+        const openedWindow = window.open(row.externalUrl, '_blank', 'noopener,noreferrer')
+        if (openedWindow) openedWindow.opener = null
+        return
+      }
+
+      const openedWindow = window.open('about:blank', '_blank')
       if (openedWindow) openedWindow.opener = null
+      this.viewLoadingId = row.id
+      try {
+        const response = await queryProcessFileUrl({ oid: row.oid })
+        const payload = response && response.data ? response.data : response
+        if (!payload || !payload.url) throw new Error('工艺文件地址获取失败')
+        if (openedWindow) {
+          openedWindow.location.href = payload.url
+        } else {
+          const fallbackWindow = window.open(payload.url, '_blank', 'noopener,noreferrer')
+          if (fallbackWindow) fallbackWindow.opener = null
+        }
+      } catch (error) {
+        if (openedWindow && typeof openedWindow.close === 'function') openedWindow.close()
+        this.$message.error('工艺文件地址获取失败')
+      } finally {
+        this.viewLoadingId = ''
+      }
     }
   }
 }

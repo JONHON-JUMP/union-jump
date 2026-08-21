@@ -7,3 +7,11 @@ export function queryProcessCard(data) {
     data
   })
 }
+
+export function queryProcessFileUrl(data) {
+  return request({
+    url: '/mes/process/query/file-url',
+    method: 'post',
+    data
+  })
+}

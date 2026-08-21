@@ -20,10 +20,11 @@ function loadComponent(options = {}) {
     exports: {},
     window: { open: options.openWindow || (() => null) },
     queryProcessCard: options.queryProcessCard || (() => Promise.resolve({ data: [] })),
+    queryProcessFileUrl: options.queryProcessFileUrl || (() => Promise.resolve({ data: { url: '' } })),
     encodeURIComponent
   }
   const executableScript = scriptMatch[1]
-    .replace(/import \{ queryProcessCard \} from '@\/api\/mes\/process\/card'\s*/, '')
+    .replace(/import \{ queryProcessCard, queryProcessFileUrl \} from '@\/api\/mes\/process\/card'\s*/, '')
     .replace('export default', 'module.exports =')
   vm.runInNewContext(executableScript, sandbox, { filename: 'index.vue' })
   return sandbox.module.exports
@@ -63,6 +64,7 @@ test('declares the real queryCard API contract', () => {
   assert.match(apiSource, /url:\s*['"]\/mes\/process\/query\/card['"]/)
   assert.match(apiSource, /method:\s*['"]post['"]/)
   assert.match(apiSource, /\bdata\b/)
+  assert.match(apiSource, /url:\s*['"]\/mes\/process\/query\/file-url['"]/)
 })
 
 test('normalizes backend cards and nested operation details', () => {
@@ -121,7 +123,7 @@ test('queries with material and process numbers then expands the result tree', a
   assert.deepEqual(toggled, [['', true], ['10', true]])
 })
 
-test('clears stale results when queryCard fails', async () => {
+test('keeps the current tree when queryCard fails', async () => {
   const component = loadComponent({ queryProcessCard: () => Promise.reject(new Error('query failed')) })
   const staleTree = [{ id: 'stale' }]
   const context = createContext(component, {
@@ -131,8 +133,25 @@ test('clears stale results when queryCard fails', async () => {
   await component.methods.handleQuery.call(context)
 
   assert.equal(context.loading, false)
-  assert.equal(context.processTree.length, 0)
-  assert.equal(context.displayProcessTree.length, 0)
+  assert.equal(context.processTree, staleTree)
+  assert.equal(context.displayProcessTree, staleTree)
+})
+
+test('formal process query only sends the process number', () => {
+  const component = loadComponent()
+  const context = createContext(component)
+
+  const formalRequest = component.methods.buildQueryRequest.call(
+    context, { prtno: '', accno: 'CX0000000048' }
+  )
+  const temporaryRequest = component.methods.buildQueryRequest.call(
+    context, { prtno: 'MAT-1', accno: '43091' }
+  )
+
+  assert.equal(formalRequest.accno, 'CX0000000048')
+  assert.equal(Object.hasOwn(formalRequest, 'prtno'), false)
+  assert.equal(temporaryRequest.prtno, 'MAT-1')
+  assert.equal(temporaryRequest.accno, '43091')
 })
 
 test('keeps the newest result when concurrent queries finish out of order', async () => {
@@ -187,29 +206,48 @@ test('toggles every expandable row through the Element table instance', () => {
   assert.deepEqual(toggled, [['', false], ['10', false]])
 })
 
-test('opens the configured process link in a protected new window', () => {
+test('opens the configured process link in a protected new window', async () => {
   const openedWindow = { opener: 'source-window' }
   const calls = []
   const component = loadComponent({
     openWindow: (...args) => { calls.push(args); return openedWindow }
   })
   const messages = []
-  const context = { $message: { warning: message => messages.push(message) } }
+  const context = createContext(component, { $message: { warning: message => messages.push(message) } })
 
-  component.methods.handleView.call(context, { externalUrl: 'http://pdm.example/export?oid=1' })
+  await component.methods.handleView.call(context, { externalUrl: 'http://pdm.example/export?oid=1' })
 
   assert.deepEqual(calls, [['http://pdm.example/export?oid=1', '_blank', 'noopener,noreferrer']])
   assert.equal(openedWindow.opener, null)
   assert.deepEqual(messages, [])
 })
 
-test('warns instead of opening when a process link is missing', () => {
+test('requests and opens an MPM process link from its oid', async () => {
+  const openedWindow = { opener: 'source-window', location: {}, close: () => {} }
+  const calls = []
+  const component = loadComponent({
+    openWindow: (...args) => { calls.push(args); return openedWindow },
+    queryProcessFileUrl: data => Promise.resolve({ data: { url: `http://mpm.example/${data.oid}` } })
+  })
+  const context = createContext(component, {
+    $message: { warning: () => {}, error: () => {} }
+  })
+
+  await component.methods.handleView.call(context, { id: 'op-1', oid: '12345', externalUrl: '' })
+
+  assert.deepEqual(calls, [['about:blank', '_blank']])
+  assert.equal(openedWindow.opener, null)
+  assert.equal(openedWindow.location.href, 'http://mpm.example/12345')
+  assert.equal(context.viewLoadingId, '')
+})
+
+test('warns instead of opening when a process link is missing', async () => {
   let opened = false
   const component = loadComponent({ openWindow: () => { opened = true } })
   const messages = []
-  const context = { $message: { warning: message => messages.push(message) } }
+  const context = createContext(component, { $message: { warning: message => messages.push(message) } })
 
-  component.methods.handleView.call(context, { externalUrl: '' })
+  await component.methods.handleView.call(context, { externalUrl: '' })
 
   assert.equal(opened, false)
   assert.deepEqual(messages, ['暂未配置工艺查看地址'])
