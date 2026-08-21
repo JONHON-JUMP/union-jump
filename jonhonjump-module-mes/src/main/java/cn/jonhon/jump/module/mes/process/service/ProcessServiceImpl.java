@@ -101,15 +101,12 @@ public class ProcessServiceImpl implements ProcessService{
                 throw exception(new ErrorCode(500, "临时工艺必须输入物料号"));
             }
 
-            if (reqVO.getAccno().length() < 4) {
-                throw exception(new ErrorCode(500, "工艺规程号至少需要4位"));
-            }
             int isFix = reqVO.getAccno().length() > 4
                     ? YesOrNo.YES.getType() : YesOrNo.NO.getType();
             TemporaryProcessReqVO temporaryProcessReqVO = TemporaryProcessReqVO.builder()
                     .prtno(reqVO.getPrtno())
                     .accno(reqVO.getAccno())
-                    .plndept(reqVO.getAccno().substring(0, 4))
+                    .plndept(reqVO.getAccno().substring(0, Math.min(4, reqVO.getAccno().length())))
                     .fxtype(String.valueOf(isFix))
                     .build();
             String reqParam = JSON.toJSONString(temporaryProcessReqVO);

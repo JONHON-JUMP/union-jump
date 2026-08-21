@@ -102,11 +102,19 @@ class ProcessServiceImplTest {
     }
 
     @Test
-    void queryCard_rejectsShortProcessNumber() {
-        ServiceException exception = assertThrows(ServiceException.class,
-                () -> service.queryCard(request("430")));
+    void queryCard_allowsShortNonRepairProcessNumber() {
+        when(caoeTableMapper.queryDocInfo("DOC-2")).thenReturn(publishedDoc("oid-2"));
+        when(treeAssembler.assemble(any(JSONArray.class), eq("oid-2"))).thenReturn(Collections.emptyList());
+        AtomicReference<String> requestJson = new AtomicReference<>();
 
-        assertEquals("工艺规程号至少需要4位", exception.getMessage());
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(normalResponseBody(), requestJson)) {
+            ProcessCardRespVO result = service.queryCard(request("430")).get(0);
+
+            JSONObject thirdPartyRequest = JSON.parseObject(requestJson.get());
+            assertEquals("430", thirdPartyRequest.getString("plndept"));
+            assertEquals("0", thirdPartyRequest.getString("fxtype"));
+            assertEquals(0, result.getIsFix());
+        }
     }
 
     @Test
