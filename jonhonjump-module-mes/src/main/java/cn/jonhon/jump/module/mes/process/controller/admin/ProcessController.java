@@ -12,7 +12,6 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
-import javax.annotation.security.PermitAll;
 import javax.validation.Valid;
 
 import java.util.List;
@@ -30,7 +29,6 @@ public class ProcessController {
     private ProcessService processService;
 
     @PostMapping("/query/card")
-    @PermitAll
     @Operation(summary = "查看工艺卡片")
     @Parameter(name = "queryCard", description = "查看工艺卡片", required = true)
     public CommonResult<List<ProcessCardRespVO>> queryCard(@RequestBody @Valid ProcessCardReqVO reqVO) {

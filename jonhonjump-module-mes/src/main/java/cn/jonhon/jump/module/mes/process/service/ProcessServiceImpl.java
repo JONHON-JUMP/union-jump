@@ -125,11 +125,16 @@ public class ProcessServiceImpl implements ProcessService{
                         throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
                     }
 
-                    JSONObject jsonObject = JSONObject.parseObject(response.getBody());
+                    JSONObject jsonObject;
+                    try {
+                        jsonObject = JSONObject.parseObject(response.getBody());
+                    } catch (RuntimeException parseException) {
+                        throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+                    }
                     if (!jsonObject.containsKey(CommonConstant.RETCODE)
-                            || !jsonObject.getString(CommonConstant.RETCODE).equals(String.valueOf(HttpStatus.SC_OK))
+                            || !String.valueOf(HttpStatus.SC_OK).equals(jsonObject.getString(CommonConstant.RETCODE))
                             || !jsonObject.containsKey(CommonConstant.RESPONSEBODY)
-                            || StringUtils.isEmpty(jsonObject.getString(CommonConstant.RESPONSEBODY))
+                            || !(jsonObject.get(CommonConstant.RESPONSEBODY) instanceof JSONObject)
                     ) {
                         throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
                     }
@@ -142,13 +147,12 @@ public class ProcessServiceImpl implements ProcessService{
                 throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
             }
 
-            if (!responseBodyJsonObject.containsKey(CommonConstant.DETAILS)
-                    || StringUtils.isEmpty(responseBodyJsonObject.get(CommonConstant.DETAILS).toString())
-            ){
+            Object detailsPayload = responseBodyJsonObject.get(CommonConstant.DETAILS);
+            if (!(detailsPayload instanceof JSONArray) || ((JSONArray) detailsPayload).isEmpty()) {
                 throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
             }
 
-            JSONArray jsonArray = responseBodyJsonObject.getJSONArray(CommonConstant.DETAILS);
+            JSONArray jsonArray = (JSONArray) detailsPayload;
 
             // 检查工艺版本是否发行
             String docNumber;

@@ -17,11 +17,13 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -124,6 +126,26 @@ class ProcessServiceImplTest {
         assertDocumentError(publishedDoc(""), "临时工艺查看地址缺失");
     }
 
+    @Test
+    void queryCard_rejectsEmptyDetails() {
+        JSONObject body = JSON.parseObject("{\"oid\":\"response-oid\",\"routnumebr\":\"DOC-1\",\"details\":[]}");
+
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(body, new AtomicReference<>())) {
+            ServiceException exception = assertThrows(ServiceException.class,
+                    () -> service.queryCard(request("43091")));
+            assertEquals("临时工艺信息查询失败", exception.getMessage());
+        }
+    }
+
+    @Test
+    void queryCard_rejectsMalformedRouteEnvelope() {
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockEnvelope("{\"retCode\":null,\"responseBody\":{}}")) {
+            ServiceException exception = assertThrows(ServiceException.class,
+                    () -> service.queryCard(request("43091")));
+            assertEquals("临时工艺信息查询失败", exception.getMessage());
+        }
+    }
+
     private void assertDocumentError(CaoeDocInfoDTO doc, String expectedMessage) {
         when(caoeTableMapper.queryDocInfo("DOC-1")).thenReturn(doc);
         try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(repairResponseBody(), new AtomicReference<>())) {
@@ -140,6 +162,18 @@ class ProcessServiceImplTest {
                 .thenAnswer(invocation -> {
                     requestJson.set(invocation.getArgument(3));
                     return body;
+                });
+        return routeService;
+    }
+
+    @SuppressWarnings("unchecked")
+    private MockedStatic<ThirdPartyRouteService> mockEnvelope(String envelope) {
+        MockedStatic<ThirdPartyRouteService> routeService = mockStatic(ThirdPartyRouteService.class);
+        routeService.when(() -> ThirdPartyRouteService.invoke(
+                        eq("1"), eq("JUMP"), eq("WXD"), anyString(), isNull(), any()))
+                .thenAnswer(invocation -> {
+                    Function<ResponseEntity<String>, JSONObject> handler = invocation.getArgument(5);
+                    return handler.apply(ResponseEntity.ok(envelope));
                 });
         return routeService;
     }

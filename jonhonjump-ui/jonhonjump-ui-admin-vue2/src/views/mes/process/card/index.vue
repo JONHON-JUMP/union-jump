@@ -168,7 +168,8 @@ export default {
       queryParams: { prtno: '', accno: '' },
       processTree: [],
       displayProcessTree: [],
-      recentQueries: []
+      recentQueries: [],
+      querySequence: 0
     }
   },
   computed: {
@@ -197,18 +198,21 @@ export default {
       }, [])
     },
     normalizeCards(cards) {
-      const mapDetails = (details, parentName, cardIndex) => (details || []).map((detail, index) => ({
-        id: `card-${cardIndex}-${detail.no || 'invalid'}-${detail.idx || index}`,
-        idx: detail.idx,
-        name: detail.name || '未命名工序',
-        processNo: '',
-        operationNo: detail.no,
-        code: detail.code,
-        externalUrl: detail.url,
-        parentName,
-        nodeType: 'operation',
-        children: mapDetails(detail.children, detail.name || parentName, cardIndex)
-      }))
+      const mapDetails = (details, parentName, cardIndex, parentPath) => (details || []).map((detail, index) => {
+        const nodePath = `${parentPath}/${detail.no || 'invalid'}-${detail.idx == null ? index : detail.idx}`
+        return {
+          id: `card-${cardIndex}-${nodePath}`,
+          idx: detail.idx,
+          name: detail.name || '未命名工序',
+          processNo: '',
+          operationNo: detail.no,
+          code: detail.code,
+          externalUrl: detail.url,
+          parentName,
+          nodeType: 'operation',
+          children: mapDetails(detail.children, detail.name || parentName, cardIndex, nodePath)
+        }
+      })
       return (cards || []).map((card, cardIndex) => ({
         id: `card-${cardIndex}-${card.accno}`,
         idx: null,
@@ -222,7 +226,7 @@ export default {
         externalUrl: '',
         parentName: '',
         nodeType: 'card',
-        children: mapDetails(card.details, card.accno, cardIndex)
+        children: mapDetails(card.details, card.accno, cardIndex, card.accno || `card-${cardIndex}`)
       }))
     },
     validateQueryForm() {
@@ -240,10 +244,12 @@ export default {
     async handleQuery() {
       const valid = await this.validateQueryForm()
       if (!valid) return
+      const querySequence = ++this.querySequence
       this.loading = true
       try {
         const requestData = { ...this.queryParams }
         const response = await queryProcessCard(requestData)
+        if (querySequence !== this.querySequence) return
         const cards = Array.isArray(response) ? response : response && response.data
         this.processTree = this.normalizeCards(cards)
         this.displayProcessTree = this.processTree
@@ -256,10 +262,11 @@ export default {
         await this.$nextTick()
         this.setAllExpanded(true)
       } catch (error) {
+        if (querySequence !== this.querySequence) return
         this.processTree = []
         this.displayProcessTree = []
       } finally {
-        this.loading = false
+        if (querySequence === this.querySequence) this.loading = false
       }
     },
     handleRecentQuery(item) {
@@ -267,10 +274,12 @@ export default {
       this.handleQuery()
     },
     resetQuery() {
+      this.querySequence++
       if (this.$refs.queryForm) this.$refs.queryForm.resetFields()
       this.queryParams = { prtno: '', accno: '' }
       this.processTree = []
       this.displayProcessTree = []
+      this.loading = false
     },
     getNodeIndex(row) {
       return row.idx || '—'

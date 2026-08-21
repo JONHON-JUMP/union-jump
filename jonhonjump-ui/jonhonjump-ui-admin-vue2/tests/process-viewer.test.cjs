@@ -78,6 +78,19 @@ test('normalizes backend cards and nested operation details', () => {
   assert.equal(result[0].children[0].children[0].operationNo, '10.1')
 })
 
+test('uses the full tree path to keep fallback row keys unique', () => {
+  const component = loadComponent()
+  const cards = responseCards()
+  cards[0].details = [
+    { name: '父工序A', no: '10', children: [{ name: '同号子工序', no: '1', children: [] }] },
+    { name: '父工序B', no: '20', children: [{ name: '同号子工序', no: '1', children: [] }] }
+  ]
+
+  const result = component.methods.normalizeCards.call(createContext(component), cards)
+
+  assert.notEqual(result[0].children[0].children[0].id, result[0].children[1].children[0].id)
+})
+
 test('queries with material and process numbers then expands the result tree', async () => {
   const calls = []
   const component = loadComponent({
@@ -120,6 +133,32 @@ test('clears stale results when queryCard fails', async () => {
   assert.equal(context.loading, false)
   assert.equal(context.processTree.length, 0)
   assert.equal(context.displayProcessTree.length, 0)
+})
+
+test('keeps the newest result when concurrent queries finish out of order', async () => {
+  const pending = []
+  const component = loadComponent({
+    queryProcessCard: data => new Promise(resolve => pending.push({ data, resolve }))
+  })
+  const context = createContext(component, {
+    queryParams: { prtno: 'MAT-A', accno: '43091' }
+  })
+
+  const first = component.methods.handleQuery.call(context)
+  await Promise.resolve()
+  context.queryParams = { prtno: 'MAT-B', accno: '43092' }
+  const second = component.methods.handleQuery.call(context)
+  await Promise.resolve()
+
+  const newestCards = responseCards()
+  newestCards[0].accno = '43092'
+  pending[1].resolve({ data: newestCards })
+  await second
+  pending[0].resolve({ data: responseCards() })
+  await first
+
+  assert.equal(context.processTree[0].processNo, '43092')
+  assert.equal(context.loading, false)
 })
 
 test('replays both fields from a recent query', () => {
