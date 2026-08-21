@@ -14,7 +14,7 @@
 
 ## 请求参数
 
-前端查询表单包含物料号 `prtno` 和工艺规程号 `accno`，请求现有 `/mes/process/query-card` 接口。
+前端查询表单包含物料号 `prtno` 和工艺规程号 `accno`，请求现有 `/mes/process/query/card` 接口。
 
 临时工艺分支调用第三方接口时按以下规则构造参数：
 
@@ -69,7 +69,7 @@ http://MESloginUser:MESloginUseradmin@pdm.caoe.com/Windchill/netmarkets/jsp/ext/
 
 ## 前端设计
 
-在 `src/api/mes/process` 下新增工艺卡 API 模块，使用现有请求封装向 `/mes/process/query-card` 发送 POST 请求。
+在 `src/api/mes/process` 下新增工艺卡 API 模块，使用现有请求封装向 `/mes/process/query/card` 发送 POST 请求。
 
 页面改造规则：
 
