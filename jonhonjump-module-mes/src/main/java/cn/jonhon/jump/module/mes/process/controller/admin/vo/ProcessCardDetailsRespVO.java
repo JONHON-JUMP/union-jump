@@ -6,6 +6,9 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @Schema(description = "MES管理 - 工艺卡片查看 响应明细参数")
 @Data
 @NoArgsConstructor
@@ -27,5 +30,9 @@ public class ProcessCardDetailsRespVO {
 
     @Schema(description = "工艺文件url")
     private String url;
+
+    @Schema(description = "子工序")
+    @Builder.Default
+    private List<ProcessCardDetailsRespVO> children = new ArrayList<>();
 
 }
