@@ -3,6 +3,8 @@ package cn.jonhon.jump.module.mes.process.controller.admin;
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardReqVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardRespVO;
+import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessFileUrlReqVO;
+import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessFileUrlRespVO;
 import cn.jonhon.jump.module.mes.process.service.ProcessService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -33,6 +35,13 @@ public class ProcessController {
     @Parameter(name = "queryCard", description = "查看工艺卡片", required = true)
     public CommonResult<List<ProcessCardRespVO>> queryCard(@RequestBody @Valid ProcessCardReqVO reqVO) {
         return success(processService.queryCard(reqVO));
+    }
+
+    @PostMapping("/query/file-url")
+    @Operation(summary = "获取MPM工艺文件地址")
+    public CommonResult<ProcessFileUrlRespVO> queryFileUrl(
+            @RequestBody @Valid ProcessFileUrlReqVO reqVO) {
+        return success(processService.queryFileUrl(reqVO));
     }
 
 }

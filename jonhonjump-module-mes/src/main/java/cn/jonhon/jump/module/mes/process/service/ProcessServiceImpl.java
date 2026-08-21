@@ -6,6 +6,8 @@ import cn.jonhon.jump.module.mes.process.constant.InvokeIdConstant;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardReqVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardDetailsRespVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardRespVO;
+import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessFileUrlReqVO;
+import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessFileUrlRespVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.FormalProcessReqVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.TemporaryProcessReqVO;
 import cn.jonhon.jump.module.mes.process.dal.process.oracle.CaoeTableMapper;
@@ -217,5 +219,42 @@ public class ProcessServiceImpl implements ProcessService{
             throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
         }
         return envelope;
+    }
+
+    @Override
+    public ProcessFileUrlRespVO queryFileUrl(ProcessFileUrlReqVO reqVO) {
+        JSONObject request = new JSONObject();
+        request.put("oid", "OperationEntity:" + reqVO.getOid());
+        return thirdPartyRouteService.invoke(
+                InvokeIdConstant.processReleaseForMes,
+                CommonConstant.JUMP,
+                CommonConstant.WXD,
+                request.toJSONString(),
+                null,
+                response -> parseFileUrlResponse(response.getBody())
+        );
+    }
+
+    private ProcessFileUrlRespVO parseFileUrlResponse(String body) {
+        if (StringUtils.isBlank(body)) {
+            throw exception(new ErrorCode(500, "工艺文件地址获取失败"));
+        }
+        JSONObject envelope;
+        try {
+            envelope = JSONObject.parseObject(body);
+        } catch (RuntimeException parseException) {
+            throw exception(new ErrorCode(500, "工艺文件地址获取失败"));
+        }
+        if (envelope == null
+                || !Boolean.TRUE.equals(envelope.getBoolean("success"))
+                || !Integer.valueOf(HttpStatus.SC_OK).equals(envelope.getInteger("code"))
+                || !(envelope.get("result") instanceof JSONObject)) {
+            throw exception(new ErrorCode(500, "工艺文件地址获取失败"));
+        }
+        String url = envelope.getJSONObject("result").getString("url");
+        if (StringUtils.isBlank(url)) {
+            throw exception(new ErrorCode(500, "工艺文件地址获取失败"));
+        }
+        return ProcessFileUrlRespVO.builder().url(url).build();
     }
 }

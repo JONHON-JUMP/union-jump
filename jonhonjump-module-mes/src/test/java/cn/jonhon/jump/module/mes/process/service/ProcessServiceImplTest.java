@@ -4,6 +4,8 @@ import cn.jonhon.jump.framework.common.exception.ServiceException;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardDetailsRespVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardReqVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardRespVO;
+import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessFileUrlReqVO;
+import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessFileUrlRespVO;
 import cn.jonhon.jump.module.mes.process.dal.process.oracle.CaoeTableMapper;
 import cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.CaoeDocInfoDTO;
 import com.alibaba.fastjson.JSON;
@@ -180,6 +182,33 @@ class ProcessServiceImplTest {
     }
 
     @Test
+    void queryFileUrl_usesLowercaseOidAndReturnsMpmUrl() {
+        AtomicReference<String> requestJson = new AtomicReference<>();
+
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockFileRoute(
+                "{\"success\":true,\"code\":200,\"result\":{\"url\":\"http://mpm/file\"}}",
+                requestJson)) {
+            ProcessFileUrlRespVO result = service.queryFileUrl(
+                    ProcessFileUrlReqVO.builder().oid("12345").build());
+
+            JSONObject request = JSON.parseObject(requestJson.get());
+            assertEquals("OperationEntity:12345", request.getString("oid"));
+            assertEquals("http://mpm/file", result.getUrl());
+        }
+    }
+
+    @Test
+    void queryFileUrl_rejectsMissingResultUrl() {
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockFileRoute(
+                "{\"success\":true,\"code\":200,\"result\":{}}", new AtomicReference<>())) {
+            ServiceException exception = assertThrows(ServiceException.class,
+                    () -> service.queryFileUrl(ProcessFileUrlReqVO.builder().oid("12345").build()));
+
+            assertEquals("工艺文件地址获取失败", exception.getMessage());
+        }
+    }
+
+    @Test
     void queryCard_rejectsMissingDocument() {
         assertDocumentError(null, "临时工艺文档信息不存在");
     }
@@ -290,6 +319,20 @@ class ProcessServiceImplTest {
                         eq("2"), eq("JUMP"), eq("WXD"), anyString(), isNull(), any()))
                 .thenAnswer(invocation -> {
                     Function<ResponseEntity<String>, JSONObject> handler = invocation.getArgument(5);
+                    return handler.apply(ResponseEntity.ok(envelope));
+                });
+        return routeService;
+    }
+
+    @SuppressWarnings("unchecked")
+    private MockedStatic<ThirdPartyRouteService> mockFileRoute(String envelope,
+                                                               AtomicReference<String> requestJson) {
+        MockedStatic<ThirdPartyRouteService> routeService = mockStatic(ThirdPartyRouteService.class);
+        routeService.when(() -> ThirdPartyRouteService.invoke(
+                        eq("3"), eq("JUMP"), eq("WXD"), anyString(), isNull(), any()))
+                .thenAnswer(invocation -> {
+                    requestJson.set(invocation.getArgument(3));
+                    Function<ResponseEntity<String>, ProcessFileUrlRespVO> handler = invocation.getArgument(5);
                     return handler.apply(ResponseEntity.ok(envelope));
                 });
         return routeService;
