@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="cn.jonhon.jump.module.mes.process.dal.process.oracle.CaoeTableMapper">
+
+
+    <select id="queryDocInfo"
+            resultType="cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.CaoeDocInfoDTO">
+        select oid AS oid, doc_sate AS docSate from caoe_doc where doc_number = #{docNumber}
+    </select>
+</mapper>

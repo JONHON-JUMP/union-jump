@@ -71,6 +71,12 @@ spring:
           url: jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&rewriteBatchedStatements=true&nullCatalogMeansCurrent=true
           username: root
           password: 123456
+        oracle:
+          lazy: true
+          driver-class-name: oracle.jdbc.OracleDriver
+          url: ${ORACLE_DATASOURCE_URL:}
+          username: ${ORACLE_DATASOURCE_USERNAME:}
+          password: ${ORACLE_DATASOURCE_PASSWORD:}
   #        tdengine: # IoT 数据库（需要 IoT 物联网再开启噢！）
   #          lazy: true # 开启懒加载，保证启动速度
   #          url: jdbc:TAOS-WS://127.0.0.1:6041/ruoyi_vue_pro?varcharAsString=true

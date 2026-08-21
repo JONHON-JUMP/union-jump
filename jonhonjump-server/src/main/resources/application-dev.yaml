@@ -71,6 +71,12 @@ spring:
           url: jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true # MySQL Connector/J 8.X 连接的示例
           username: root
           password: 123456
+        oracle:
+          lazy: true
+          driver-class-name: oracle.jdbc.OracleDriver
+          url: ${ORACLE_DATASOURCE_URL:}
+          username: ${ORACLE_DATASOURCE_USERNAME:}
+          password: ${ORACLE_DATASOURCE_PASSWORD:}
 
   # Redis 配置。Redisson 默认的配置足够使用，一般不需要进行调优
   redis:
