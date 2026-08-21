@@ -146,6 +146,26 @@ class ProcessServiceImplTest {
         }
     }
 
+    @Test
+    void queryCard_rejectsNullRouteEnvelope() {
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockEnvelope("null")) {
+            ServiceException exception = assertThrows(ServiceException.class,
+                    () -> service.queryCard(request("43091")));
+            assertEquals("临时工艺信息查询失败", exception.getMessage());
+        }
+    }
+
+    @Test
+    void queryCard_rejectsNonObjectDetail() {
+        JSONObject body = JSON.parseObject("{\"oid\":\"response-oid\",\"details\":[null]}");
+
+        try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(body, new AtomicReference<>())) {
+            ServiceException exception = assertThrows(ServiceException.class,
+                    () -> service.queryCard(request("4309")));
+            assertEquals("临时工艺信息查询失败", exception.getMessage());
+        }
+    }
+
     private void assertDocumentError(CaoeDocInfoDTO doc, String expectedMessage) {
         when(caoeTableMapper.queryDocInfo("DOC-1")).thenReturn(doc);
         try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(repairResponseBody(), new AtomicReference<>())) {

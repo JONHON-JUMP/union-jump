@@ -131,7 +131,8 @@ public class ProcessServiceImpl implements ProcessService{
                     } catch (RuntimeException parseException) {
                         throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
                     }
-                    if (!jsonObject.containsKey(CommonConstant.RETCODE)
+                    if (jsonObject == null
+                            || !jsonObject.containsKey(CommonConstant.RETCODE)
                             || !String.valueOf(HttpStatus.SC_OK).equals(jsonObject.getString(CommonConstant.RETCODE))
                             || !jsonObject.containsKey(CommonConstant.RESPONSEBODY)
                             || !(jsonObject.get(CommonConstant.RESPONSEBODY) instanceof JSONObject)
@@ -142,6 +143,9 @@ public class ProcessServiceImpl implements ProcessService{
                 }
             );
 
+            if (responseBodyJsonObject == null) {
+                throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+            }
             String oid = responseBodyJsonObject.getString(CommonConstant.OID);
             if (StringUtils.isEmpty(oid)) {
                 throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
@@ -153,6 +157,11 @@ public class ProcessServiceImpl implements ProcessService{
             }
 
             JSONArray jsonArray = (JSONArray) detailsPayload;
+            for (Object detail : jsonArray) {
+                if (!(detail instanceof JSONObject)) {
+                    throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+                }
+            }
 
             // 检查工艺版本是否发行
             String docNumber;

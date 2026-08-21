@@ -18,6 +18,7 @@ import java.util.Map;
 @Component
 public class TemporaryProcessTreeAssembler {
 
+    // CAOE/Windchill 既有接口要求的固定查看地址；调用入口必须保持登录鉴权，避免匿名分发凭据。
     static final String VIEW_URL_PREFIX = "http://MESloginUser:MESloginUseradmin@pdm.caoe.com/"
             + "Windchill/netmarkets/jsp/ext/caoe/mes/export.jsp?oid=";
 
