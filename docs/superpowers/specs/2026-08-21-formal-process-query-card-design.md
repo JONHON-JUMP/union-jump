@@ -8,6 +8,7 @@
 
 - 正式工艺号以 `C` 开头；其中 `CX` 为 MPM 正式工艺，其余 `C` 前缀为 PDM 正式工艺。
 - 查询版本统一调用 MPM `queryObjectInfo`，不从前端接受版本号。
+- 正式工艺查询只要求 `accno`；`prtno` 仅在临时工艺查询时必填。
 - 工艺树在一次 `queryCard` 请求内完整构造，不实现前端懒加载。
 - MPM 发布 URL 仅在用户点击查看时获取，不在查询工艺树时批量调用。
 - 第三方系统认证、token 和路由配置继续由现有 `ThirdPartyRouteService` 及 invokeId 管理，业务代码不保存登录凭据。
@@ -185,6 +186,7 @@ WHERE OP_NUMBER = #{cnumber}
 
 现有树形页面继续复用同一展示结构。
 
+- 表单始终校验 `accno`；仅当 `accno` 不是 `C` 前缀时校验 `prtno`，使正式工艺可只输入工艺规程号查询。
 - PDM 节点：`externalUrl` 有值，点击后按现有安全打开逻辑跳转。
 - MPM 节点：`externalUrl` 为空但 `oid` 有值时，按钮仍可点击；前端调用 `/mes/process/query/file-url`，成功后安全打开响应 URL。
 - 同一节点在请求期间显示加载态并防止重复点击。
@@ -228,6 +230,7 @@ WHERE OP_NUMBER = #{cnumber}
 ### 前端测试
 
 - 正式工艺卡和多层节点映射。
+- 正式工艺只输入 `accno` 可提交；临时工艺缺少 `prtno` 仍被阻止。
 - PDM 节点直接打开 URL。
 - MPM 节点点击后调用真实后端 API，再打开返回 URL。
 - MPM 节点加载态、防重复点击、失败后保留树。
