@@ -107,7 +107,7 @@ public class ProcessServiceImpl implements ProcessService{
             }
             String oid = responseBodyJsonObject.getString(CommonConstant.OID);
             if (StringUtils.isEmpty(oid)) {
-                throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+                throw exception(new ErrorCode(500, "临时工艺信息缺少oid"));
             }
 
             Object detailsPayload = responseBodyJsonObject.get(CommonConstant.DETAILS);
@@ -162,9 +162,9 @@ public class ProcessServiceImpl implements ProcessService{
 
     private List<ProcessCardRespVO> queryFormalCard(String accno) {
         FormalProcessReqVO request = FormalProcessReqVO.builder()
-                .objType("com.glaway.dtp.business.model.process.ProcessModel")
+                .objType(CommonConstant.OBJTYPE)
                 .objNumbers(Collections.singletonList(accno))
-                .isLatest("true")
+                .isLatest(CommonConstant.TRUE)
                 .build();
 
         String version = thirdPartyRouteService.invoke(

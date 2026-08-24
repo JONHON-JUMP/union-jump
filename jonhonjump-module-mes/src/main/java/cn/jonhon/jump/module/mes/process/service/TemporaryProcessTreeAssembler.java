@@ -1,5 +1,6 @@
 package cn.jonhon.jump.module.mes.process.service;
 
+import cn.jonhon.jump.module.mes.process.constant.CommonConstant;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardDetailsRespVO;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
@@ -18,9 +19,6 @@ import java.util.Map;
 @Component
 public class TemporaryProcessTreeAssembler {
 
-    // CAOE/Windchill 既有接口要求的固定查看地址；调用入口必须保持登录鉴权，避免匿名分发凭据。
-    static final String VIEW_URL_PREFIX = "http://MESloginUser:MESloginUseradmin@pdm.caoe.com/"
-            + "Windchill/netmarkets/jsp/ext/caoe/mes/export.jsp?oid=";
 
     public List<ProcessCardDetailsRespVO> assemble(JSONArray details, String documentOid) {
         List<Row> rows = new ArrayList<>();
@@ -39,7 +37,7 @@ public class TemporaryProcessTreeAssembler {
                 .name(json.getString("Seqdesc"))
                 .code(null)
                 .no(no)
-                .url(VIEW_URL_PREFIX + documentOid)
+                .url(CommonConstant.VIEW_URL_PREFIX + documentOid)
                 .children(new ArrayList<>())
                 .build();
         return new Row(no, sourceIndex, parseParts(no), node);

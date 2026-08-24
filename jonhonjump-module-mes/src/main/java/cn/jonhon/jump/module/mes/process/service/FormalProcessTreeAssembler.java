@@ -1,6 +1,7 @@
 package cn.jonhon.jump.module.mes.process.service;
 
 import cn.jonhon.jump.framework.common.exception.ErrorCode;
+import cn.jonhon.jump.module.mes.process.constant.CommonConstant;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardDetailsRespVO;
 import cn.jonhon.jump.module.mes.process.dal.process.oracle.CaoeTableMapper;
 import cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.ProcessOperationDTO;
@@ -18,9 +19,6 @@ import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUti
 
 @Component
 public class FormalProcessTreeAssembler {
-
-    static final String PDM_VIEW_URL_PREFIX = "http://pdm.caoe.com/Windchill/netmarkets/"
-            + "jsp/ext/caoe/mpml/routCard.jsp?";
 
     @Resource
     private CaoeTableMapper mapper;
@@ -79,7 +77,7 @@ public class FormalProcessTreeAssembler {
             if (StringUtils.isBlank(query)) {
                 throw exception(new ErrorCode(500, "正式工艺文件信息不完整"));
             }
-            url = PDM_VIEW_URL_PREFIX + query;
+            url = CommonConstant.PDM_VIEW_URL_PREFIX + query;
         }
         return ProcessCardDetailsRespVO.builder()
                 .name(operation.getCname())

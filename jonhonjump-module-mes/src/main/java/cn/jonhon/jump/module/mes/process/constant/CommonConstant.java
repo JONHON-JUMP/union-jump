@@ -28,4 +28,12 @@ public interface CommonConstant {
 
     String PUBLISHED= "已发行";
 
+    String OBJTYPE = "com.glaway.dtp.business.model.process.ProcessModel";
+
+    String TRUE = "true";
+
+    String PDM_VIEW_URL_PREFIX = "http://pdm.caoe.com/Windchill/netmarkets/jsp/ext/caoe/mpml/routCard.jsp?";
+
+    String VIEW_URL_PREFIX = "http://MESloginUser:MESloginUseradmin@pdm.caoe.com/Windchill/netmarkets/jsp/ext/caoe/mes/export.jsp?oid=";
+
 }
