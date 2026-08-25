@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jonhon.jump.module.rm.recipechange.dal.pgsql.RecipeChangeNoticeMapper">
+
+    <!--
+        内容查询专用结果映射
+        显式指定 JacksonTypeHandler，确保 PostgreSQL JSONB 可以转换为 JsonNode 返回给前端
+    -->
+    <resultMap id="RecipeChangeNoticeContentResultMap"
+               type="cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeNoticeDO">
+        <id column="id" property="id"/>
+        <result column="notify_id" property="notifyId"/>
+        <result column="workshop_code" property="workshopCode"/>
+        <result column="change_content" property="changeContent"
+                typeHandler="com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler"/>
+    </resultMap>
+
+    <!--
+        按 notify_id 新增工艺变更通知主记录
+        PostgreSQL 唯一约束冲突时不抛出异常，用受影响行数为 0 表示该通知已被其他请求接收
+    -->
+    <insert id="insertIgnoreDuplicate">
+        INSERT INTO recipe_change_notice
+        (notify_id, workshop_code, creator, change_content, status, retry_count, max_retry)
+        VALUES (#{notifyId}, #{workshopCode}, #{creator},
+                CAST(#{changeContent,typeHandler=com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler} AS JSONB),
+                #{status}, #{retryCount}, #{maxRetry}) ON CONFLICT (notify_id) DO NOTHING
+    </insert>
+
+    <!--
+        Broker 对本次发布返回 ack=true 后执行此语句
+        status 更新为已发送 MQ，mq_send_time 记录确认时间，error_msg 清空上次发送失败原因
+        WHERE 中同时判断原状态，防止并发发送或人工操作覆盖最新状态
+    -->
+    <update id="updateSendSuccess">
+        UPDATE recipe_change_notice
+        SET status       = #{toStatus},
+            mq_send_time = CURRENT_TIMESTAMP,
+            error_msg    = NULL,
+            update_time  = CURRENT_TIMESTAMP,
+            updater      = #{updater}
+        WHERE id = #{id}
+          AND status = #{fromStatus}
+    </update>
+
+    <!--
+        发送异常、确认超时、ack=false 或 mandatory 返回无法路由时执行此语句
+        status 更新为发送失败，error_msg 保存失败原因供定时重试和人工排查使用
+        WHERE 中同时判断原状态，防止并发发送或人工操作覆盖最新状态
+    -->
+    <update id="updateSendFailure">
+        UPDATE recipe_change_notice
+        SET status = #{toStatus},
+        error_msg = #{errorMsg},
+        update_time = CURRENT_TIMESTAMP,
+        updater = #{updater}
+        <if test="increaseRetryCount">, retry_count = retry_count + 1</if>
+        WHERE id = #{id}
+        AND status = #{fromStatus}
+    </update>
+
+    <!-- 查询定时任务需要处理的发送失败通知 -->
+    <select id="selectSendFailedNotices" resultType="cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeNoticeDO">
+        SELECT id, notify_id, workshop_code, change_content, status, retry_count, max_retry
+        FROM recipe_change_notice
+        WHERE status = 15
+          AND deleted = 0
+        ORDER BY create_time ASC, id ASC
+    </select>
+
+    <!-- 达到最大自动重试次数后转入待人工处理状态 -->
+    <update id="updatePendingManual">
+        UPDATE recipe_change_notice
+        SET status      = #{toStatus},
+            update_time = CURRENT_TIMESTAMP,
+            updater     = #{updater}
+        WHERE id = #{id}
+          AND status = #{fromStatus}
+    </update>
+
+    <!--
+        管理员确认不再处理异常通知时执行此语句
+        仅在记录仍处于页面勾选时的原状态时才更新，防止覆盖并发流程产生的新状态
+        状态变为已标记完成后，定时重试查询不会再检索到该通知
+    -->
+    <update id="updateMarkedComplete">
+        UPDATE recipe_change_notice
+        SET status = #{toStatus},
+            update_time = CURRENT_TIMESTAMP,
+            updater = #{updater}
+        WHERE id = #{id}
+          AND status = #{fromStatus}
+    </update>
+
+    <!--
+        MES 消费前原子领取处理权。重复消息仅有一条能更新成功；处理中租约到期后，
+        RabbitMQ 重新投递的消息才允许替代异常消费者继续处理。
+    -->
+    <update id="tryAcquireProcessing">
+        UPDATE recipe_change_notice
+        SET status                 = #{processingStatus},
+            processing_token       = #{processingToken},
+            processing_lease_until = CURRENT_TIMESTAMP + INTERVAL '20 minutes',
+            error_msg              = NULL,
+            update_time            = CURRENT_TIMESTAMP,
+            updater                = #{updater}
+        WHERE id = #{id}
+          AND (
+              <!-- 首次到达 MES 主队列的消息可以领取 -->
+              status = #{sentStatus}
+              <!-- MES 失败后经 20 分钟延迟队列回流的消息可以再次领取 -->
+              OR status = #{mesProcessFailedStatus}
+              <!-- 仅当原消费者的处理租约到期，才允许新消费者接管处理中消息 -->
+              OR (status = #{processingStatus}
+                  AND (processing_lease_until IS NULL OR processing_lease_until &lt;= CURRENT_TIMESTAMP))
+          )
+    </update>
+
+    <!-- MES 回调时仅允许当前处理令牌更新结果，防止租约过期后的旧消费者覆盖新一轮处理 -->
+    <update id="updateMesProcessStatus">
+        UPDATE recipe_change_notice
+        SET status                 = #{toStatus},
+            error_msg              = #{errorMsg},
+            processing_token       = NULL,
+            processing_lease_until = NULL,
+            update_time            = CURRENT_TIMESTAMP,
+            updater                = #{updater}
+        WHERE id = #{id}
+          AND status = #{fromStatus}
+          AND processing_token = #{processingToken}
+    </update>
+
+    <!--
+        变更通知管理页面分页查询
+        不查询 change_content，避免列表加载时传输未展示的大字段 JSON 内容
+        按创建时间和主键倒序排列，保证同一时刻创建的记录排序稳定
+    -->
+    <select id="selectNoticePage" resultType="cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeNoticeDO">
+        SELECT id, notify_id, workshop_code, status, retry_count, max_retry, create_time
+        FROM recipe_change_notice
+        WHERE deleted = 0
+        <if test="pageReqVO.notifyId != null and pageReqVO.notifyId != ''">
+            AND notify_id = #{pageReqVO.notifyId}
+        </if>
+        <if test="pageReqVO.workshopCode != null and pageReqVO.workshopCode != ''">
+            AND workshop_code = #{pageReqVO.workshopCode}
+        </if>
+        <if test="pageReqVO.status != null">
+            AND status = #{pageReqVO.status}
+        </if>
+        <if test="pageReqVO.createTime != null and pageReqVO.createTime.length == 2">
+            AND create_time <![CDATA[ >= ]]> #{pageReqVO.createTime[0]}
+            AND create_time <![CDATA[ <= ]]> #{pageReqVO.createTime[1]}
+        </if>
+        ORDER BY create_time DESC, id DESC
+    </select>
+
+    <!--
+        变更通知管理页面 Excel 导出查询
+        查询条件与分页列表完全一致，但不使用分页限制，确保有筛选条件时导出全部匹配记录，无条件时导出全部通知
+    -->
+    <select id="selectNoticeList" resultType="cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeNoticeDO">
+        SELECT notify_id, workshop_code, status, retry_count, max_retry, create_time
+        FROM recipe_change_notice
+        WHERE deleted = 0
+        <if test="pageReqVO.notifyId != null and pageReqVO.notifyId != ''">
+            AND notify_id = #{pageReqVO.notifyId}
+        </if>
+        <if test="pageReqVO.workshopCode != null and pageReqVO.workshopCode != ''">
+            AND workshop_code = #{pageReqVO.workshopCode}
+        </if>
+        <if test="pageReqVO.status != null">
+            AND status = #{pageReqVO.status}
+        </if>
+        <if test="pageReqVO.createTime != null and pageReqVO.createTime.length == 2">
+            AND create_time <![CDATA[ >= ]]> #{pageReqVO.createTime[0]}
+            AND create_time <![CDATA[ <= ]]> #{pageReqVO.createTime[1]}
+        </if>
+        ORDER BY create_time DESC, id DESC
+    </select>
+
+    <!--
+        “内容查询”操作仅加载主键、通知标识、车间和 JSON 业务内容
+        保留 deleted = 0 条件，避免逻辑删除记录再次暴露给管理页面
+    -->
+    <select id="selectNoticeContentById" resultMap="RecipeChangeNoticeContentResultMap">
+        SELECT id, notify_id, workshop_code, change_content
+        FROM recipe_change_notice
+        WHERE id = #{noticeId}
+          AND deleted = 0
+    </select>
+
+</mapper>

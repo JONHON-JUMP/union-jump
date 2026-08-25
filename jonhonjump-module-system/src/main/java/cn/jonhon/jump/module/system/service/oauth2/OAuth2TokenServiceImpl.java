@@ -212,7 +212,7 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
     }
 
     /**
-     * 加载用户信息，方便 {@link cn.jonhon.jump.framework.security.core.LoginUser} 获取到昵称、部门等信息
+     * 加载用户信息，方便 {@link cn.jonhon.jump.framework.security.core.LoginUser} 获取昵称、部门、账号等信息
      *
      * @param userId 用户编号
      * @param userType 用户类型
@@ -225,7 +225,9 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
         if (userType.equals(UserTypeEnum.ADMIN.getValue())) {
             AdminUserDO user = adminUserService.getUser(userId);
             return MapUtil.builder(LoginUser.INFO_KEY_NICKNAME, user.getNickname())
-                    .put(LoginUser.INFO_KEY_DEPT_ID, StrUtil.toStringOrNull(user.getDeptId())).build();
+                    .put(LoginUser.INFO_KEY_DEPT_ID, StrUtil.toStringOrNull(user.getDeptId()))
+                    // 人工处理工艺变更通知时使用账号审计，避免将昵称作为操作人。
+                    .put(LoginUser.INFO_KEY_USERNAME, user.getUsername()).build();
         } else if (userType.equals(UserTypeEnum.MEMBER.getValue())) {
             // 注意：目前 Member 暂时不读取，可以按需实现
             return Collections.emptyMap();

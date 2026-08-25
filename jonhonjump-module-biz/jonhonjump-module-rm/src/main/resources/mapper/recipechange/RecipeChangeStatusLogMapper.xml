@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jonhon.jump.module.rm.recipechange.dal.pgsql.RecipeChangeStatusLogMapper">
+
+    <!--
+        每次通知状态变化时新增一条不可修改的流水
+        from_status 保存变化前状态，to_status 保存变化后状态，trigger_type 标记系统或人工触发
+        通过 notice_id 和 notify_id 可以从通知主表或外部通知标识追溯状态轨迹
+    -->
+    <insert id="insertStatusLog">
+        INSERT INTO recipe_change_status_log
+            (notice_id, notify_id, from_status, to_status, change_time, trigger_type, creator, remark)
+        VALUES
+            (#{noticeId}, #{notifyId}, #{fromStatus}, #{toStatus}, #{changeTime}, #{triggerType},
+             #{creator}, #{remark})
+    </insert>
+
+</mapper>

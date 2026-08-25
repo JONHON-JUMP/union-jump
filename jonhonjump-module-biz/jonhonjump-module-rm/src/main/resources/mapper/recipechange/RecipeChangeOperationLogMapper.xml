@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.jonhon.jump.module.rm.recipechange.dal.pgsql.RecipeChangeOperationLogMapper">
+
+    <!--
+        记录每一次 RabbitMQ 发送操作的请求和结果
+        request_params 保存实际发送给 MES 的消息体，response_params 保存路由键和发布确认结果
+        两个 JSON 参数显式转换为 PostgreSQL JSONB，避免 JDBC 将其按 varchar 绑定而导致类型错误
+    -->
+    <insert id="insertOperationLog">
+        INSERT INTO recipe_change_operation_log
+        (notice_id, notify_id, workshop_code, operation_type, operation_time, operator, operation_result,
+         creator, error_msg, request_params, response_params, remark)
+        VALUES (#{noticeId}, #{notifyId}, #{workshopCode}, #{operationType}, #{operationTime}, #{operator},
+                #{operationResult}, #{creator}, #{errorMsg},
+                CAST(#{requestParams,typeHandler=com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler} AS JSONB),
+                CAST(#{responseParams,typeHandler=com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler} AS JSONB),
+                #{remark})
+    </insert>
+
+    <!--
+        操作日志查看页面分页查询
+        不返回 request_params 和 response_params，因为原型页面未展示这两个 JSON 快照
+        记录按照实际操作时间正序排列，用于还原 MPM 接收、MQ 发送等处理链路
+    -->
+    <select id="selectOperationLogPage" resultType="cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeOperationLogDO">
+        SELECT id, notify_id, workshop_code, operation_type, operation_time, operator, operation_result, error_msg
+        FROM recipe_change_operation_log
+        WHERE notice_id = #{noticeId}
+          AND deleted = 0
+        ORDER BY operation_time DESC , id DESC
+    </select>
+
+</mapper>
