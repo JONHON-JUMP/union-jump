@@ -47,6 +47,39 @@ public class SubSystemMenuController {
         return success(list);
     }
 
+    // ========== 通用菜单：一次定义，挂载到多个子系统 ==========
+
+    @GetMapping("/common/list")
+    @Operation(summary = "获得通用菜单模板列表（含已挂载子系统）")
+    @PreAuthorize("@ss.hasPermission('sub-system:menu:list')")
+    public CommonResult<List<SubSystemCommonMenuRespVO>> getCommonMenuList() {
+        return success(subSystemMenuService.getCommonMenuList());
+    }
+
+    @PostMapping("/common/create")
+    @Operation(summary = "创建通用菜单并挂载到选中的子系统")
+    @PreAuthorize("@ss.hasPermission('sub-system:menu:create')")
+    public CommonResult<Long> createCommonMenu(@Valid @RequestBody SubSystemCommonMenuSaveReqVO createReqVO) {
+        return success(subSystemMenuService.createCommonMenu(createReqVO));
+    }
+
+    @PutMapping("/common/update")
+    @Operation(summary = "更新通用菜单（同步全部副本，并按挂载列表增删副本）")
+    @PreAuthorize("@ss.hasPermission('sub-system:menu:update')")
+    public CommonResult<Boolean> updateCommonMenu(@Valid @RequestBody SubSystemCommonMenuSaveReqVO updateReqVO) {
+        subSystemMenuService.updateCommonMenu(updateReqVO);
+        return success(true);
+    }
+
+    @DeleteMapping("/common/delete")
+    @Operation(summary = "删除通用菜单及其全部副本")
+    @Parameter(name = "id", description = "模板编号", required = true)
+    @PreAuthorize("@ss.hasPermission('sub-system:menu:delete')")
+    public CommonResult<Boolean> deleteCommonMenu(@RequestParam("id") Long id) {
+        subSystemMenuService.deleteCommonMenu(id);
+        return success(true);
+    }
+
     @GetMapping("/get")
     @Operation(summary = "获得外部系统菜单")
     @Parameter(name = "id", description = "编号", required = true)

@@ -22,6 +22,10 @@
             <el-input v-model="queryParams.username" placeholder="请输入用户名称" clearable style="width: 240px"
                       @keyup.enter.native="handleQuery"/>
           </el-form-item>
+          <el-form-item label="用户姓名" prop="nickname">
+            <el-input v-model="queryParams.nickname" placeholder="请输入用户姓名" clearable style="width: 240px"
+                      @keyup.enter.native="handleQuery"/>
+          </el-form-item>
           <el-form-item label="工号" prop="employeeNo">
             <el-input v-model="queryParams.employeeNo" placeholder="请输入工号" clearable style="width: 240px"
                       @keyup.enter.native="handleQuery"/>
@@ -83,7 +87,7 @@
         >
           <el-table-column type="selection" width="55"/>
           <el-table-column label="用户名称" align="center" key="username" prop="username" v-if="columns[0].visible" :show-overflow-tooltip="true" />
-          <el-table-column label="用户昵称" align="center" key="nickname" prop="nickname" v-if="columns[1].visible" :show-overflow-tooltip="true" />
+          <el-table-column label="用户姓名" align="center" key="nickname" prop="nickname" v-if="columns[1].visible" :show-overflow-tooltip="true" />
           <el-table-column label="工号" align="center" key="employeeNo" prop="employeeNo" v-if="columns[2].visible" width="100" :show-overflow-tooltip="true" />
           <el-table-column label="域账号" align="center" key="domainNo" prop="domainNo" v-if="columns[3].visible" width="120" :show-overflow-tooltip="true" />
           <el-table-column label="刷卡卡号" align="center" key="cardNo" prop="cardNo" v-if="columns[4].visible" width="120" :show-overflow-tooltip="true" />
@@ -138,8 +142,8 @@
       <el-form ref="form" :model="form" :rules="rules" label-width="90px">
         <el-row>
           <el-col :span="12">
-            <el-form-item label="用户昵称" prop="nickname">
-              <el-input v-model="form.nickname" placeholder="请输入用户昵称" />
+            <el-form-item label="用户姓名" prop="nickname">
+              <el-input v-model="form.nickname" placeholder="请输入用户姓名" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -256,7 +260,7 @@
         <el-form-item label="用户名称">
           <el-input v-model="form.username" :disabled="true" />
         </el-form-item>
-        <el-form-item label="用户昵称">
+        <el-form-item label="用户姓名">
           <el-input v-model="form.nickname" :disabled="true" />
         </el-form-item>
         <el-form-item label="角色">
@@ -363,6 +367,7 @@ export default {
         pageNo: 1,
         pageSize: 10,
         username: undefined,
+        nickname: undefined,
         employeeNo: undefined,
         domainNo: undefined,
         status: undefined,
@@ -372,7 +377,7 @@ export default {
       // 列信息
       columns: [
         { key: 0, label: `用户名称`, visible: true },
-        { key: 1, label: `用户昵称`, visible: true },
+        { key: 1, label: `用户姓名`, visible: true },
         { key: 2, label: `工号`, visible: true },
         { key: 3, label: `域账号`, visible: true },
         { key: 4, label: `刷卡卡号`, visible: true },
@@ -387,7 +392,7 @@ export default {
           { required: true, message: "用户名称不能为空", trigger: "blur" }
         ],
         nickname: [
-          { required: true, message: "用户昵称不能为空", trigger: "blur" }
+          { required: true, message: "用户姓名不能为空", trigger: "blur" }
         ],
         password: [
           { required: true, message: "用户密码不能为空", trigger: "blur" }
@@ -405,12 +410,18 @@ export default {
 
       // 枚举
       SysCommonStatusEnum: CommonStatusEnum,
-      // 数据字典
-      statusDictDatas: getDictDatas(DICT_TYPE.COMMON_STATUS),
-      sexDictDatas: getDictDatas(DICT_TYPE.SYSTEM_USER_SEX),
       // 选中行
       checkedIds: [],
     };
+  },
+  computed: {
+    // 数据字典走 computed：字典是异步加载的，data 快照会拿到空列表导致下拉空白
+    statusDictDatas() {
+      return getDictDatas(DICT_TYPE.COMMON_STATUS)
+    },
+    sexDictDatas() {
+      return getDictDatas(DICT_TYPE.SYSTEM_USER_SEX)
+    }
   },
   watch: {
     // 根据名称筛选部门树

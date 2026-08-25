@@ -71,6 +71,7 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_MENU_HAS_ROLES = new ErrorCode(1_002_003_021, "外部系统菜单已分配角色，无法删除");
     ErrorCode SUB_SYSTEM_MENU_HAS_QUICK_NAV = new ErrorCode(1_002_003_042, "外部系统菜单已配置快捷导航，请先取消快捷导航后再删除");
     ErrorCode SUB_SYSTEM_ROLE_MENU_HAS_QUICK_NAV = new ErrorCode(1_002_003_043, "取消的菜单中包含角色快捷导航，请先取消快捷导航后再调整菜单权限");
+    ErrorCode SUB_SYSTEM_COMMON_MENU_COPY_HAS_CHILDREN = new ErrorCode(1_002_003_044, "子系统「{}」下有菜单挂在通用菜单副本之下，请先移走后再调整挂载");
     ErrorCode SUB_SYSTEM_MENU_NAME_DUPLICATE = new ErrorCode(1_002_003_022, "已经存在该名字的菜单");
     ErrorCode SUB_SYSTEM_MENU_PARENT_NOT_EXISTS = new ErrorCode(1_002_003_023, "父菜单不存在");
     ErrorCode SUB_SYSTEM_MENU_PARENT_ERROR = new ErrorCode(1_002_003_024, "不能设置自己为父菜单");

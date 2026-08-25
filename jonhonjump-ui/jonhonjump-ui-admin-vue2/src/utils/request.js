@@ -247,7 +247,7 @@ export function getBaseHeader() {
 function handleAuthorized() {
   if (!isRelogin.show) {
     isRelogin.show = true;
-    MessageBox.confirm('登录状态已过期，重新登录后将进入门户默认首页', '系统提示', {
+    MessageBox.confirm('登录状态已过期或该账号已在其他设备登录，重新登录后将进入门户默认首页', '系统提示', {
         confirmButtonText: '重新登录',
         cancelButtonText: '取消',
         type: 'warning',

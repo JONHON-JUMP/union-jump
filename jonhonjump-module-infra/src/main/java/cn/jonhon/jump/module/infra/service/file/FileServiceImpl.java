@@ -2,7 +2,6 @@ package cn.jonhon.jump.module.infra.service.file;
 
 import cn.hutool.core.date.LocalDateTimeUtil;
 import cn.hutool.core.io.FileUtil;
-import cn.hutool.core.lang.Assert;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
@@ -17,6 +16,7 @@ import cn.jonhon.jump.module.infra.framework.file.core.client.FileClient;
 import cn.jonhon.jump.module.infra.framework.file.core.utils.FileTypeUtils;
 import com.google.common.annotations.VisibleForTesting;
 import lombok.SneakyThrows;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -24,6 +24,8 @@ import java.util.List;
 
 import static cn.hutool.core.date.DatePattern.PURE_DATE_PATTERN;
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.jonhon.jump.module.infra.enums.ErrorCodeConstants.FILE_CONFIG_MASTER_NOT_EXISTS;
+import static cn.jonhon.jump.module.infra.enums.ErrorCodeConstants.FILE_CONFIG_NOT_EXISTS;
 import static cn.jonhon.jump.module.infra.enums.ErrorCodeConstants.FILE_NOT_EXISTS;
 
 /**
@@ -31,6 +33,7 @@ import static cn.jonhon.jump.module.infra.enums.ErrorCodeConstants.FILE_NOT_EXIS
  *
  * @author 中航光电
  */
+@Slf4j
 @Service
 public class FileServiceImpl implements FileService {
 
@@ -82,7 +85,10 @@ public class FileServiceImpl implements FileService {
         String path = generateUploadPath(name, directory);
         // 2.2 上传到文件存储器
         FileClient client = fileConfigService.getMasterFileClient();
-        Assert.notNull(client, "客户端(master) 不能为空");
+        if (client == null) {
+            // 明确提示配置缺失，避免现场只看到“系统异常”无从排查
+            throw exception(FILE_CONFIG_MASTER_NOT_EXISTS);
+        }
         String url = client.upload(content, path, type);
 
         // 3. 保存到数据库
@@ -162,30 +168,42 @@ public class FileServiceImpl implements FileService {
         // 校验存在
         FileDO file = validateFileExists(id);
 
-        // 从文件存储器中删除
-        FileClient client = fileConfigService.getFileClient(file.getConfigId());
-        Assert.notNull(client, "客户端({}) 不能为空", file.getConfigId());
-        client.delete(file.getPath());
+        // 从文件存储器中删除；配置缺失或物理删除失败仅记日志，保证文件记录始终可清理
+        deletePhysicalFileQuietly(file);
 
         // 删除记录
         fileMapper.deleteById(id);
     }
 
     @Override
-    @SneakyThrows
     public void deleteFileList(List<Long> ids) {
         // 删除文件
         List<FileDO> files = fileMapper.selectByIds(ids);
         for (FileDO file : files) {
-            // 获取客户端
-            FileClient client = fileConfigService.getFileClient(file.getConfigId());
-            Assert.notNull(client, "客户端({}) 不能为空", file.getPath());
-            // 删除文件
-            client.delete(file.getPath());
+            deletePhysicalFileQuietly(file);
         }
 
         // 删除记录
         fileMapper.deleteByIds(ids);
+    }
+
+    /**
+     * 尽力删除物理文件：存储配置已不存在（如文件配置被删后遗留的记录）时跳过；
+     * 物理删除失败（文件被占用、权限不足等）时仅记录日志，不阻断记录删除。
+     */
+    private void deletePhysicalFileQuietly(FileDO file) {
+        try {
+            FileClient client = fileConfigService.getFileClient(file.getConfigId());
+            if (client == null) {
+                log.warn("[deletePhysicalFileQuietly][文件记录({}) 的存储配置({})不存在，跳过物理删除]",
+                        file.getId(), file.getConfigId());
+                return;
+            }
+            client.delete(file.getPath());
+        } catch (Exception ex) {
+            log.error("[deletePhysicalFileQuietly][文件记录({}) 物理删除失败，path({})]",
+                    file.getId(), file.getPath(), ex);
+        }
     }
 
     private FileDO validateFileExists(Long id) {
@@ -199,7 +217,10 @@ public class FileServiceImpl implements FileService {
     @Override
     public byte[] getFileContent(Long configId, String path) throws Exception {
         FileClient client = fileConfigService.getFileClient(configId);
-        Assert.notNull(client, "客户端({}) 不能为空", configId);
+        if (client == null) {
+            // 文件配置已删除/缺失时给出明确提示，避免只看到“系统异常”
+            throw exception(FILE_CONFIG_NOT_EXISTS);
+        }
         return client.getContent(path);
     }
 

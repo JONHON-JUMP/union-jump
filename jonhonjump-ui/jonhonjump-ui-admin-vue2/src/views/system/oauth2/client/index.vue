@@ -205,7 +205,6 @@ export default {
         clientId: [{ required: true, message: "客户端编号不能为空", trigger: "blur" }],
         secret: [{ required: true, message: "客户端密钥不能为空", trigger: "blur" }],
         name: [{ required: true, message: "应用名不能为空", trigger: "blur" }],
-        logo: [{ required: true, message: "应用图标不能为空", trigger: "blur" }],
         status: [{ required: true, message: "状态不能为空", trigger: "blur" }],
         accessTokenValiditySeconds: [{ required: true, message: "访问令牌的有效期不能为空", trigger: "blur" }],
         refreshTokenValiditySeconds: [{ required: true, message: "刷新令牌的有效期不能为空", trigger: "blur" }],

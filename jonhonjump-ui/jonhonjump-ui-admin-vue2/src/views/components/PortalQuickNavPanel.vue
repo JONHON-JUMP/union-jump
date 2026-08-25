@@ -258,6 +258,8 @@ export default {
     },
     homeApps() {
       this.$nextTick(this.updateAppPagination)
+      // 数据就绪后恢复上次浏览页（打开菜单再返回时保持当前分页）
+      this.restoreAppPageOnce()
     }
   },
   mounted() {
@@ -388,6 +390,8 @@ export default {
       this.closeContextMenu()
       this.restoreQuickNavFromCache()
       this.currentAppPage = 0
+      // 切换系统后允许恢复新 scope 自己的页码
+      this._appPageRestoredKey = null
       this.loadQuickNav().finally(() => {
         this.$nextTick(this.updateAppPagination)
       })
@@ -741,6 +745,7 @@ export default {
       }
       this.pageDirection = step > 0 ? 'next' : 'prev'
       this.currentAppPage = nextPage
+      this.persistAppPage()
     },
     goToAppPage(page) {
       if (page === this.currentAppPage) {
@@ -748,6 +753,35 @@ export default {
       }
       this.pageDirection = page > this.currentAppPage ? 'next' : 'prev'
       this.currentAppPage = page
+      this.persistAppPage()
+    },
+    /** 快捷导航分页记忆：按 scope 存 sessionStorage，重进首页后不回第一页 */
+    appPageStorageKey() {
+      return `JUMP_QUICKNAV_PAGE_${this.quickNavScopeKey}`
+    },
+    persistAppPage() {
+      try {
+        sessionStorage.setItem(this.appPageStorageKey(), String(this.currentAppPage))
+      } catch (e) { /* ignore */ }
+    },
+    restoreAppPageOnce() {
+      if (this._appPageRestoredKey === this.quickNavScopeKey) {
+        return
+      }
+      if (!this.homeApps.length) {
+        return
+      }
+      let saved = null
+      try {
+        const raw = sessionStorage.getItem(this.appPageStorageKey())
+        if (raw != null && raw !== '') {
+          saved = parseInt(raw, 10)
+        }
+      } catch (e) { /* ignore */ }
+      if (saved != null && !Number.isNaN(saved)) {
+        this.currentAppPage = Math.min(Math.max(saved, 0), this.appPageCount - 1)
+      }
+      this._appPageRestoredKey = this.quickNavScopeKey
     }
   }
 }

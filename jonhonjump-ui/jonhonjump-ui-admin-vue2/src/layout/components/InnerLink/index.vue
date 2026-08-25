@@ -7,6 +7,7 @@
         class="inner-link__frame"
         :src="directSrc"
         frameborder="no"
+        scrolling="auto"
         @load="onDirectLoad"
       />
       <div
@@ -53,6 +54,7 @@
         :class="{ 'is-hidden-doc': hideFrameDoc }"
         :src="frameSrc"
         frameborder="no"
+        scrolling="auto"
         @load="onFrameLoad"
       />
       <transition name="inner-link-fade">

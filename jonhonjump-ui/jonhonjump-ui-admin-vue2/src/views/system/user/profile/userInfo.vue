@@ -1,6 +1,6 @@
 <template>
   <el-form ref="form" :model="form" :rules="rules" label-width="80px">
-    <el-form-item label="用户昵称" prop="nickname">
+    <el-form-item label="用户姓名" prop="nickname">
       <el-input v-model="form.nickname" />
     </el-form-item>
     <el-form-item label="域账号">
@@ -43,7 +43,7 @@ export default {
       },
       rules: {
         nickname: [
-          { required: true, message: '用户昵称不能为空', trigger: 'blur' }
+          { required: true, message: '用户姓名不能为空', trigger: 'blur' }
         ]
       }
     }

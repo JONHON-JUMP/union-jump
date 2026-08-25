@@ -7,7 +7,7 @@
       <el-descriptions :column="2" border>
         <el-descriptions-item label="用户编号">{{ user.id || '-' }}</el-descriptions-item>
         <el-descriptions-item label="用户名称">{{ user.username || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="用户昵称">{{ user.nickname || '-' }}</el-descriptions-item>
+        <el-descriptions-item label="用户姓名">{{ user.nickname || '-' }}</el-descriptions-item>
         <el-descriptions-item label="工号">{{ user.employeeNo || '-' }}</el-descriptions-item>
         <el-descriptions-item label="域账号">{{ user.domainNo || '-' }}</el-descriptions-item>
         <el-descriptions-item label="刷卡卡号">{{ user.cardNo || '-' }}</el-descriptions-item>

@@ -1,10 +1,18 @@
 <template>
   <div
-    :class="{ 'dock-expanded': dockExpanded }"
+    :class="{ 'dock-expanded': dockExpanded, 'in-business': isPortalBusinessRoute }"
     class="jump-portal-shell"
     @click="handleShellClick"
   >
-    <header class="portal-header" @click.stop>
+    <header class="portal-header" :class="{ 'is-collapsed': headerCollapsed }" @click.stop>
+      <!-- 折叠态：细条顶栏，点击展开回完整顶栏 -->
+      <button v-if="headerCollapsed" class="header-collapsed-bar" type="button"
+              aria-label="展开顶栏" @click="headerCollapsed = false">
+        <img class="collapsed-mark" :src="avicBrandLogo" alt="">
+        <span class="collapsed-title">JUMP 中航光电统一制造管理平台</span>
+        <i class="el-icon-arrow-down" />
+      </button>
+      <template v-else>
       <button class="brand" type="button" aria-label="返回门户首页" @click="goHome">
         <img class="brand-mark" :src="avicBrandLogo" :alt="avicBrandAlt">
         <span class="brand-copy">
@@ -74,7 +82,12 @@
             <el-dropdown-item command="logout" divided>退出登录</el-dropdown-item>
           </el-dropdown-menu>
         </el-dropdown>
+        <button class="round-action" type="button" aria-label="折叠顶栏" title="折叠顶栏，给页面更多空间"
+                @click="headerCollapsed = true">
+          <i class="el-icon-arrow-up" />
+        </button>
       </div>
+      </template>
     </header>
 
     <main class="portal-workspace" :class="{ 'is-iframe-host': isPortalIframeRoute }">
@@ -87,7 +100,8 @@
       :expanded="dockExpanded"
       collapsible
       @expand="expandDock"
-      @all-apps="drawerVisible = true"
+      @collapse="dockExpanded = false"
+      @all-apps="openAllAppsFromDock"
     />
 
     <all-apps-drawer
@@ -100,7 +114,7 @@
       :quick-nav-locked-menu-ids="quickNavLockedMenuIds"
       :quick-nav-configured="quickNavConfigured"
       :sub-system-id="currentSubSystemId"
-      @open="openApp"
+      @open="openAppFromDrawer"
       @quick-nav-change="handleQuickNavChangeFromDrawer"
     />
   </div>
@@ -152,6 +166,7 @@ export default {
       searchFocused: false,
       drawerVisible: false,
       dockExpanded: false,
+      headerCollapsed: false,
       quickNavMenuIds: [],
       quickNavLockedMenuIds: [],
       quickNavConfigured: false,
@@ -204,6 +219,14 @@ export default {
     isPortalIframeRoute() {
       const route = resolvePortalFrameRoute(this.$route, this.$store.state.portal.pathLinkMap, this.$store.state.portal.systemList)
       return Boolean(route.meta && route.meta.link)
+    },
+    /**
+     * 顶栏折叠条件：离开门户首页进入任何业务菜单页（主系统组件页 + 子系统 iframe 页）都收起，
+     * 回门户首页展开；停留当前页时以用户手动操作为准（折叠条展开 / 折叠按钮收起）
+     */
+    isPortalBusinessRoute() {
+      const path = this.$route.path || '/'
+      return path !== '/index' && path !== '/'
     }
   },
   watch: {
@@ -238,9 +261,29 @@ export default {
         }).catch(() => {})
       }
     },
-    '$route.path'() {
+    '$route.path'(newPath) {
       this.dockExpanded = false
       this.loadTodoCount()
+      this.restoreAllAppsDrawerOnHome(newPath)
+    },
+    // 进入业务菜单（主系统或子系统）自动收起顶栏给页面让空间，回门户首页自动展开；
+    // 折叠条可点击展开、展开态右上角箭头可再收起（停留当前路由时保持用户选择）
+    // immediate：直接在业务页刷新时初始即处于业务路由，也要收起
+    isPortalBusinessRoute: {
+      immediate: true,
+      handler(inBusiness) {
+        this.headerCollapsed = inBusiness
+        this.scheduleInitialIframeNudge()
+      }
+    },
+    // 折叠/展开、dock 展开收起都会改变 iframe 可视高度；跨域子系统不监听 resize，
+    // 不会重算内部布局，导致内容按旧高度渲染、底部被裁且无滚动条。
+    // 变化后对可见 iframe 做 1px 宽度抖动，强制其触发内部 resize 重算。
+    headerCollapsed() {
+      this.$nextTick(() => this.nudgeVisibleIframes())
+    },
+    dockExpanded() {
+      this.$nextTick(() => this.nudgeVisibleIframes())
     }
   },
   mounted() {
@@ -272,8 +315,10 @@ export default {
     this.todoRefreshTimer = window.setInterval(() => {
       this.loadTodoCount()
     }, 60000)
+    this.setupDockSpaceSync()
   },
   beforeDestroy() {
+    this.teardownDockSpaceSync()
     stopQuickNavWatch()
     stopPortalPermWatch()
     if (this._onPortalOpenAllApps) {
@@ -366,6 +411,11 @@ export default {
     expandDock() {
       this.dockExpanded = true
     },
+    /** dock 上的「全部应用」：打开抽屉同时收起 dock，避免挡住页面 */
+    openAllAppsFromDock() {
+      this.dockExpanded = false
+      this.drawerVisible = true
+    },
     handleSubsystemChange(value) {
       if (value === this.currentSystem) return
       // 切换系统停在门户首页：先快捷导航（watch currentSystem → loadQuickNav），
@@ -398,6 +448,11 @@ export default {
       if (!routePath) return basePath || '/'
       if (isExternal(routePath) || routePath.charAt(0) === '/') return routePath
       return `${basePath}/${routePath}`.replace(/\/+/g, '/')
+    },
+    /** 从「全部应用」抽屉打开菜单：记住来源，关闭菜单回到首页时自动重开抽屉 */
+    openAppFromDrawer(app) {
+      try { sessionStorage.setItem('JUMP_ALLAPPS_RETURN', '1') } catch (e) { /* ignore */ }
+      this.openApp(app)
     },
     openApp(app) {
       this.searchFocused = false
@@ -550,9 +605,127 @@ export default {
       this.searchKeyword = ''
       this.searchFocused = false
     },
+    /**
+     * 1px 宽度抖动可见 iframe：跨域子系统收不到父页 resize 事件，
+     * 靠抖动触发其内部 window.resize 重算布局，修复底部内容滞留旧视口
+     */
+    nudgeVisibleIframes() {
+      window.requestAnimationFrame(() => {
+        document.querySelectorAll('iframe.inner-link__frame').forEach(frame => {
+          // 隐藏的保温帧跳过，等它再次可见时高度自然按新容器渲染
+          if (frame.offsetWidth <= 0 || frame.offsetHeight <= 0) {
+            return
+          }
+          const originalW = frame.style.width
+          const originalH = frame.style.height
+          frame.style.width = 'calc(100% - 1px)'
+          frame.style.height = 'calc(100% - 1px)'
+          window.requestAnimationFrame(() => {
+            frame.style.width = originalW || ''
+            frame.style.height = originalH || ''
+          })
+        })
+      })
+    },
+    /**
+     * 首次进入业务页：顶栏初始折叠/子系统 iframe 加载都会引起容器高度变化，
+     * 页面稳定后补一次抖动，确保子系统按最终高度重算
+     */
+    scheduleInitialIframeNudge() {
+      window.setTimeout(() => this.nudgeVisibleIframes(), 600)
+      window.setTimeout(() => this.nudgeVisibleIframes(), 1500)
+    },
+    /** dock 占位变化后防抖补抖（与 setupDockSpaceSync / padding transition 联动） */
+    scheduleDockSpaceIframeNudge() {
+      if (this._dockSpaceNudgeTimer) {
+        clearTimeout(this._dockSpaceNudgeTimer)
+      }
+      this._dockSpaceNudgeTimer = window.setTimeout(() => {
+        this._dockSpaceNudgeTimer = null
+        this.nudgeVisibleIframes()
+      }, 320)
+    },
+    /**
+     * 实测 dock 占位，替代 CSS 里 100/116/44 的估算值：
+     * --dock-space 由 dock 真实渲染位置（顶边到视口底的距离）逐帧写回，
+     * 展开/收起动画的中间态、未来改 dock 样式都不会再出现"预留不足 → 内容被盖"。
+     * ResizeObserver 不支持时静默退回 CSS 估算值。
+     */
+    setupDockSpaceSync() {
+      if (typeof ResizeObserver === 'undefined') {
+        return
+      }
+      const shellEl = this.$el
+      const dockEl = shellEl.querySelector('.portal-taskbar')
+      if (!shellEl || !dockEl) {
+        return
+      }
+      const sync = () => {
+        const rect = dockEl.getBoundingClientRect()
+        if (!rect || rect.height <= 0) {
+          return
+        }
+        // dock 顶边到视口底 + 安全缝（含阴影/亚像素）；不低于 24px 兜底
+        const space = Math.max(24, Math.ceil(window.innerHeight - rect.top) + 10)
+        shellEl.style.setProperty('--dock-space', space + 'px')
+        // 跨域 iframe（Camstar 等）收不到 resize：占位变化后必须补抖，否则仍按旧高度渲染、底栏文字被裁
+        this.scheduleDockSpaceIframeNudge()
+      }
+      this._dockSpaceObserver = new ResizeObserver(sync)
+      this._dockSpaceObserver.observe(dockEl)
+      this._dockSpaceSync = sync
+      window.addEventListener('resize', this._dockSpaceSync)
+      // padding-bottom 有 transition：动画结束后再抖一次，避免中间态高度错误被业务页锁死
+      this._dockSpaceTransitionEnd = (ev) => {
+        if (ev.target === shellEl && ev.propertyName === 'padding-bottom') {
+          this.scheduleDockSpaceIframeNudge()
+        }
+      }
+      shellEl.addEventListener('transitionend', this._dockSpaceTransitionEnd)
+      // 首帧 + 动画期间 ResizeObserver 会连续回调，padding 的 transition 让跟随保持平滑
+      sync()
+    },
+    teardownDockSpaceSync() {
+      if (this._dockSpaceObserver) {
+        this._dockSpaceObserver.disconnect()
+        this._dockSpaceObserver = null
+      }
+      if (this._dockSpaceSync) {
+        window.removeEventListener('resize', this._dockSpaceSync)
+        this._dockSpaceSync = null
+      }
+      if (this._dockSpaceTransitionEnd && this.$el) {
+        this.$el.removeEventListener('transitionend', this._dockSpaceTransitionEnd)
+        this._dockSpaceTransitionEnd = null
+      }
+      if (this._dockSpaceNudgeTimer) {
+        clearTimeout(this._dockSpaceNudgeTimer)
+        this._dockSpaceNudgeTimer = null
+      }
+      if (this.$el) {
+        this.$el.style.removeProperty('--dock-space')
+      }
+    },
     goHome() {
       if (this.$route.path === '/index' || this.$route.path === '/') return
+      // 主动回首页：不自动重开「全部应用」抽屉
+      try { sessionStorage.removeItem('JUMP_ALLAPPS_RETURN') } catch (e) { /* ignore */ }
       this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
+    },
+    /**
+     * 关闭从「全部应用」打开的菜单回到门户首页时，自动重新打开抽屉，
+     * 用户可继续浏览/选择下一个应用（主系统与子系统同逻辑）
+     */
+    restoreAllAppsDrawerOnHome(newPath) {
+      if (newPath !== '/index' && newPath !== '/') {
+        return
+      }
+      let reopen = false
+      try { reopen = sessionStorage.getItem('JUMP_ALLAPPS_RETURN') === '1' } catch (e) { /* ignore */ }
+      if (reopen) {
+        try { sessionStorage.removeItem('JUMP_ALLAPPS_RETURN') } catch (e) { /* ignore */ }
+        this.drawerVisible = true
+      }
     },
     loadTodoCount() {
       if (!checkPermi(['bpm:task:query'])) {
@@ -609,7 +782,9 @@ $muted: #5d718c;
 $canvas: #eaf4fc;
 
 .jump-portal-shell {
-  --dock-space: 50px;
+  /* dock 为 fixed 悬浮：高 82px + 底边距 18px = 实占 100px，内容须预留完整空间，
+     否则 iframe 页底部会被 dock 盖住 */
+  --dock-space: 100px;
   display: flex;
   height: 100vh;
   min-height: 0;
@@ -631,6 +806,16 @@ $canvas: #eaf4fc;
   --dock-space: 116px;
 }
 
+/* 业务页：dock 默认收成小把手（24px+边距14px），内容只预留把手空间，给页面让高度；
+   点把手临时展开时仍按完整高度预留 */
+.jump-portal-shell.in-business {
+  --dock-space: 44px;
+}
+
+.jump-portal-shell.in-business.dock-expanded {
+  --dock-space: 116px;
+}
+
 button,
 input { font: inherit; }
 button { color: inherit; }
@@ -647,6 +832,44 @@ button { color: inherit; }
   border-radius: 16px;
   background: rgba(255, 255, 255, .95);
   box-shadow: 0 6px 16px rgba(45, 91, 130, .08);
+}
+
+/* 折叠态：细条顶栏，为业务页面让出空间 */
+.portal-header.is-collapsed {
+  min-height: 0;
+  padding: 4px 10px;
+  border-radius: 10px;
+}
+
+.header-collapsed-bar {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  border: 0;
+  padding: 2px 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.header-collapsed-bar .collapsed-mark {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+.header-collapsed-bar .collapsed-title {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  color: #25435f;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-collapsed-bar .el-icon-arrow-down {
+  margin-left: auto;
+  color: #6b8aa9;
 }
 
 .brand {
@@ -796,7 +1019,7 @@ button { color: inherit; }
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
-  scroll-padding-bottom: var(--dock-space, 50px);
+  scroll-padding-bottom: var(--dock-space, 100px);
 }
 .workspace-content > .app-main {
   flex: 1 1 auto;
@@ -824,8 +1047,8 @@ button { color: inherit; }
 }
 
 @media (max-width: 820px) {
-  .jump-portal-shell { --dock-space: 44px; padding: 12px 12px var(--dock-space); }
-  .jump-portal-shell.dock-expanded { --dock-space: 106px; }
+  .jump-portal-shell { --dock-space: 100px; padding: 12px 12px var(--dock-space); }
+  .jump-portal-shell.dock-expanded { --dock-space: 116px; }
   .brand-copy strong { font-size: 17px; }
 }
 

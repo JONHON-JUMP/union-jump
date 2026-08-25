@@ -40,4 +40,10 @@ public class SubSystemMenuDO extends BaseDO {
     /** 菜单说明书文件地址（可选） */
     private String manualUrl;
 
+    /**
+     * 通用菜单模板编号：非空表示本行是模板在各子系统的副本；
+     * 模板本身以 subSystemId = 0 存储，字段变更时同步所有副本（位置/排序除外）
+     */
+    private Long sharedSourceId;
+
 }
