@@ -11,40 +11,44 @@ import cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.CaoeDocInfoDTO;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import com.jonhon.route.ThirdPartyRouteService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.HttpEntity;
 import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.Function;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
-import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class ProcessServiceImplTest {
 
+    private static final String TEMPORARY_PROCESS_URL =
+            "http://localhost:10011/api/jonhon/erpdata/mesdatainterface/sono/rest/SonoRest/GetPrtRoutInfo/v1";
+
+    private static final String FORMAL_PROCESS_URL =
+            "http://localhost/plm-service/api/gate/object/v1/queryObjectInfo";
+
+    private static final String PROCESS_FILE_URL =
+            "http://localhost/mpm-service/api/gate/release/v1/processReleaseForMes";
+
     @InjectMocks
     private ProcessServiceImpl service;
 
-    @Mock
-    private ThirdPartyRouteService thirdPartyRouteService;
     @Mock
     private RestTemplate restTemplate;
     @Mock
@@ -58,6 +62,10 @@ class ProcessServiceImplTest {
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(service, "temporaryProcessUrl", TEMPORARY_PROCESS_URL);
+        ReflectionTestUtils.setField(service, "formalProcessUrl", FORMAL_PROCESS_URL);
+        ReflectionTestUtils.setField(service, "processFileUrl", PROCESS_FILE_URL);
+        ReflectionTestUtils.setField(service, "mpmAccessToken", "test-token");
         detail = ProcessCardDetailsRespVO.builder().idx(1L).name("铆接").no("10").build();
     }
 
@@ -70,21 +78,20 @@ class ProcessServiceImplTest {
                 .thenReturn(Collections.singletonList(detail));
         AtomicReference<String> requestJson = new AtomicReference<>();
 
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(body, requestJson)) {
-            List<ProcessCardRespVO> result = service.queryCard(request("43091"));
+        mockTemporaryRoute(body, requestJson);
+        List<ProcessCardRespVO> result = service.queryCard(request("43091"));
 
-            JSONObject thirdPartyRequest = JSON.parseObject(requestJson.get());
-            assertEquals("21ET0-009-39095-B1", thirdPartyRequest.getString("prtno"));
-            assertEquals("43091", thirdPartyRequest.getString("accno"));
-            assertEquals("4309", thirdPartyRequest.getString("plndept"));
-            assertEquals("1", thirdPartyRequest.getString("fxtype"));
-            assertEquals(1, result.size());
-            assertEquals("43091", result.get(0).getAccno());
-            assertEquals(0, result.get(0).getIsFormal());
-            assertEquals(1, result.get(0).getIsFix());
-            assertEquals(Collections.singletonList(detail), result.get(0).getDetails());
-            verify(treeAssembler).assemble(any(JSONArray.class), eq("document-oid"));
-        }
+        JSONObject thirdPartyRequest = JSON.parseObject(requestJson.get());
+        assertEquals("21ET0-009-39095-B1", thirdPartyRequest.getString("prtno"));
+        assertEquals("43091", thirdPartyRequest.getString("accno"));
+        assertEquals("4309", thirdPartyRequest.getString("plndept"));
+        assertEquals("1", thirdPartyRequest.getString("fxtype"));
+        assertEquals(1, result.size());
+        assertEquals("43091", result.get(0).getAccno());
+        assertEquals(0, result.get(0).getIsFormal());
+        assertEquals(1, result.get(0).getIsFix());
+        assertEquals(Collections.singletonList(detail), result.get(0).getDetails());
+        verify(treeAssembler).assemble(any(JSONArray.class), eq("document-oid"));
     }
 
     @Test
@@ -94,15 +101,14 @@ class ProcessServiceImplTest {
         when(treeAssembler.assemble(any(JSONArray.class), eq("oid-2"))).thenReturn(Collections.emptyList());
         AtomicReference<String> requestJson = new AtomicReference<>();
 
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(body, requestJson)) {
-            ProcessCardRespVO result = service.queryCard(request("4309")).get(0);
+        mockTemporaryRoute(body, requestJson);
+        ProcessCardRespVO result = service.queryCard(request("4309")).get(0);
 
-            JSONObject thirdPartyRequest = JSON.parseObject(requestJson.get());
-            assertEquals("4309", thirdPartyRequest.getString("accno"));
-            assertEquals("4309", thirdPartyRequest.getString("plndept"));
-            assertEquals("0", thirdPartyRequest.getString("fxtype"));
-            assertEquals(0, result.getIsFix());
-        }
+        JSONObject thirdPartyRequest = JSON.parseObject(requestJson.get());
+        assertEquals("4309", thirdPartyRequest.getString("accno"));
+        assertEquals("4309", thirdPartyRequest.getString("plndept"));
+        assertEquals("0", thirdPartyRequest.getString("fxtype"));
+        assertEquals(0, result.getIsFix());
     }
 
     @Test
@@ -111,14 +117,13 @@ class ProcessServiceImplTest {
         when(treeAssembler.assemble(any(JSONArray.class), eq("oid-2"))).thenReturn(Collections.emptyList());
         AtomicReference<String> requestJson = new AtomicReference<>();
 
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(normalResponseBody(), requestJson)) {
-            ProcessCardRespVO result = service.queryCard(request("430")).get(0);
+        mockTemporaryRoute(normalResponseBody(), requestJson);
+        ProcessCardRespVO result = service.queryCard(request("430")).get(0);
 
-            JSONObject thirdPartyRequest = JSON.parseObject(requestJson.get());
-            assertEquals("430", thirdPartyRequest.getString("plndept"));
-            assertEquals("0", thirdPartyRequest.getString("fxtype"));
-            assertEquals(0, result.getIsFix());
-        }
+        JSONObject thirdPartyRequest = JSON.parseObject(requestJson.get());
+        assertEquals("430", thirdPartyRequest.getString("plndept"));
+        assertEquals("0", thirdPartyRequest.getString("fxtype"));
+        assertEquals(0, result.getIsFix());
     }
 
     @Test
@@ -126,22 +131,28 @@ class ProcessServiceImplTest {
         List<ProcessCardDetailsRespVO> details = Collections.singletonList(detail);
         when(caoeTableMapper.queryProcessState("CX0000000048", "B")).thenReturn("已发行");
         when(formalProcessTreeAssembler.assemble("CX0000000048", "B", true)).thenReturn(details);
-        AtomicReference<String> requestJson = new AtomicReference<>();
+        AtomicReference<HttpEntity<String>> requestEntity = new AtomicReference<>();
 
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockFormalRoute("B.1", requestJson)) {
-            ProcessCardRespVO result = service.queryCard(requestWithoutMaterial("CX0000000048")).get(0);
+        when(restTemplate.postForEntity(eq(FORMAL_PROCESS_URL), any(HttpEntity.class), eq(String.class)))
+                .thenAnswer(invocation -> {
+                    requestEntity.set(invocation.getArgument(1));
+                    return ResponseEntity.ok(
+                            "{\"success\":true,\"code\":200,\"result\":[{\"version\":\"B.1\"}]}");
+                });
+        ProcessCardRespVO result = service.queryCard(requestWithoutMaterial("CX0000000048")).get(0);
 
-            JSONObject thirdPartyRequest = JSON.parseObject(requestJson.get());
-            assertEquals("com.glaway.dtp.business.model.process.ProcessModel",
-                    thirdPartyRequest.getString("objType"));
-            assertEquals("CX0000000048", thirdPartyRequest.getJSONArray("objNumbers").getString(0));
-            assertEquals("true", thirdPartyRequest.getString("isLatest"));
-            assertEquals("B", result.getVersion());
-            assertEquals(1, result.getIsFormal());
-            assertEquals(0, result.getIsFix());
-            assertEquals(details, result.getDetails());
-            verify(formalProcessTreeAssembler).assemble("CX0000000048", "B", true);
-        }
+        JSONObject thirdPartyRequest = JSON.parseObject(requestEntity.get().getBody());
+        assertEquals("com.glaway.dtp.business.model.process.ProcessModel",
+                thirdPartyRequest.getString("objType"));
+        assertEquals("CX0000000048", thirdPartyRequest.getJSONArray("objNumbers").getString(0));
+        assertEquals("true", thirdPartyRequest.getString("isLatest"));
+        assertEquals("B", result.getVersion());
+        assertEquals(1, result.getIsFormal());
+        assertEquals(0, result.getIsFix());
+        assertEquals(details, result.getDetails());
+        verify(formalProcessTreeAssembler).assemble("CX0000000048", "B", true);
+        assertEquals("test-token", requestEntity.get().getHeaders().getFirst("X-Access-Token"));
+        assertEquals("MPMViewUser", requestEntity.get().getHeaders().getFirst("Accept-User"));
     }
 
     @Test
@@ -150,35 +161,41 @@ class ProcessServiceImplTest {
         when(formalProcessTreeAssembler.assemble("C0000000048", "A", false))
                 .thenReturn(Collections.singletonList(detail));
 
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockFormalRoute("A", new AtomicReference<>())) {
-            ProcessCardRespVO result = service.queryCard(requestWithoutMaterial("C0000000048")).get(0);
+        mockFormalRoute("A", new AtomicReference<>());
+        ProcessCardRespVO result = service.queryCard(requestWithoutMaterial("C0000000048")).get(0);
 
-            assertEquals("A", result.getVersion());
-            verify(formalProcessTreeAssembler).assemble("C0000000048", "A", false);
-        }
+        assertEquals("A", result.getVersion());
+        verify(formalProcessTreeAssembler).assemble("C0000000048", "A", false);
     }
 
     @Test
     void queryCard_rejectsUnpublishedFormalProcess() {
         when(caoeTableMapper.queryProcessState("CX0000000048", "B")).thenReturn("正在工作");
 
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockFormalRoute("B.1", new AtomicReference<>())) {
-            ServiceException exception = assertThrows(ServiceException.class,
-                    () -> service.queryCard(requestWithoutMaterial("CX0000000048")));
+        mockFormalRoute("B.1", new AtomicReference<>());
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryCard(requestWithoutMaterial("CX0000000048")));
 
-            assertEquals("工艺未发行，无法查看", exception.getMessage());
-        }
+        assertEquals("工艺未发行，无法查看", exception.getMessage());
+    }
+
+    @Test
+    void queryCard_rejectsFormalProcessHttpError() {
+        when(restTemplate.postForEntity(eq(FORMAL_PROCESS_URL), any(HttpEntity.class), eq(String.class)))
+                .thenThrow(new RestClientException("connect refused"));
+
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryCard(requestWithoutMaterial("CX0000000048")));
+        assertEquals("工艺版本信息查询失败", exception.getMessage());
     }
 
     @Test
     void queryCard_rejectsMalformedFormalVersionResponse() {
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockFormalEnvelope(
-                "{\"success\":true,\"code\":200,\"result\":[]}")) {
-            ServiceException exception = assertThrows(ServiceException.class,
-                    () -> service.queryCard(requestWithoutMaterial("CX0000000048")));
+        mockFormalEnvelope("{\"success\":true,\"code\":200,\"result\":[]}", new AtomicReference<>());
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryCard(requestWithoutMaterial("CX0000000048")));
 
-            assertEquals("工艺版本信息查询失败", exception.getMessage());
-        }
+        assertEquals("工艺版本信息查询失败", exception.getMessage());
     }
 
     @Test
@@ -198,49 +215,58 @@ class ProcessServiceImplTest {
 
     @Test
     void queryFileUrl_usesLowercaseOidAndReturnsMpmUrl() {
-        AtomicReference<String> requestJson = new AtomicReference<>();
+        AtomicReference<HttpEntity<String>> requestEntity = new AtomicReference<>();
 
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockFileRoute(
-                "{\"success\":true,\"code\":200,\"result\":{\"url\":\"http://mpm/file\"}}",
-                requestJson)) {
-            ProcessFileUrlRespVO result = service.queryFileUrl(
-                    ProcessFileUrlReqVO.builder().oid("12345").build());
+        when(restTemplate.postForEntity(eq(PROCESS_FILE_URL), any(HttpEntity.class), eq(String.class)))
+                .thenAnswer(invocation -> {
+                    requestEntity.set(invocation.getArgument(1));
+                    return ResponseEntity.ok(
+                            "{\"success\":true,\"code\":200,\"result\":{\"url\":\"http://mpm/file\"}}");
+                });
+        ProcessFileUrlRespVO result = service.queryFileUrl(
+                ProcessFileUrlReqVO.builder().oid("12345").build());
 
-            JSONObject request = JSON.parseObject(requestJson.get());
-            assertEquals("OperationEntity:12345", request.getString("oid"));
-            assertEquals("http://mpm/file", result.getUrl());
-        }
+        JSONObject request = JSON.parseObject(requestEntity.get().getBody());
+        assertEquals("OperationEntity:12345", request.getString("oid"));
+        assertEquals("http://mpm/file", result.getUrl());
+        assertEquals("test-token", requestEntity.get().getHeaders().getFirst("X-Access-Token"));
+        assertEquals("MPMViewUser", requestEntity.get().getHeaders().getFirst("Accept-User"));
+    }
+
+    @Test
+    void queryFileUrl_rejectsHttpError() {
+        when(restTemplate.postForEntity(eq(PROCESS_FILE_URL), any(HttpEntity.class), eq(String.class)))
+                .thenThrow(new RestClientException("connect refused"));
+
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryFileUrl(ProcessFileUrlReqVO.builder().oid("12345").build()));
+
+        assertEquals("工艺文件地址获取失败", exception.getMessage());
     }
 
     @Test
     void queryFileUrl_rejectsMissingResultUrl() {
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockFileRoute(
-                "{\"success\":true,\"code\":200,\"result\":{}}", new AtomicReference<>())) {
-            ServiceException exception = assertThrows(ServiceException.class,
-                    () -> service.queryFileUrl(ProcessFileUrlReqVO.builder().oid("12345").build()));
+        mockFileUrlEnvelope("{\"success\":true,\"code\":200,\"result\":{}}");
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryFileUrl(ProcessFileUrlReqVO.builder().oid("12345").build()));
 
-            assertEquals("工艺文件地址获取失败", exception.getMessage());
-        }
+        assertEquals("工艺文件地址获取失败", exception.getMessage());
     }
 
     @Test
     void queryFileUrl_rejectsNonStringResultUrl() {
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockFileRoute(
-                "{\"success\":true,\"code\":200,\"result\":{\"url\":123}}",
-                new AtomicReference<>())) {
-            ServiceException exception = assertThrows(ServiceException.class,
-                    () -> service.queryFileUrl(ProcessFileUrlReqVO.builder().oid("12345").build()));
+        mockFileUrlEnvelope("{\"success\":true,\"code\":200,\"result\":{\"url\":123}}");
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryFileUrl(ProcessFileUrlReqVO.builder().oid("12345").build()));
 
-            assertEquals("工艺文件地址获取失败", exception.getMessage());
-        }
+        assertEquals("工艺文件地址获取失败", exception.getMessage());
     }
 
     private void assertFormalVersionError(String envelope) {
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockFormalEnvelope(envelope)) {
-            ServiceException exception = assertThrows(ServiceException.class,
-                    () -> service.queryCard(requestWithoutMaterial("CX0000000048")));
-            assertEquals("工艺版本信息查询失败", exception.getMessage());
-        }
+        mockFormalEnvelope(envelope, new AtomicReference<>());
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryCard(requestWithoutMaterial("CX0000000048")));
+        assertEquals("工艺版本信息查询失败", exception.getMessage());
     }
 
     @Test
@@ -264,113 +290,91 @@ class ProcessServiceImplTest {
     void queryCard_rejectsEmptyDetails() {
         JSONObject body = JSON.parseObject("{\"oid\":\"response-oid\",\"routnumebr\":\"DOC-1\",\"details\":[]}");
 
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(body, new AtomicReference<>())) {
-            ServiceException exception = assertThrows(ServiceException.class,
-                    () -> service.queryCard(request("43091")));
-            assertEquals("临时工艺信息查询失败", exception.getMessage());
-        }
+        mockTemporaryRoute(body, new AtomicReference<>());
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryCard(request("43091")));
+        assertEquals("临时工艺信息查询失败", exception.getMessage());
+    }
+
+    @Test
+    void queryCard_rejectsTemporaryProcessHttpError() {
+        when(restTemplate.postForEntity(eq(TEMPORARY_PROCESS_URL), any(HttpEntity.class), eq(String.class)))
+                .thenThrow(new RestClientException("connect refused"));
+
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryCard(request("43091")));
+        assertEquals("临时工艺信息查询失败", exception.getMessage());
     }
 
     @Test
     void queryCard_rejectsMalformedRouteEnvelope() {
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockEnvelope("{\"retCode\":null,\"responseBody\":{}}")) {
-            ServiceException exception = assertThrows(ServiceException.class,
-                    () -> service.queryCard(request("43091")));
-            assertEquals("临时工艺信息查询失败", exception.getMessage());
-        }
+        mockTemporaryEnvelope("{\"retCode\":null,\"responseBody\":{}}", new AtomicReference<>());
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryCard(request("43091")));
+        assertEquals("临时工艺信息查询失败", exception.getMessage());
     }
 
     @Test
     void queryCard_rejectsNullRouteEnvelope() {
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockEnvelope("null")) {
-            ServiceException exception = assertThrows(ServiceException.class,
-                    () -> service.queryCard(request("43091")));
-            assertEquals("临时工艺信息查询失败", exception.getMessage());
-        }
+        mockTemporaryEnvelope("null", new AtomicReference<>());
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryCard(request("43091")));
+        assertEquals("临时工艺信息查询失败", exception.getMessage());
     }
 
     @Test
     void queryCard_rejectsNonObjectDetail() {
         JSONObject body = JSON.parseObject("{\"oid\":\"response-oid\",\"details\":[null]}");
 
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(body, new AtomicReference<>())) {
-            ServiceException exception = assertThrows(ServiceException.class,
-                    () -> service.queryCard(request("4309")));
-            assertEquals("临时工艺信息查询失败", exception.getMessage());
-        }
+        mockTemporaryRoute(body, new AtomicReference<>());
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryCard(request("4309")));
+        assertEquals("临时工艺信息查询失败", exception.getMessage());
     }
 
     private void assertDocumentError(CaoeDocInfoDTO doc, String expectedMessage) {
         when(caoeTableMapper.queryDocInfo("DOC-1")).thenReturn(doc);
-        try (MockedStatic<ThirdPartyRouteService> routeService = mockRoute(repairResponseBody(), new AtomicReference<>())) {
-            ServiceException exception = assertThrows(ServiceException.class,
-                    () -> service.queryCard(request("43091")));
-            assertEquals(expectedMessage, exception.getMessage());
-        }
+        mockTemporaryRoute(repairResponseBody(), new AtomicReference<>());
+        ServiceException exception = assertThrows(ServiceException.class,
+                () -> service.queryCard(request("43091")));
+        assertEquals(expectedMessage, exception.getMessage());
     }
 
-    private MockedStatic<ThirdPartyRouteService> mockRoute(JSONObject body, AtomicReference<String> requestJson) {
-        MockedStatic<ThirdPartyRouteService> routeService = mockStatic(ThirdPartyRouteService.class);
-        routeService.when(() -> ThirdPartyRouteService.invoke(
-                        eq("1"), eq("JUMP"), eq("WXD"), anyString(), isNull(), any()))
-                .thenAnswer(invocation -> {
-                    requestJson.set(invocation.getArgument(3));
-                    return body;
-                });
-        return routeService;
+    private void mockTemporaryRoute(JSONObject responseBody, AtomicReference<String> requestJson) {
+        JSONObject envelope = new JSONObject();
+        envelope.put("retCode", "200");
+        envelope.put("responseBody", responseBody);
+        mockTemporaryEnvelope(envelope.toJSONString(), requestJson);
     }
 
     @SuppressWarnings("unchecked")
-    private MockedStatic<ThirdPartyRouteService> mockEnvelope(String envelope) {
-        MockedStatic<ThirdPartyRouteService> routeService = mockStatic(ThirdPartyRouteService.class);
-        routeService.when(() -> ThirdPartyRouteService.invoke(
-                        eq("1"), eq("JUMP"), eq("WXD"), anyString(), isNull(), any()))
+    private void mockTemporaryEnvelope(String envelope, AtomicReference<String> requestJson) {
+        when(restTemplate.postForEntity(eq(TEMPORARY_PROCESS_URL), any(HttpEntity.class), eq(String.class)))
                 .thenAnswer(invocation -> {
-                    Function<ResponseEntity<String>, JSONObject> handler = invocation.getArgument(5);
-                    return handler.apply(ResponseEntity.ok(envelope));
+                    HttpEntity<String> entity = invocation.getArgument(1);
+                    requestJson.set(entity.getBody());
+                    return ResponseEntity.ok(envelope);
                 });
-        return routeService;
     }
 
-    private MockedStatic<ThirdPartyRouteService> mockFormalRoute(String version,
-                                                                 AtomicReference<String> requestJson) {
-        String envelope = "{\"success\":true,\"code\":200,\"result\":[{\"version\":\""
-                + version + "\"}]}";
-        MockedStatic<ThirdPartyRouteService> routeService = mockStatic(ThirdPartyRouteService.class);
-        routeService.when(() -> ThirdPartyRouteService.invoke(
-                        eq("2"), eq("JUMP"), eq("WXD"), anyString(), isNull(), any()))
-                .thenAnswer(invocation -> {
-                    requestJson.set(invocation.getArgument(3));
-                    Function<ResponseEntity<String>, JSONObject> handler = invocation.getArgument(5);
-                    return handler.apply(ResponseEntity.ok(envelope));
-                });
-        return routeService;
+    private void mockFormalRoute(String version, AtomicReference<String> requestJson) {
+        mockFormalEnvelope("{\"success\":true,\"code\":200,\"result\":[{\"version\":\""
+                + version + "\"}]}", requestJson);
     }
 
     @SuppressWarnings("unchecked")
-    private MockedStatic<ThirdPartyRouteService> mockFormalEnvelope(String envelope) {
-        MockedStatic<ThirdPartyRouteService> routeService = mockStatic(ThirdPartyRouteService.class);
-        routeService.when(() -> ThirdPartyRouteService.invoke(
-                        eq("2"), eq("JUMP"), eq("WXD"), anyString(), isNull(), any()))
+    private void mockFormalEnvelope(String envelope, AtomicReference<String> requestJson) {
+        when(restTemplate.postForEntity(eq(FORMAL_PROCESS_URL), any(HttpEntity.class), eq(String.class)))
                 .thenAnswer(invocation -> {
-                    Function<ResponseEntity<String>, JSONObject> handler = invocation.getArgument(5);
-                    return handler.apply(ResponseEntity.ok(envelope));
+                    HttpEntity<String> entity = invocation.getArgument(1);
+                    requestJson.set(entity.getBody());
+                    return ResponseEntity.ok(envelope);
                 });
-        return routeService;
     }
 
-    @SuppressWarnings("unchecked")
-    private MockedStatic<ThirdPartyRouteService> mockFileRoute(String envelope,
-                                                               AtomicReference<String> requestJson) {
-        MockedStatic<ThirdPartyRouteService> routeService = mockStatic(ThirdPartyRouteService.class);
-        routeService.when(() -> ThirdPartyRouteService.invoke(
-                        eq("3"), eq("JUMP"), eq("WXD"), anyString(), isNull(), any()))
-                .thenAnswer(invocation -> {
-                    requestJson.set(invocation.getArgument(3));
-                    Function<ResponseEntity<String>, ProcessFileUrlRespVO> handler = invocation.getArgument(5);
-                    return handler.apply(ResponseEntity.ok(envelope));
-                });
-        return routeService;
+    private void mockFileUrlEnvelope(String envelope) {
+        when(restTemplate.postForEntity(eq(PROCESS_FILE_URL), any(HttpEntity.class), eq(String.class)))
+                .thenReturn(ResponseEntity.ok(envelope));
     }
 
     private ProcessCardReqVO request(String accno) {

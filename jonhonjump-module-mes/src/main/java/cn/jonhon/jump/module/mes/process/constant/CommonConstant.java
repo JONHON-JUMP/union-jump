@@ -6,10 +6,6 @@ public interface CommonConstant {
 
     String MPM_FORMAL_ACCNO_PREFIX = "CX";
 
-    String JUMP = "JUMP";
-
-    String WXD = "WXD";
-
     String DATA = "data";
 
     String RETCODE = "retCode";
@@ -27,6 +23,8 @@ public interface CommonConstant {
     String ROUTREMARK = "ROUTREMARK";
 
     String PUBLISHED= "已发行";
+
+    String MPM_VIEW_USER = "MPMViewUser";
 
     String OBJTYPE = "com.glaway.dtp.business.model.process.ProcessModel";
 

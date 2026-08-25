@@ -66,12 +66,6 @@
             <artifactId>jonhonjump-spring-boot-starter-test</artifactId>
         </dependency>
 
-        <dependency>
-            <groupId>com.jonhon</groupId>
-            <artifactId>api-module-route</artifactId>
-            <version>1.0.0</version>
-        </dependency>
-
     </dependencies>
 
     <profiles>

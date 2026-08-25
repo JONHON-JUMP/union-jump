@@ -2,7 +2,6 @@ package cn.jonhon.jump.module.mes.process.service;
 
 import cn.jonhon.jump.framework.common.exception.ErrorCode;
 import cn.jonhon.jump.module.mes.process.constant.CommonConstant;
-import cn.jonhon.jump.module.mes.process.constant.InvokeIdConstant;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardReqVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardDetailsRespVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardRespVO;
@@ -16,14 +15,20 @@ import cn.jonhon.jump.module.mes.process.enums.YesOrNo;
 import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
-import com.jonhon.route.ThirdPartyRouteService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.http.HttpStatus;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 
 import javax.annotation.Resource;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.List;
 
@@ -32,9 +37,6 @@ import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUti
 @Slf4j
 @Component
 public class ProcessServiceImpl implements ProcessService{
-
-    @Resource
-    private ThirdPartyRouteService thirdPartyRouteService;
     @Resource
     private RestTemplate restTemplate;
     @Resource
@@ -43,6 +45,30 @@ public class ProcessServiceImpl implements ProcessService{
     private TemporaryProcessTreeAssembler temporaryProcessTreeAssembler;
     @Resource
     private FormalProcessTreeAssembler formalProcessTreeAssembler;
+
+    /**
+     * 临时工艺信息查询接口地址
+     */
+    @Value("${jonhonjump.mes.process.temporary-process-url}")
+    private String temporaryProcessUrl;
+
+    /**
+     * MPM 正式工艺版本查询接口地址
+     */
+    @Value("${jonhonjump.mes.process.formal-process-url}")
+    private String formalProcessUrl;
+
+    /**
+     * MPM 正式工艺版本查询接口的 X-Access-Token
+     */
+    @Value("${jonhonjump.mes.process.mpm-access-token}")
+    private String mpmAccessToken;
+
+    /**
+     * MPM 工艺文件地址查询接口地址
+     */
+    @Value("${jonhonjump.mes.process.process-file-url}")
+    private String processFileUrl;
 
     /**
      * 查看工艺卡片
@@ -73,34 +99,7 @@ public class ProcessServiceImpl implements ProcessService{
                     .build();
             String reqParam = JSON.toJSONString(temporaryProcessReqVO);
 
-            JSONObject responseBodyJsonObject = thirdPartyRouteService.invoke(
-                InvokeIdConstant.GetPrtRoutInfo,
-                CommonConstant.JUMP,
-                CommonConstant.WXD,
-                reqParam,
-                null,
-                response -> {
-                    if (StringUtils.isEmpty(response.getBody())) {
-                        throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
-                    }
-
-                    JSONObject jsonObject;
-                    try {
-                        jsonObject = JSONObject.parseObject(response.getBody());
-                    } catch (RuntimeException parseException) {
-                        throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
-                    }
-                    if (jsonObject == null
-                            || !jsonObject.containsKey(CommonConstant.RETCODE)
-                            || !String.valueOf(HttpStatus.SC_OK).equals(jsonObject.getString(CommonConstant.RETCODE))
-                            || !jsonObject.containsKey(CommonConstant.RESPONSEBODY)
-                            || !(jsonObject.get(CommonConstant.RESPONSEBODY) instanceof JSONObject)
-                    ) {
-                        throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
-                    }
-                    return jsonObject.getJSONObject(CommonConstant.RESPONSEBODY);
-                }
-            );
+            JSONObject responseBodyJsonObject = queryTemporaryProcessInfo(reqParam);
 
             if (responseBodyJsonObject == null) {
                 throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
@@ -160,6 +159,45 @@ public class ProcessServiceImpl implements ProcessService{
         }
     }
 
+    /**
+     * 直连 ERP 数据平台接口查询临时工艺信息
+     */
+    private JSONObject queryTemporaryProcessInfo(String reqParam) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(new MediaType(MediaType.APPLICATION_JSON, StandardCharsets.UTF_8));
+        ResponseEntity<String> response;
+        try {
+            response = restTemplate.postForEntity(temporaryProcessUrl,
+                    new HttpEntity<>(reqParam, headers), String.class);
+        } catch (RestClientException requestException) {
+            log.error("调用临时工艺查询接口失败, url: {}", temporaryProcessUrl, requestException);
+            throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+        }
+        return parseTemporaryProcessResponse(response.getBody());
+    }
+
+    private JSONObject parseTemporaryProcessResponse(String body) {
+        if (StringUtils.isEmpty(body)) {
+            throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+        }
+
+        JSONObject jsonObject;
+        try {
+            jsonObject = JSONObject.parseObject(body);
+        } catch (RuntimeException parseException) {
+            throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+        }
+        if (jsonObject == null
+                || !jsonObject.containsKey(CommonConstant.RETCODE)
+                || !String.valueOf(HttpStatus.SC_OK).equals(jsonObject.getString(CommonConstant.RETCODE))
+                || !jsonObject.containsKey(CommonConstant.RESPONSEBODY)
+                || !(jsonObject.get(CommonConstant.RESPONSEBODY) instanceof JSONObject)
+        ) {
+            throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+        }
+        return jsonObject.getJSONObject(CommonConstant.RESPONSEBODY);
+    }
+
     private List<ProcessCardRespVO> queryFormalCard(String accno) {
         FormalProcessReqVO request = FormalProcessReqVO.builder()
                 .objType(CommonConstant.OBJTYPE)
@@ -167,14 +205,7 @@ public class ProcessServiceImpl implements ProcessService{
                 .isLatest(CommonConstant.TRUE)
                 .build();
 
-        String version = thirdPartyRouteService.invoke(
-                InvokeIdConstant.queryRouteStructInfo,
-                CommonConstant.JUMP,
-                CommonConstant.WXD,
-                JSON.toJSONString(request),
-                null,
-                response -> parseFormalVersionResponse(response.getBody())
-        );
+        String version = queryFormalVersion(request);
 
         String state = caoeTableMapper.queryProcessState(accno, version);
         if (!CommonConstant.PUBLISHED.equals(state)) {
@@ -191,6 +222,32 @@ public class ProcessServiceImpl implements ProcessService{
                 .details(details)
                 .build();
         return Collections.singletonList(card);
+    }
+
+    /**
+     * 直连 MPM 平台接口查询正式工艺版本
+     */
+    private String queryFormalVersion(FormalProcessReqVO request) {
+        ResponseEntity<String> response;
+        try {
+            response = restTemplate.postForEntity(formalProcessUrl,
+                    new HttpEntity<>(JSON.toJSONString(request), buildMpmHeaders()), String.class);
+        } catch (RestClientException requestException) {
+            log.error("调用正式工艺版本查询接口失败, url: {}", formalProcessUrl, requestException);
+            throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
+        }
+        return parseFormalVersionResponse(response.getBody());
+    }
+
+    /**
+     * MPM 平台接口公共请求头
+     */
+    private HttpHeaders buildMpmHeaders() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(new MediaType(MediaType.APPLICATION_JSON, StandardCharsets.UTF_8));
+        headers.set("X-Access-Token", mpmAccessToken);
+        headers.set("Accept-User", CommonConstant.MPM_VIEW_USER);
+        return headers;
     }
 
     private String parseFormalVersionResponse(String body) {
@@ -236,14 +293,22 @@ public class ProcessServiceImpl implements ProcessService{
         }
         JSONObject request = new JSONObject();
         request.put("oid", "OperationEntity:" + reqVO.getOid());
-        return thirdPartyRouteService.invoke(
-                InvokeIdConstant.processReleaseForMes,
-                CommonConstant.JUMP,
-                CommonConstant.WXD,
-                request.toJSONString(),
-                null,
-                response -> parseFileUrlResponse(response.getBody())
-        );
+        return queryProcessFileUrl(request.toJSONString());
+    }
+
+    /**
+     * 直连 MPM 平台接口查询工艺文件地址
+     */
+    private ProcessFileUrlRespVO queryProcessFileUrl(String reqParam) {
+        ResponseEntity<String> response;
+        try {
+            response = restTemplate.postForEntity(processFileUrl,
+                    new HttpEntity<>(reqParam, buildMpmHeaders()), String.class);
+        } catch (RestClientException requestException) {
+            log.error("调用工艺文件地址接口失败, url: {}", processFileUrl, requestException);
+            throw exception(new ErrorCode(500, "工艺文件地址获取失败"));
+        }
+        return parseFileUrlResponse(response.getBody());
     }
 
     private ProcessFileUrlRespVO parseFileUrlResponse(String body) {
