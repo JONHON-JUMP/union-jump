@@ -53,6 +53,12 @@ public class ProcessServiceImpl implements ProcessService{
     private String temporaryProcessUrl;
 
     /**
+     * 临时工艺信息查询接口请求头 Authorization 的值
+     */
+    @Value("${jonhonjump.mes.process.temporary-process-token:}")
+    private String temporaryProcessToken;
+
+    /**
      * MPM 正式工艺版本查询接口地址
      */
     @Value("${jonhonjump.mes.process.formal-process-url}")
@@ -100,6 +106,7 @@ public class ProcessServiceImpl implements ProcessService{
             String reqParam = JSON.toJSONString(temporaryProcessReqVO);
 
             JSONObject responseBodyJsonObject = queryTemporaryProcessInfo(reqParam);
+            log.info("临时工艺响应信息:{}", responseBodyJsonObject);
 
             if (responseBodyJsonObject == null) {
                 throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
@@ -135,10 +142,12 @@ public class ProcessServiceImpl implements ProcessService{
                 throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
             }
 
+            log.info("docNumber:{}", docNumber);
             CaoeDocInfoDTO caoeDocInfoDTO = caoeTableMapper.queryDocInfo(docNumber);
             if (caoeDocInfoDTO == null) {
                 throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
             }
+            log.info("caoeDocInfoDTO:{}", caoeDocInfoDTO);
             if (!CommonConstant.PUBLISHED.equals(caoeDocInfoDTO.getDocSate())) {
                 throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
             }
@@ -165,6 +174,7 @@ public class ProcessServiceImpl implements ProcessService{
     private JSONObject queryTemporaryProcessInfo(String reqParam) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(new MediaType(MediaType.APPLICATION_JSON, StandardCharsets.UTF_8));
+        headers.set("Authorization", temporaryProcessToken);
         ResponseEntity<String> response;
         try {
             response = restTemplate.postForEntity(temporaryProcessUrl,

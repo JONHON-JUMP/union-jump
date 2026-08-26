@@ -63,6 +63,7 @@ class ProcessServiceImplTest {
     @BeforeEach
     void setUp() {
         ReflectionTestUtils.setField(service, "temporaryProcessUrl", TEMPORARY_PROCESS_URL);
+        ReflectionTestUtils.setField(service, "temporaryProcessToken", "");
         ReflectionTestUtils.setField(service, "formalProcessUrl", FORMAL_PROCESS_URL);
         ReflectionTestUtils.setField(service, "processFileUrl", PROCESS_FILE_URL);
         ReflectionTestUtils.setField(service, "mpmAccessToken", "test-token");
@@ -124,6 +125,24 @@ class ProcessServiceImplTest {
         assertEquals("430", thirdPartyRequest.getString("plndept"));
         assertEquals("0", thirdPartyRequest.getString("fxtype"));
         assertEquals(0, result.getIsFix());
+    }
+
+    @Test
+    void queryCard_sendsAuthorizationHeaderForTemporaryProcess() {
+        when(caoeTableMapper.queryDocInfo("DOC-1")).thenReturn(publishedDoc("document-oid"));
+        when(treeAssembler.assemble(any(JSONArray.class), eq("document-oid")))
+                .thenReturn(Collections.singletonList(detail));
+        AtomicReference<HttpEntity<String>> requestEntity = new AtomicReference<>();
+
+        when(restTemplate.postForEntity(eq(TEMPORARY_PROCESS_URL), any(HttpEntity.class), eq(String.class)))
+                .thenAnswer(invocation -> {
+                    requestEntity.set(invocation.getArgument(1));
+                    return ResponseEntity.ok("{\"retCode\":\"200\",\"responseBody\":"
+                            + repairResponseBody().toJSONString() + "}");
+                });
+        service.queryCard(request("43091"));
+
+        assertEquals("", requestEntity.get().getHeaders().getFirst("Authorization"));
     }
 
     @Test
