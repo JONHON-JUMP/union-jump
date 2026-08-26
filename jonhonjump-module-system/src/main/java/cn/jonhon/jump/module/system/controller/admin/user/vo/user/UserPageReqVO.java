@@ -22,6 +22,9 @@ public class UserPageReqVO extends PageParam {
     @Schema(description = "用户账号，模糊匹配", example = "jonhonjump")
     private String username;
 
+    @Schema(description = "用户姓名，模糊匹配", example = "张三")
+    private String nickname;
+
     @Schema(description = "工号，模糊匹配", example = "E001234")
     private String employeeNo;
 

@@ -189,6 +189,9 @@ export default {
       if (!this.isActive(tab)) {
         this.$router.push(tab.fullPath || tab.path)
       }
+      // 用完即收：iframe 页内点击不会冒泡回父页，展开的 dock 会一直挡住页面，
+      // 点击标签切换后主动收起
+      this.$emit('collapse')
     },
     closeTab(tab) {
       this.$store.dispatch('portal/closePortalTab', {

@@ -76,4 +76,10 @@ public interface SubSystemUsersMapper extends BaseMapperX<SubSystemUsersDO> {
                 .eq(SubSystemUsersDO::getTeamId, teamId));
     }
 
+    default Long selectCountBySubSystemIdAndWorkshopId(Long subSystemId, String workshopId) {
+        return selectCount(new LambdaQueryWrapperX<SubSystemUsersDO>()
+                .eq(SubSystemUsersDO::getSubSystemId, subSystemId)
+                .eq(SubSystemUsersDO::getWorkshopId, workshopId));
+    }
+
 }

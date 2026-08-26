@@ -22,6 +22,10 @@
             <el-input v-model="queryParams.username" placeholder="请输入用户名称" clearable style="width: 240px"
                       @keyup.enter.native="handleQuery"/>
           </el-form-item>
+          <el-form-item label="用户姓名" prop="nickname">
+            <el-input v-model="queryParams.nickname" placeholder="请输入用户姓名" clearable style="width: 240px"
+                      @keyup.enter.native="handleQuery"/>
+          </el-form-item>
           <el-form-item label="工号" prop="employeeNo">
             <el-input v-model="queryParams.employeeNo" placeholder="请输入工号" clearable style="width: 240px"
                       @keyup.enter.native="handleQuery"/>
@@ -83,7 +87,7 @@
         >
           <el-table-column type="selection" width="55"/>
           <el-table-column label="用户名称" align="center" key="username" prop="username" v-if="columns[0].visible" :show-overflow-tooltip="true" />
-          <el-table-column label="用户昵称" align="center" key="nickname" prop="nickname" v-if="columns[1].visible" :show-overflow-tooltip="true" />
+          <el-table-column label="用户姓名" align="center" key="nickname" prop="nickname" v-if="columns[1].visible" :show-overflow-tooltip="true" />
           <el-table-column label="工号" align="center" key="employeeNo" prop="employeeNo" v-if="columns[2].visible" width="100" :show-overflow-tooltip="true" />
           <el-table-column label="域账号" align="center" key="domainNo" prop="domainNo" v-if="columns[3].visible" width="120" :show-overflow-tooltip="true" />
           <el-table-column label="刷卡卡号" align="center" key="cardNo" prop="cardNo" v-if="columns[4].visible" width="120" :show-overflow-tooltip="true" />
@@ -138,8 +142,8 @@
       <el-form ref="form" :model="form" :rules="rules" label-width="90px">
         <el-row>
           <el-col :span="12">
-            <el-form-item label="用户昵称" prop="nickname">
-              <el-input v-model="form.nickname" placeholder="请输入用户昵称" />
+            <el-form-item label="用户姓名" prop="nickname">
+              <el-input v-model="form.nickname" placeholder="请输入用户姓名" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -222,6 +226,57 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <!-- 同步创建子系统账号（仅新增时显示） -->
+        <el-row v-if="form.id === undefined">
+          <el-col :span="24">
+            <el-form-item label="同步子系统">
+              <el-checkbox v-model="syncSubSystem" @change="handleSyncChange">
+                同时创建子系统人员（按【子系统接口配置】调用目标系统）
+              </el-checkbox>
+            </el-form-item>
+          </el-col>
+          <template v-if="syncSubSystem">
+            <el-col :span="12">
+              <el-form-item label="外部系统">
+                <el-select v-model="syncForm.subSystemId" placeholder="请选择系统" clearable filterable
+                           style="width: 100%" @change="loadSyncWorkshops">
+                  <el-option
+                      v-for="item in syncSystemOptions"
+                      :key="item.id"
+                      :label="item.name"
+                      :value="item.id"
+                  ></el-option>
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="车间">
+                <el-select v-model="syncForm.workshopCode" placeholder="请选择车间" clearable filterable
+                           style="width: 100%" @change="handleSyncWorkshopChange">
+                  <el-option
+                      v-for="item in syncWorkshopOptions"
+                      :key="item.workshopCode"
+                      :label="item.workshopName + ' (' + item.workshopCode + ')'"
+                      :value="item.workshopCode"
+                  ></el-option>
+                </el-select>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12" v-if="syncForm.workshopCode">
+              <el-form-item label="班组">
+                <el-select v-model="syncForm.teamCode" placeholder="请选择班组（可选）" clearable filterable
+                           style="width: 100%" @focus="loadSyncTeams">
+                  <el-option
+                      v-for="item in syncTeamOptions"
+                      :key="item.teamCode"
+                      :label="item.teamName + ' (' + item.teamCode + ')'"
+                      :value="item.teamCode"
+                  ></el-option>
+                </el-select>
+              </el-form-item>
+            </el-col>
+          </template>
+        </el-row>
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button type="primary" @click="submitForm">确 定</el-button>
@@ -256,7 +311,7 @@
         <el-form-item label="用户名称">
           <el-input v-model="form.username" :disabled="true" />
         </el-form-item>
-        <el-form-item label="用户昵称">
+        <el-form-item label="用户姓名">
           <el-input v-model="form.nickname" :disabled="true" />
         </el-form-item>
         <el-form-item label="角色">
@@ -298,6 +353,12 @@ import "@riophae/vue-treeselect/dist/vue-treeselect.css";
 
 import {listSimpleDepts} from "@/api/system/dept";
 import {listSimplePosts} from "@/api/system/post";
+import {
+  createSubSystemEmployeeFromMainUser,
+  getSubSystemEmployeeEnabledSystems,
+  getSubSystemEmployeeTeamCombo,
+  getSubSystemEmployeeWorkshopOptions
+} from "@/api/system/subSystemEmployee";
 
 import {CommonStatusEnum} from "@/utils/constants";
 import {DICT_TYPE, getDictDatas} from "@/utils/dict";
@@ -339,6 +400,17 @@ export default {
       roleOptions: [],
       // 表单参数
       form: {},
+      // 同步创建子系统账号（新增时联动）
+      syncSubSystem: false,
+      syncForm: {
+        subSystemId: undefined,
+        workshopCode: undefined,
+        teamCode: undefined
+      },
+      syncSystemOptions: [],
+      syncWorkshopOptions: [],
+      syncTeamOptions: [],
+      syncTeamLoading: false,
       defaultProps: {
         children: "children",
         label: "name"
@@ -363,6 +435,7 @@ export default {
         pageNo: 1,
         pageSize: 10,
         username: undefined,
+        nickname: undefined,
         employeeNo: undefined,
         domainNo: undefined,
         status: undefined,
@@ -372,7 +445,7 @@ export default {
       // 列信息
       columns: [
         { key: 0, label: `用户名称`, visible: true },
-        { key: 1, label: `用户昵称`, visible: true },
+        { key: 1, label: `用户姓名`, visible: true },
         { key: 2, label: `工号`, visible: true },
         { key: 3, label: `域账号`, visible: true },
         { key: 4, label: `刷卡卡号`, visible: true },
@@ -387,7 +460,7 @@ export default {
           { required: true, message: "用户名称不能为空", trigger: "blur" }
         ],
         nickname: [
-          { required: true, message: "用户昵称不能为空", trigger: "blur" }
+          { required: true, message: "用户姓名不能为空", trigger: "blur" }
         ],
         password: [
           { required: true, message: "用户密码不能为空", trigger: "blur" }
@@ -405,17 +478,29 @@ export default {
 
       // 枚举
       SysCommonStatusEnum: CommonStatusEnum,
-      // 数据字典
-      statusDictDatas: getDictDatas(DICT_TYPE.COMMON_STATUS),
-      sexDictDatas: getDictDatas(DICT_TYPE.SYSTEM_USER_SEX),
       // 选中行
       checkedIds: [],
     };
+  },
+  computed: {
+    // 数据字典走 computed：字典是异步加载的，data 快照会拿到空列表导致下拉空白
+    statusDictDatas() {
+      return getDictDatas(DICT_TYPE.COMMON_STATUS)
+    },
+    sexDictDatas() {
+      return getDictDatas(DICT_TYPE.SYSTEM_USER_SEX)
+    }
   },
   watch: {
     // 根据名称筛选部门树
     deptName(val) {
       this.$refs.tree.filter(val);
+    },
+    // 新增用户选了部门后：按部门刷新可选的子系统车间
+    'form.deptId'() {
+      if (this.syncSubSystem) {
+        this.loadSyncWorkshops()
+      }
     }
   },
   created() {
@@ -556,6 +641,7 @@ export default {
       this.reset();
       // 获得下拉数据
       this.getTreeselect();
+      this.loadSyncSystems();
       // 打开表单，并设置初始化
       this.open = true;
       this.title = "添加用户";
@@ -619,13 +705,85 @@ export default {
               this.getList();
             });
           } else {
+            // 勾选同步时校验联动字段
+            if (this.syncSubSystem && (!this.syncForm.subSystemId || !this.syncForm.workshopCode)) {
+              this.$modal.msgWarning("已勾选同步创建子系统人员，请先选择外部系统与车间");
+              return;
+            }
             addUser(this.form).then(response => {
               this.$modal.msgSuccess("新增成功");
               this.open = false;
               this.getList();
+              // 用户建好后再同步子系统（失败不回滚 JUMP 用户，错误由拦截器弹出）
+              if (this.syncSubSystem) {
+                this.createToSubSystem(response.data);
+              }
             });
           }
         }
+      });
+    },
+    /** 勾选同步创建子系统账号：拉取已配置接口的系统列表 */
+    handleSyncChange(val) {
+      if (val) {
+        this.loadSyncSystems();
+      } else {
+        this.syncForm.subSystemId = undefined;
+        this.syncForm.workshopCode = undefined;
+        this.syncForm.teamCode = undefined;
+        this.syncWorkshopOptions = [];
+        this.syncTeamOptions = [];
+      }
+    },
+    loadSyncSystems() {
+      getSubSystemEmployeeEnabledSystems().then(res => {
+        this.syncSystemOptions = res.data || [];
+      }).catch(() => {
+        // 无权限/异常时静默，勾选同步才提示
+      });
+    },
+    /** 按 系统+已选部门 拉车间（部门未映射时为空） */
+    loadSyncWorkshops() {
+      this.syncForm.workshopCode = undefined;
+      this.syncForm.teamCode = undefined;
+      this.syncWorkshopOptions = [];
+      this.syncTeamOptions = [];
+      if (!this.syncForm.subSystemId) {
+        return;
+      }
+      getSubSystemEmployeeWorkshopOptions(this.syncForm.subSystemId, this.form.deptId).then(res => {
+        this.syncWorkshopOptions = res.data || [];
+        if (this.syncWorkshopOptions.length === 0) {
+          this.$modal.msgWarning("所选部门尚未映射到该外部系统的车间，请先在【外部车间管理】中维护映射");
+        }
+      });
+    },
+    handleSyncWorkshopChange() {
+      this.syncForm.teamCode = undefined;
+      this.syncTeamOptions = [];
+    },
+    loadSyncTeams() {
+      if (!this.syncForm.workshopCode || this.syncTeamOptions.length || this.syncTeamLoading) {
+        return;
+      }
+      this.syncTeamLoading = true;
+      getSubSystemEmployeeTeamCombo(this.syncForm.subSystemId, this.syncForm.workshopCode).then(res => {
+        this.syncTeamOptions = res.data || [];
+      }).finally(() => {
+        this.syncTeamLoading = false;
+      });
+    },
+    /** JUMP 用户已建好，同步创建子系统人员 */
+    createToSubSystem(userId) {
+      createSubSystemEmployeeFromMainUser({
+        userId: userId,
+        subSystemId: this.syncForm.subSystemId,
+        workshopCode: this.syncForm.workshopCode,
+        teamCode: this.syncForm.teamCode
+      }).then(() => {
+        this.$modal.msgSuccess("子系统人员创建成功");
+      }).catch(() => {
+        // 错误信息已由全局拦截器弹出；JUMP 用户本身已创建成功
       });
     },
     /** 提交按钮（角色权限） */

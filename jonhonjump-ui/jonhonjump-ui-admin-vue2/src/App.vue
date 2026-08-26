@@ -61,7 +61,8 @@ export default {
         }
         initSessionGuard(() => {
           pauseSessionGuard()
-          broadcastForceLoginHome()
+          // 空闲锁屏=整机无人：踢掉所有标签页（含其它账号），安全优先
+          broadcastForceLoginHome({ kickAll: true })
           this.$store.dispatch('LogOut').finally(() => {
             this.sessionLocked = true
           })

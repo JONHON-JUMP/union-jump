@@ -1,3 +1,11 @@
 cd  C:\Program Files\PostgreSQL\16\bin\ 
 
 pg_dump.exe -h 10.17.65.11 -p 5432 -U postgres -d mes_db --clean -F p -E UTF8 --inserts -f D:\mes_full_insert.sql
+
+"C:\Program Files\PostgreSQL\16\bin\pg_dump.exe" -h 10.17.65.11 -p 5432 -U postgres -d mes_db -Fc -f "D:\java_work\history_java_work\JONHON-JUMP\sql\postgresql\mes_full.dump"
+
+
+
+
+
+

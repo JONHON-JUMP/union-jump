@@ -91,8 +91,14 @@
               v-hasPermi="['sub-system:menu:update']"
             >清门户缓存</el-button>
           </el-col>
+          <el-col :span="1.5">
+            <el-button type="primary" plain icon="el-icon-share" size="mini" @click="$refs.commonMenuDialog.open()"
+                       v-hasPermi="['sub-system:menu:list']">通用菜单</el-button>
+          </el-col>
           <right-toolbar :showSearch.sync="showSearch" @queryTable="getList" />
         </el-row>
+
+        <common-menu-dialog ref="commonMenuDialog" @changed="getList" />
 
         <el-table v-if="refreshTable" v-loading="loading" :data="menuList" row-key="id"
                   :default-expand-all="isExpandAll"
@@ -323,10 +329,11 @@ import { isExternal } from '@/utils/validate'
 import { flattenMenuTree, inheritedStyleId as resolveInheritedStyleId, isFirstLevelMenu as checkFirstLevelMenu } from '@/utils/menuStyleInherit'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
+import CommonMenuDialog from './CommonMenuDialog.vue'
 
 export default {
   name: 'SubSystemMenu',
-  components: { Treeselect, IconSelect, MenuStyleSelect, FileUpload },
+  components: { Treeselect, IconSelect, MenuStyleSelect, FileUpload, CommonMenuDialog },
   mixins: [subSystemImportGate],
   data() {
     return {

@@ -233,13 +233,26 @@ export default {
   height: 100%;
   min-height: 0;
   position: relative;
+  overflow: hidden;
   background: #f5f7fb;
 }
 .iframe-toggle__frames {
-  flex: 1;
-  height: 100%;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   min-height: 0;
+  overflow: hidden;
   background: #f5f7fb;
+}
+.iframe-toggle__frames > .inner-link-root {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: auto;
 }
 .iframe-sso-wait {
   position: absolute;

@@ -11,6 +11,38 @@ export function getSubSystemMenuList(query) {
   })
 }
 
+// ========== 通用菜单：一次定义，挂载多个子系统 ==========
+
+export function getCommonMenuList() {
+  return request({
+    url: '/system/sub-system-menu/common/list',
+    method: 'get'
+  })
+}
+
+export function createCommonMenu(data) {
+  return request({
+    url: '/system/sub-system-menu/common/create',
+    method: 'post',
+    data: data
+  })
+}
+
+export function updateCommonMenu(data) {
+  return request({
+    url: '/system/sub-system-menu/common/update',
+    method: 'put',
+    data: data
+  })
+}
+
+export function deleteCommonMenu(id) {
+  return request({
+    url: '/system/sub-system-menu/common/delete?id=' + id,
+    method: 'delete'
+  })
+}
+
 export function getSubSystemMenu(id) {
   return request({
     url: '/system/sub-system-menu/get?id=' + id,

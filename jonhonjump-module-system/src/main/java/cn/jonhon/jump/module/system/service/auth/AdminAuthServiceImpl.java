@@ -277,6 +277,8 @@ public class AdminAuthServiceImpl implements AdminAuthService {
     private AuthLoginRespVO createTokenAfterLoginSuccess(Long userId, String username, LoginLogTypeEnum logType) {
         // 插入登陆日志
         createLoginLog(userId, username, logType, LoginResultEnum.SUCCESS);
+        // 单点登录：同账号同时仅允许一处在线，新登录踢掉旧会话（旧页面下次请求将 401 强制重新登录）
+        oauth2TokenService.removeAccessToken(userId, getUserType().getValue());
         // 创建访问令牌
         OAuth2AccessTokenDO accessTokenDO = oauth2TokenService.createAccessToken(userId, getUserType().getValue(),
                 OAuth2ClientConstants.CLIENT_ID_DEFAULT, null);

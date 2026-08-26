@@ -3,6 +3,8 @@ package cn.jonhon.jump.module.system.service.user;
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemCommonMenuRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemCommonMenuSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemMenuListReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemMenuRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemMenuSaveReqVO;
@@ -17,9 +19,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 import javax.annotation.Resource;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -33,6 +38,9 @@ import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.*;
 public class SubSystemMenuServiceImpl implements SubSystemMenuService {
 
     private static final Long ID_ROOT = 0L;
+
+    /** 通用菜单模板的保留 subSystemId */
+    private static final Long COMMON_TEMPLATE_SUB_SYSTEM_ID = 0L;
 
     @Resource
     private SubSystemMenuMapper subSystemMenuMapper;
@@ -274,6 +282,203 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
             log.warn("[validateMenuName][子系统({}) 菜单名称({}) 在同一父菜单下已存在重名，仅提醒不拦截]",
                     subSystemId, name);
         }
+    }
+
+    // ==================== 通用菜单（模板 + 多子系统副本同步） ====================
+
+    @Override
+    public List<SubSystemCommonMenuRespVO> getCommonMenuList() {
+        List<SubSystemMenuDO> templates = subSystemMenuMapper.selectCommonTemplateList();
+        if (CollUtil.isEmpty(templates)) {
+            return Collections.emptyList();
+        }
+        List<SubSystemMenuDO> copies = subSystemMenuMapper.selectAllSharedCopies();
+        Map<Long, List<SubSystemMenuDO>> copiesBySource = copies.stream()
+                .collect(Collectors.groupingBy(SubSystemMenuDO::getSharedSourceId));
+        Map<Long, SubSystemDO> subSystemMap = convertMap(
+                subSystemMapper.selectListByIds(convertSet(copies, SubSystemMenuDO::getSubSystemId)),
+                SubSystemDO::getId);
+        List<SubSystemCommonMenuRespVO> result = new ArrayList<>();
+        for (SubSystemMenuDO template : templates) {
+            SubSystemCommonMenuRespVO vo = new SubSystemCommonMenuRespVO();
+            vo.setId(template.getId());
+            vo.setName(template.getMenuName());
+            vo.setType(convertTypeFromDb(template.getType()));
+            vo.setPath(template.getPath());
+            vo.setPermission(template.getPerms());
+            vo.setIcon(template.getIcon());
+            vo.setSort(template.getOrderNum());
+            vo.setStatus(template.getStatus());
+            vo.setManualUrl(template.getManualUrl());
+            vo.setCreateTime(template.getCreateTime());
+            List<SubSystemMenuDO> mounts = copiesBySource.getOrDefault(template.getId(), Collections.emptyList());
+            vo.setSubSystemIds(mounts.stream().map(SubSystemMenuDO::getSubSystemId).collect(Collectors.toList()));
+            vo.setSubSystemNames(mounts.stream()
+                    .map(copy -> {
+                        SubSystemDO sys = subSystemMap.get(copy.getSubSystemId());
+                        return sys != null ? sys.getSystemName() : String.valueOf(copy.getSubSystemId());
+                    })
+                    .collect(Collectors.toList()));
+            result.add(vo);
+        }
+        return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long createCommonMenu(SubSystemCommonMenuSaveReqVO createReqVO) {
+        SubSystemMenuDO template = buildCommonTemplateFromReqVO(createReqVO, null);
+        subSystemMenuMapper.insert(template);
+        // 向选中的子系统复制副本
+        Set<Long> subSystemIds = normalizeMountIds(createReqVO.getSubSystemIds());
+        for (Long subSystemId : subSystemIds) {
+            validateSubSystemExists(subSystemId);
+            subSystemMenuMapper.insert(buildCommonCopy(template, subSystemId));
+            subSystemPermissionContextService.evictBySubSystemId(subSystemId);
+        }
+        return template.getId();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateCommonMenu(SubSystemCommonMenuSaveReqVO updateReqVO) {
+        SubSystemMenuDO template = validateCommonTemplateExists(updateReqVO.getId());
+        // 1. 更新模板
+        SubSystemMenuDO updateObj = buildCommonTemplateFromReqVO(updateReqVO, template.getId());
+        subSystemMenuMapper.updateById(updateObj);
+        // 2. 同步所有副本内容字段（不动 parentId / orderNum，位置由各子系统自行调整）
+        List<SubSystemMenuDO> copies = subSystemMenuMapper.selectListBySharedSourceId(template.getId());
+        Set<Long> mountedIds = copies.stream().map(SubSystemMenuDO::getSubSystemId).collect(Collectors.toSet());
+        for (SubSystemMenuDO copy : copies) {
+            SubSystemMenuDO copyUpdate = buildCommonCopy(updateObj, copy.getSubSystemId());
+            copyUpdate.setId(copy.getId());
+            copyUpdate.setParentId(copy.getParentId());
+            copyUpdate.setOrderNum(copy.getOrderNum());
+            // 显示/停用归各子系统自主管理：模板同步不得覆盖子系统单独设置的开关
+            copyUpdate.setStatus(copy.getStatus());
+            subSystemMenuMapper.updateById(copyUpdate);
+            subSystemPermissionContextService.evictBySubSystemId(copy.getSubSystemId());
+        }
+        // 3. 对齐挂载：新增的子系统补副本；取消的删副本
+        Set<Long> targetIds = normalizeMountIds(updateReqVO.getSubSystemIds());
+        for (Long subSystemId : targetIds) {
+            if (mountedIds.contains(subSystemId)) {
+                continue;
+            }
+            validateSubSystemExists(subSystemId);
+            subSystemMenuMapper.insert(buildCommonCopy(updateObj, subSystemId));
+            subSystemPermissionContextService.evictBySubSystemId(subSystemId);
+        }
+        for (SubSystemMenuDO copy : copies) {
+            if (!targetIds.contains(copy.getSubSystemId())) {
+                validateCommonCopyDeletable(copy);
+                deleteCommonCopyQuietly(copy);
+                subSystemPermissionContextService.evictBySubSystemId(copy.getSubSystemId());
+            }
+        }
+    }
+
+    /** 取子系统名称用于错误提示定位 */
+    private String subSystemMapName(Long subSystemId) {
+        SubSystemDO sys = subSystemMapper.selectById(subSystemId);
+        return sys != null ? sys.getSystemName() : String.valueOf(subSystemId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteCommonMenu(Long id) {
+        SubSystemMenuDO template = validateCommonTemplateExists(id);
+        // 副本被角色/快捷导航引用、或有子菜单挂在其下时阻断，提示先到对应子系统处理
+        for (SubSystemMenuDO copy : subSystemMenuMapper.selectListBySharedSourceId(id)) {
+            validateCommonCopyDeletable(copy);
+        }
+        for (SubSystemMenuDO copy : subSystemMenuMapper.selectListBySharedSourceId(id)) {
+            deleteCommonCopyQuietly(copy);
+            subSystemPermissionContextService.evictBySubSystemId(copy.getSubSystemId());
+        }
+        subSystemMenuMapper.deleteById(template.getId());
+    }
+
+    /** 副本删除前置校验：已分配角色 / 已加快捷导航 / 存在子菜单挂在其下 均阻断 */
+    private void validateCommonCopyDeletable(SubSystemMenuDO copy) {
+        validateMenuNotAssigned(copy.getId());
+        validateMenuNotInQuickNav(copy.getId());
+        if (subSystemMenuMapper.selectCountByParentId(copy.getId()) > 0) {
+            throw exception(SUB_SYSTEM_COMMON_MENU_COPY_HAS_CHILDREN,
+                    subSystemMapName(copy.getSubSystemId()));
+        }
+    }
+
+    private SubSystemMenuDO validateCommonTemplateExists(Long id) {
+        SubSystemMenuDO template = subSystemMenuMapper.selectById(id);
+        if (template == null || !COMMON_TEMPLATE_SUB_SYSTEM_ID.equals(template.getSubSystemId())) {
+            throw exception(SUB_SYSTEM_MENU_NOT_EXISTS);
+        }
+        return template;
+    }
+
+    /** 通用菜单模板/副本内容统一从 SaveReqVO 构建 */
+    private SubSystemMenuDO buildCommonTemplateFromReqVO(SubSystemCommonMenuSaveReqVO reqVO, Long id) {
+        SubSystemMenuDO menu = new SubSystemMenuDO();
+        menu.setId(id);
+        menu.setSubSystemId(COMMON_TEMPLATE_SUB_SYSTEM_ID);
+        menu.setSharedSourceId(null);
+        menu.setParentId(ID_ROOT);
+        applyCommonMenuContent(menu, reqVO);
+        return menu;
+    }
+
+    private SubSystemMenuDO buildCommonCopy(SubSystemMenuDO template, Long subSystemId) {
+        SubSystemMenuDO copy = new SubSystemMenuDO();
+        copy.setSubSystemId(subSystemId);
+        copy.setSharedSourceId(template.getId());
+        copy.setParentId(ID_ROOT);
+        copy.setOrderNum(template.getOrderNum());
+        copy.setMenuName(template.getMenuName());
+        copy.setType(template.getType());
+        copy.setPath(template.getPath());
+        copy.setPerms(template.getPerms());
+        copy.setIcon(template.getIcon());
+        copy.setStyleId(template.getStyleId());
+        copy.setComponent(template.getComponent());
+        copy.setComponentName(template.getComponentName());
+        copy.setStatus(template.getStatus());
+        copy.setVisible(template.getVisible());
+        copy.setIsCache(template.getIsCache());
+        copy.setAlwaysShow(template.getAlwaysShow());
+        copy.setManualUrl(template.getManualUrl());
+        copy.setIsFrame(template.getIsFrame());
+        copy.setQuery(template.getQuery());
+        copy.setRemark(template.getRemark());
+        return copy;
+    }
+
+    private void applyCommonMenuContent(SubSystemMenuDO menu, SubSystemCommonMenuSaveReqVO reqVO) {
+        menu.setMenuName(reqVO.getName());
+        menu.setPerms(reqVO.getPermission());
+        menu.setType(convertTypeToDb(reqVO.getType()));
+        menu.setOrderNum(reqVO.getSort() != null ? reqVO.getSort() : 0);
+        menu.setPath(reqVO.getPath());
+        menu.setIcon(reqVO.getIcon());
+        // 状态缺省为开启，避免 null 状态在各子系统菜单管理/门户树展示异常
+        menu.setStatus(reqVO.getStatus() != null ? reqVO.getStatus() : 0);
+        menu.setManualUrl(reqVO.getManualUrl());
+        menu.setVisible(0);
+        menu.setIsCache(0);
+        menu.setAlwaysShow(0);
+        menu.setIsFrame(isExternalLink(reqVO.getPath()) ? 0 : 1);
+    }
+
+    private void deleteCommonCopyQuietly(SubSystemMenuDO copy) {
+        subSystemMenuMapper.deleteById(copy.getId());
+        subSystemRoleMenuMapper.deleteListByMenuId(copy.getId());
+    }
+
+    private Set<Long> normalizeMountIds(List<Long> subSystemIds) {
+        if (CollUtil.isEmpty(subSystemIds)) {
+            return new HashSet<>();
+        }
+        return new HashSet<>(subSystemIds);
     }
 
 }

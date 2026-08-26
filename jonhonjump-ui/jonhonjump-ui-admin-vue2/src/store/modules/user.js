@@ -1,7 +1,7 @@
 import {login, logout, getInfo, socialLogin, smsLogin} from '@/api/login'
 import {setToken, removeToken, removeVisitTenantId, removeUsername, setUsername} from '@/utils/auth'
 import { resolveUserAvatar, loadRoleAvatarConfig } from '@/utils/defaultAvatar'
-import { ensureLocalCamstarCookie } from '@/utils/camstarCookie'
+import { clearCamstarCookie, ensureLocalCamstarCookie } from '@/utils/camstarCookie'
 
 function applyLoginSession(commit, tokenRes, username) {
   // 清门户菜单内存
@@ -216,6 +216,8 @@ const user = {
           removeToken()
           removeVisitTenantId()
           removeUsername()
+          // 清 Camstar 会话残留：现场换人后不得再带上一账号的 Cookie 打开子系统
+          clearCamstarCookie()
           resolve()
         })
       })
