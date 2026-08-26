@@ -296,7 +296,7 @@ class ProcessServiceImplTest {
     @Test
     void queryCard_rejectsUnpublishedDocument() {
         CaoeDocInfoDTO doc = publishedDoc("document-oid");
-        doc.setDocSate("正在工作");
+        doc.setDocState("正在工作");
         assertDocumentError(doc, "工艺未发行，无法查看");
     }
 
@@ -416,7 +416,7 @@ class ProcessServiceImplTest {
 
     private CaoeDocInfoDTO publishedDoc(String oid) {
         CaoeDocInfoDTO doc = new CaoeDocInfoDTO();
-        doc.setDocSate("已发行");
+        doc.setDocState("已发行");
         doc.setOid(oid);
         return doc;
     }

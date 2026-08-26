@@ -7,7 +7,14 @@
 
     <select id="queryDocInfo"
             resultType="cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.CaoeDocInfoDTO">
-        select oid AS oid, doc_state AS docState from caoe_doc where doc_number = #{docNumber}
+        SELECT oid, doc_state AS docState
+        FROM (
+            SELECT oid, doc_state, doc_version, doc_iteration
+            FROM caoe_doc
+            WHERE doc_number = #{docNumber}
+            ORDER BY doc_version DESC, TO_NUMBER(doc_iteration) DESC NULLS LAST
+        )
+        WHERE ROWNUM = 1
     </select>
 
     <select id="queryProcessState" resultType="java.lang.String">
