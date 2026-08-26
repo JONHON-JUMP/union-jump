@@ -15,7 +15,6 @@ import cn.jonhon.jump.module.system.service.tenant.TenantService;
 import cn.jonhon.jump.module.system.service.auth.AuthPermissionInfoService;
 import cn.jonhon.jump.module.system.service.user.UserQuickNavService;
 import cn.jonhon.jump.module.system.service.permission.RoleQuickNavService;
-import cn.jonhon.jump.module.system.util.ExternalMenuNameUtils;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import lombok.extern.slf4j.Slf4j;
@@ -66,7 +65,6 @@ public class MenuServiceImpl implements MenuService {
     @CacheEvict(value = RedisKeyConstants.PERMISSION_MENU_ID_LIST, key = "#createReqVO.permission",
             condition = "#createReqVO.permission != null")
     public Long createMenu(MenuSaveVO createReqVO) {
-        normalizeExternalSystemManagementMenuName(createReqVO);
         // 校验父菜单存在
         validateParentMenu(createReqVO.getParentId(), null);
         // 校验菜单（自己）
@@ -87,7 +85,6 @@ public class MenuServiceImpl implements MenuService {
     @CacheEvict(value = RedisKeyConstants.PERMISSION_MENU_ID_LIST,
             allEntries = true) // allEntries 清空所有缓存，因为 permission 如果变更，涉及到新老两个 permission。直接清理，简单有效
     public void updateMenu(MenuSaveVO updateReqVO) {
-        normalizeExternalSystemManagementMenuName(updateReqVO);
         // 校验更新的菜单是否存在
         if (menuMapper.selectById(updateReqVO.getId()) == null) {
             throw exception(MENU_NOT_EXISTS);
@@ -380,42 +377,6 @@ public class MenuServiceImpl implements MenuService {
             return;
         }
         menuColorService.validateMenuColorExists(reqVO.getStyleId());
-    }
-
-    private void normalizeExternalSystemManagementMenuName(MenuSaveVO reqVO) {
-        if (!shouldApplyExternalSystemManagementPrefix(reqVO)) {
-            return;
-        }
-        reqVO.setName(ExternalMenuNameUtils.normalizeMenuName(reqVO.getName()));
-    }
-
-    private boolean shouldApplyExternalSystemManagementPrefix(MenuSaveVO reqVO) {
-        if (MenuTypeEnum.BUTTON.getType().equals(reqVO.getType())) {
-            return false;
-        }
-        if (ExternalMenuNameUtils.EXTERNAL_SYSTEM_DIR.equals(StrUtil.trim(reqVO.getName()))) {
-            return false;
-        }
-        if (StrUtil.isNotBlank(reqVO.getComponent())
-                && reqVO.getComponent().startsWith(ExternalMenuNameUtils.EXTERNAL_SYSTEM_COMPONENT_PREFIX)) {
-            return true;
-        }
-        return isDescendantOfExternalSystemManagement(reqVO.getParentId());
-    }
-
-    private boolean isDescendantOfExternalSystemManagement(Long parentId) {
-        Long currentId = parentId;
-        while (currentId != null && !ObjUtil.equal(currentId, ID_ROOT)) {
-            MenuDO menu = menuMapper.selectById(currentId);
-            if (menu == null) {
-                return false;
-            }
-            if (ExternalMenuNameUtils.EXTERNAL_SYSTEM_DIR.equals(menu.getName())) {
-                return true;
-            }
-            currentId = menu.getParentId();
-        }
-        return false;
     }
 
 }
