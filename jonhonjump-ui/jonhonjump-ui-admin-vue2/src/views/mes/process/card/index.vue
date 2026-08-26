@@ -101,6 +101,7 @@
           empty-text="暂无匹配的工艺信息"
         >
           <el-table-column
+            type="index"
             label="序号"
             width="92"
             align="center"
@@ -465,7 +466,13 @@ export default {
   ::v-deep .el-table__row:hover > td.el-table__cell { background: #f7faff; }
   ::v-deep .el-table__expand-icon { margin-right: 8px; color: #7b8ca4; }
 }
-.row-index { color: #75859b; font-variant-numeric: tabular-nums; }
+.row-index {
+  display: inline-block;
+  color: #75859b;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  word-break: keep-all;
+}
 .name-cell { display: flex; align-items: center; min-width: 0; padding: 10px 0; }
 .name-content {
   display: flex; min-width: 0; flex-direction: column; gap: 5px;

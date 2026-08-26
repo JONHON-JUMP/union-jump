@@ -323,3 +323,17 @@ test('warns instead of opening when a process link is missing', async () => {
 test('does not force viewport height that overflows the parent scroller', () => {
   assert.doesNotMatch(readVueFile(), /min-height:\s*calc\(100vh/)
 })
+
+test('keeps sequence numbers aligned while tree controls belong to the name column', () => {
+  const source = readVueFile()
+  const sequenceColumn = source.match(
+    /<el-table-column\s+([\s\S]*?)label="序号"([\s\S]*?)<\/el-table-column>/
+  )
+
+  assert.ok(sequenceColumn, 'sequence column should exist')
+  assert.match(sequenceColumn[0], /type="index"/)
+  assert.match(sequenceColumn[0], /getNodeIndex\(scope\.row\)/)
+  assert.match(source, /\.row-index\s*\{[^}]*display:\s*inline-block;/s)
+  assert.match(source, /\.row-index\s*\{[^}]*white-space:\s*nowrap;/s)
+  assert.match(source, /\.row-index\s*\{[^}]*word-break:\s*keep-all;/s)
+})
