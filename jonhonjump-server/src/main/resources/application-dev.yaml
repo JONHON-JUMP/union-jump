@@ -51,14 +51,14 @@ spring:
           #          url: jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true # MySQL Connector/J 8.X 连接的示例
           #          url: jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=true&allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true # MySQL Connector/J 5.X 连接的示例
           #url: jdbc:postgresql://192.168.240.131:5432/postgres?sslmode=disable # PostgreSQL（该服务器未启用 SSL，须用明文连接）
-          url: jdbc:postgresql://10.17.65.11:5432/mes_db?sslmode=disable  # PostgreSQL（该服务器未启用 SSL，须用明文连接）
+          url: jdbc:postgresql://192.168.240.131:5432/postgres?sslmode=disable  # PostgreSQL（该服务器未启用 SSL，须用明文连接）
           #          url: jdbc:oracle:thin:@127.0.0.1:1521:xe # Oracle 连接的示例
           #          url: jdbc:sqlserver://127.0.0.1:1433;DatabaseName=ruoyi-vue-pro;SelectMethod=cursor;encrypt=false;rewriteBatchedStatements=true;useUnicode=true;characterEncoding=utf-8 # SQLServer 连接的示例
           #          url: jdbc:dm://127.0.0.1:5236?schema=RUOYI_VUE_PRO # DM 连接的示例
           #          url: jdbc:kingbase8://127.0.0.1:54321/test  # 人大金仓 KingbaseES 连接的示例
           #          url: jdbc:postgresql://127.0.0.1:5432/postgres # OpenGauss 连接的示例
           username: postgres
-          password: jonhon158!
+          password: 123gogogo
           #password: 123gogogo
           #          username: sa # SQL Server 连接的示例
           #          password: Jonhonjump@2024 # SQL Server 连接的示例
