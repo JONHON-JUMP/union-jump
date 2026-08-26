@@ -8,7 +8,7 @@ public class CaoeDocInfoDTO {
     /**
      * 状态
      */
-    private String docSate;
+    private String docState;
 
     /**
      * 链接

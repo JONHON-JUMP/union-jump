@@ -148,7 +148,7 @@ public class ProcessServiceImpl implements ProcessService{
                 throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
             }
             log.info("caoeDocInfoDTO:{}", caoeDocInfoDTO);
-            if (!CommonConstant.PUBLISHED.equals(caoeDocInfoDTO.getDocSate())) {
+            if (!CommonConstant.PUBLISHED.equals(caoeDocInfoDTO.getDocState())) {
                 throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
             }
             if (StringUtils.isBlank(caoeDocInfoDTO.getOid())) {

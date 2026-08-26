@@ -7,7 +7,7 @@
 
     <select id="queryDocInfo"
             resultType="cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.CaoeDocInfoDTO">
-        select oid AS oid, doc_sate AS docSate from caoe_doc where doc_number = #{docNumber}
+        select oid AS oid, doc_state AS docState from caoe_doc where doc_number = #{docNumber}
     </select>
 
     <select id="queryProcessState" resultType="java.lang.String">
