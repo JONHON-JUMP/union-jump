@@ -26,6 +26,7 @@ const getters = {
   portalSystemList: state => state.portal.systemList,
   currentSystemSidebarRouters: state => resolveCurrentSystemSearchRoutes(state),
   currentSystemLabel: state => resolveCurrentSystemLabel(state),
+  allAppsMenusLoading: state => state.portal.allAppsMenusLoading,
   // 数据字典
   dict_datas: state => state.dict.dictDatas
 }

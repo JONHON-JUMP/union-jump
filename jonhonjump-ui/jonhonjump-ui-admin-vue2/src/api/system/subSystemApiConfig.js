@@ -31,3 +31,7 @@ export function deleteSubSystemApiConfig(id) {
 export function testSubSystemApiConnection(id) {
   return request({ url: '/system/sub-system-api-config/test-connection?id=' + id, method: 'get' })
 }
+// 本页调试指定接口
+export function testSubSystemApiInvoke(data) {
+  return request({ url: '/system/sub-system-api-config/test', method: 'post', data })
+}

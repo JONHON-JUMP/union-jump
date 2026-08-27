@@ -20,8 +20,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 import javax.annotation.Resource;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -82,8 +84,8 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
 
         SubSystemMenuDO menu = convertToDO(createReqVO);
         subSystemMenuMapper.insert(menu);
-        // 新建后也要失效门户 my-menus / 权限缓存，否则首页卡片仍是旧树
-        subSystemPermissionContextService.evictByMenuId(menu.getId());
+        // 与角色菜单变更一致：清该系统门户 my-menus / 权限包并 bump 版本，在线用户切系统或打开全部应用时重拉
+        subSystemPermissionContextService.evictBySubSystemId(menu.getSubSystemId());
         return menu.getId();
     }
 
@@ -98,6 +100,7 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         SubSystemMenuDO updateObj = convertToDO(updateReqVO);
         subSystemMenuMapper.updateById(updateObj);
         subSystemPermissionContextService.evictByMenuId(updateReqVO.getId());
+        subSystemUserQuickNavService.evictCacheByMenuIds(collectQuickNavAffectedMenuIds(updateReqVO.getId()));
     }
 
     @Override
@@ -107,11 +110,13 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
             throw exception(SUB_SYSTEM_MENU_EXISTS_CHILDREN);
         }
         validateSubSystemMenuExists(id);
-        validateMenuNotAssigned(id);
-        validateMenuNotInQuickNav(id);
+        // 角色授权 / 快捷导航：不拦截；先清 Redis（含角色默认用户），再级联删库
+        subSystemUserQuickNavService.evictCacheByMenuIds(Collections.singletonList(id));
+        subSystemUserQuickNavService.deleteByMenuId(id);
+        subSystemRoleQuickNavService.deleteByMenuId(id);
+        subSystemRoleMenuMapper.deleteListByMenuId(id);
         subSystemPermissionContextService.evictByMenuId(id);
         subSystemMenuMapper.deleteById(id);
-        subSystemRoleMenuMapper.deleteListByMenuId(id);
     }
 
     @Override
@@ -122,12 +127,13 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
                 throw exception(SUB_SYSTEM_MENU_EXISTS_CHILDREN);
             }
             validateSubSystemMenuExists(id);
-            validateMenuNotAssigned(id);
-            validateMenuNotInQuickNav(id);
-            subSystemPermissionContextService.evictByMenuId(id);
         });
-        subSystemMenuMapper.deleteByIds(ids);
+        subSystemUserQuickNavService.evictCacheByMenuIds(ids);
+        subSystemUserQuickNavService.deleteByMenuIds(ids);
+        subSystemRoleQuickNavService.deleteByMenuIds(ids);
         subSystemRoleMenuMapper.deleteListByMenuIds(ids);
+        ids.forEach(subSystemPermissionContextService::evictByMenuId);
+        subSystemMenuMapper.deleteByIds(ids);
     }
 
     private List<SubSystemMenuRespVO> buildRespList(List<SubSystemMenuDO> list) {
@@ -244,20 +250,6 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
             throw exception(SUB_SYSTEM_MENU_NOT_EXISTS);
         }
         return menu;
-    }
-
-    private void validateMenuNotAssigned(Long menuId) {
-        Long count = subSystemRoleMenuMapper.selectCountByMenuId(menuId);
-        if (count != null && count > 0) {
-            throw exception(SUB_SYSTEM_MENU_HAS_ROLES);
-        }
-    }
-
-    private void validateMenuNotInQuickNav(Long menuId) {
-        if (subSystemUserQuickNavService.existsByMenuId(menuId)
-                || subSystemRoleQuickNavService.existsByMenuId(menuId)) {
-            throw exception(SUB_SYSTEM_MENU_HAS_QUICK_NAV);
-        }
     }
 
     private void validateParentMenu(Long subSystemId, Long parentId, Long selfId) {
@@ -399,14 +391,21 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         subSystemMenuMapper.deleteById(template.getId());
     }
 
-    /** 副本删除前置校验：已分配角色 / 已加快捷导航 / 存在子菜单挂在其下 均阻断 */
+    /** 副本删除：有子菜单仍阻断；角色/快捷导航级联清理不拦截 */
     private void validateCommonCopyDeletable(SubSystemMenuDO copy) {
-        validateMenuNotAssigned(copy.getId());
-        validateMenuNotInQuickNav(copy.getId());
         if (subSystemMenuMapper.selectCountByParentId(copy.getId()) > 0) {
             throw exception(SUB_SYSTEM_COMMON_MENU_COPY_HAS_CHILDREN,
                     subSystemMapName(copy.getSubSystemId()));
         }
+    }
+
+    private void deleteCommonCopyQuietly(SubSystemMenuDO copy) {
+        Long menuId = copy.getId();
+        subSystemUserQuickNavService.evictCacheByMenuIds(Collections.singletonList(menuId));
+        subSystemUserQuickNavService.deleteByMenuId(menuId);
+        subSystemRoleQuickNavService.deleteByMenuId(menuId);
+        subSystemRoleMenuMapper.deleteListByMenuId(menuId);
+        subSystemMenuMapper.deleteById(menuId);
     }
 
     private SubSystemMenuDO validateCommonTemplateExists(Long id) {
@@ -469,16 +468,40 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         menu.setIsFrame(isExternalLink(reqVO.getPath()) ? 0 : 1);
     }
 
-    private void deleteCommonCopyQuietly(SubSystemMenuDO copy) {
-        subSystemMenuMapper.deleteById(copy.getId());
-        subSystemRoleMenuMapper.deleteListByMenuId(copy.getId());
-    }
-
     private Set<Long> normalizeMountIds(List<Long> subSystemIds) {
         if (CollUtil.isEmpty(subSystemIds)) {
             return new HashSet<>();
         }
         return new HashSet<>(subSystemIds);
+    }
+
+    private Collection<Long> collectQuickNavAffectedMenuIds(Long menuId) {
+        if (menuId == null) {
+            return Collections.emptyList();
+        }
+        Set<Long> menuIds = new LinkedHashSet<>();
+        menuIds.add(menuId);
+        SubSystemMenuDO menu = subSystemMenuMapper.selectById(menuId);
+        if (menu != null && "M".equals(menu.getType())) {
+            collectDescendantMenuIds(menuId, menuIds);
+        }
+        return menuIds;
+    }
+
+    private void collectDescendantMenuIds(Long parentId, Set<Long> collector) {
+        List<SubSystemMenuDO> children = subSystemMenuMapper.selectList(SubSystemMenuDO::getParentId, parentId);
+        if (CollUtil.isEmpty(children)) {
+            return;
+        }
+        for (SubSystemMenuDO child : children) {
+            if (child == null || child.getId() == null) {
+                continue;
+            }
+            collector.add(child.getId());
+            if ("M".equals(child.getType())) {
+                collectDescendantMenuIds(child.getId(), collector);
+            }
+        }
     }
 
 }

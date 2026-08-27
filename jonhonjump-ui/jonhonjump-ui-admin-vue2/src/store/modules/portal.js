@@ -95,8 +95,23 @@ function createInitialPortalState() {
     portalBootstrapped: false,
     /** 单飞：并发 beforeEach 共用同一个 bootstrap Promise */
     bootstrapInFlight: null,
-    portalDefaultCache: null
+    portalDefaultCache: null,
+    /** 全部应用抽屉：正在拉当前系统菜单树（有旧树时不挡屏） */
+    allAppsMenusLoading: false,
+    /** 快捷导航强制同步中（角色/菜单变更后重拉，避免空白） */
+    quickNavSyncing: false
   }
+}
+
+function hasMainMenuRoutes(state, rootState) {
+  return (state.mainSidebarRouters && state.mainSidebarRouters.length > 0)
+    || (rootState.permission.defaultRoutes && rootState.permission.defaultRoutes.length > 0)
+}
+
+function hasSubSystemMenuRoutes(state, clientId) {
+  const key = normalizeSystemKey(clientId)
+  const cached = state.subSystemSidebarCache[key]
+  return !!(cached && cached.length)
 }
 
 /** 切换系统时递增，用于作废尚未执行的后台预热，防止抢回默认子系统 */
@@ -121,6 +136,12 @@ const mutations = {
   },
   SET_MAIN_SIDEBAR_ROUTERS(state, routes) {
     state.mainSidebarRouters = routes
+  },
+  SET_ALL_APPS_MENUS_LOADING(state, loading) {
+    state.allAppsMenusLoading = loading === true
+  },
+  SET_QUICK_NAV_SYNCING(state, syncing) {
+    state.quickNavSyncing = syncing === true
   },
   SET_PORTAL_PATH_LINKS(state, pathLinkMap) {
     state.pathLinkMap = pathLinkMap || {}
@@ -196,6 +217,8 @@ const mutations = {
     state.portalBootstrapped = false
     state.bootstrapInFlight = null
     state.portalDefaultCache = null
+    state.allAppsMenusLoading = false
+    state.quickNavSyncing = false
     bumpPortalWarmGeneration()
     clearPersistedPortalCache()
     clearPortalSystemChoice()
@@ -216,7 +239,7 @@ const actions = {
    * 快捷导航单飞：Shell / 首页 Panel / bootstrap 预取共用，避免同屏双请求
    * @param payload.force 强制新开请求；配合 epoch 丢弃保存前发出的过期响应
    */
-  loadQuickNavConfig({ state }, payload = {}) {
+  loadQuickNavConfig({ state, commit }, payload = {}) {
     const subSystemId = Number(payload.subSystemId) || 0
     const force = !!payload.force
     const cacheKey = subSystemId > 0
@@ -229,6 +252,11 @@ const actions = {
     state.quickNavLoadEpoch = {
       ...state.quickNavLoadEpoch,
       [cacheKey]: epoch
+    }
+    // 强制重拉或首次无缓存：显示「加载中」，避免变更后空白误以为无权限
+    const showSyncing = force || !getQuickNavCache(cacheKey)
+    if (showSyncing) {
+      commit('SET_QUICK_NAV_SYNCING', true)
     }
     const request = subSystemId > 0
       ? getSubSystemUserQuickNavList(subSystemId)
@@ -275,6 +303,9 @@ const actions = {
         const next = { ...state.quickNavInFlight }
         delete next[cacheKey]
         state.quickNavInFlight = next
+      }
+      if (showSyncing && Object.keys(state.quickNavInFlight).length === 0) {
+        commit('SET_QUICK_NAV_SYNCING', false)
       }
     })
     state.quickNavInFlight = {
@@ -444,29 +475,125 @@ const actions = {
   },
 
   /**
-   * 后台：主系统角色/菜单/权限。
-   * 先只读 Redis；未命中再延迟打库，避免与工作台首屏接口抢连接导致 30s 超时。
+   * 打开「全部应用」：无菜单树时立即加载并展示「菜单加载中」；已有树则直接展示。
+   * 打开前比对 rbac 版本；Redis 已清则走库重建。
    */
-  warmMainSystemInBackground({ dispatch, rootState }) {
-    if (rootState.permission.defaultRoutes && rootState.permission.defaultRoutes.length) {
+  ensureAllAppsMenusReady({ dispatch, state, rootState, commit }) {
+    const { syncPortalMenusBeforeAllApps } = require('@/utils/portalPermWatch')
+    const afterPermSync = () => {
+      const current = state.currentSystem || 'main'
+      if (current === 'main') {
+        if (hasMainMenuRoutes(state, rootState)) {
+          return Promise.resolve(true)
+        }
+        commit('SET_ALL_APPS_MENUS_LOADING', true)
+        return dispatch('LoadMainMenus', { preferRedis: true }, { root: true })
+          .then(routes => !!(routes && routes.length))
+          .catch(err => {
+            console.warn('[portal] ensure all-apps main menus failed:', err)
+            return false
+          })
+          .finally(() => commit('SET_ALL_APPS_MENUS_LOADING', false))
+      }
+
+      const key = normalizeSystemKey(current)
+      const hasCache = hasSubSystemMenuRoutes(state, key)
+      const load = () => dispatch('resolveSubSystemReload', key).then(force =>
+        dispatch('ensureSubSystemLoaded', {
+          clientId: key,
+          activate: false,
+          force: force || !hasCache
+        })
+      ).then(() => hasSubSystemMenuRoutes(state, key) || hasCache)
+        .catch(err => {
+          console.warn('[portal] ensure all-apps sub menus failed:', err)
+          return hasCache
+        })
+
+      if (hasCache) {
+        load()
+        return Promise.resolve(true)
+      }
+      commit('SET_ALL_APPS_MENUS_LOADING', true)
+      return load().finally(() => commit('SET_ALL_APPS_MENUS_LOADING', false))
+    }
+    // 无树时先亮 loading，避免白屏
+    if (!hasMainMenuRoutes(state, rootState) && (state.currentSystem || 'main') === 'main') {
+      commit('SET_ALL_APPS_MENUS_LOADING', true)
+    }
+    return Promise.resolve(syncPortalMenusBeforeAllApps())
+      .catch(() => false)
+      .then(() => afterPermSync())
+  },
+
+  /** 菜单管理 CRUD 后强制重建门户菜单树 + 快捷导航（绕过内存短路；不重复 addRoutes） */
+  refreshMenusAfterAdminChange({ dispatch, state, commit }, payload = {}) {
+    const scope = payload.scope || 'main'
+    if (scope === 'main') {
+      commit('SET_MAIN_SIDEBAR_ROUTERS', null)
+      commit('permission/CLEAR_MENU_TREES', null, { root: true })
+      return dispatch('LoadMainMenus', { force: true }, { root: true })
+        .then(() => dispatch('loadQuickNavConfig', { subSystemId: 0, force: true }).catch(() => null))
+        .catch(err => {
+          console.warn('[portal] refresh main menus after admin change failed:', err)
+        })
+    }
+    const ensureList = state.systemList.length > 0
+      ? Promise.resolve()
+      : dispatch('loadSystemList')
+    const subSystemIds = Array.isArray(payload.subSystemIds) && payload.subSystemIds.length
+      ? payload.subSystemIds
+      : (payload.subSystemId != null ? [payload.subSystemId] : [])
+    return ensureList.then(() => {
+      const clientIds = []
+      if (payload.clientId) {
+        clientIds.push(payload.clientId)
+      }
+      subSystemIds.forEach(subSystemId => {
+        const matched = state.systemList.find(item => Number(item.subSystemId) === Number(subSystemId)
+          || Number(item.id) === Number(subSystemId))
+        if (matched && matched.clientId && !clientIds.includes(matched.clientId)) {
+          clientIds.push(matched.clientId)
+        }
+      })
+      if (!clientIds.length) {
+        return Promise.resolve()
+      }
+      return Promise.all(clientIds.map(clientId => {
+        const matched = state.systemList.find(item => item.clientId === clientId)
+        const subSystemId = matched && (matched.subSystemId != null ? matched.subSystemId : matched.id)
+        return dispatch('ensureSubSystemLoaded', {
+          clientId: normalizeSystemKey(clientId),
+          activate: false,
+          force: true
+        }).then(() => {
+          if (subSystemId == null) {
+            return null
+          }
+          return dispatch('loadQuickNavConfig', {
+            subSystemId: Number(subSystemId),
+            force: true
+          }).catch(() => null)
+        }).catch(err => {
+          console.warn('[portal] refresh sub menus after admin change failed:', clientId, err)
+        })
+      }))
+    })
+  },
+
+  warmMainSystemInBackground({ dispatch, rootState, commit }) {
+    /** 后台马上预热全量菜单：先 Redis，未命中立即打库（不再等 8s） */
+    if (hasMainMenuRoutes(rootState.portal, rootState)) {
       return Promise.resolve()
     }
-    return dispatch('LoadMainMenus', { redisOnly: true }, { root: true }).then(routes => {
-      if (routes) {
-        return routes
-      }
-      return new Promise(resolve => {
-        setTimeout(() => {
-          dispatch('LoadMainMenus', { redisOnly: false }, { root: true })
-            .catch(err => {
-              console.warn('[portal] warm main menus/perm failed:', err)
-            })
-            .then(resolve)
-        }, 8000)
+    commit('SET_ALL_APPS_MENUS_LOADING', true)
+    return dispatch('LoadMainMenus', { preferRedis: true }, { root: true })
+      .catch(err => {
+        console.warn('[portal] warm main menus/perm failed:', err)
       })
-    }).catch(err => {
-      console.warn('[portal] warm main menus redis peek failed:', err)
-    })
+      .finally(() => {
+        commit('SET_ALL_APPS_MENUS_LOADING', false)
+      })
   },
 
   /**
@@ -477,6 +604,7 @@ const actions = {
     const key = normalizeSystemKey(clientId)
     const warmGen = portalWarmGeneration
     const subWarm = new Promise(resolve => {
+      // 短延迟，让快捷导航先落地，再马上拉全量
       setTimeout(() => {
         if (warmGen !== portalWarmGeneration) {
           resolve()
@@ -487,7 +615,7 @@ const actions = {
             console.warn('[portal] warm sub menus/perm failed:', err)
           })
           .then(resolve)
-      }, 3000)
+      }, 400)
     })
     const mainWarm = dispatch('warmMainSystemInBackground')
     return Promise.all([subWarm, mainWarm])

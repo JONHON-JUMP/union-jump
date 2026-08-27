@@ -54,6 +54,9 @@ public class SubSystemApiConfigSaveReqVO {
     @Size(max = 512, message = "班组下拉接口长度不能超过 512 个字符")
     private String apiTeamCombo;
 
+    @Schema(description = "接口目录树 JSON（目录+叶子；叶子 purpose=create 供用户同步「新增人员」）")
+    private String apiCatalog;
+
     @Schema(description = "参数映射 JSON（JUMP标准参数名→对方参数名）", example = "{\"userCode\":\"empNo\"}")
     @Size(max = 2048, message = "参数映射长度不能超过 2048 个字符")
     private String paramMapping;

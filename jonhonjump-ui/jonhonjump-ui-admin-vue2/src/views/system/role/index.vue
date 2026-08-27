@@ -203,6 +203,7 @@ import {
 } from "@/api/system/role";
 import {listSimpleMenus} from "@/api/system/menu";
 import {assignRoleMenu, listRoleMenus, assignRoleDataScope} from "@/api/system/permission";
+import { refreshPortalMenusAfterAdminChange } from '@/utils/portalMenuRefresh'
 import { getRoleQuickNavList, saveRoleQuickNav } from "@/api/system/roleQuickNav";
 import { buildMainRoleQuickNavCheckTree, getMainQuickNavLeafIds } from "@/utils/roleQuickNavMenus";
 import { restoreRoleMenuCheckedKeys } from "@/utils/roleMenuTree";
@@ -485,6 +486,7 @@ export default {
       }).then(() => {
         this.$modal.msgSuccess('保存成功')
         this.openQuickNav = false
+        refreshPortalMenusAfterAdminChange({ scope: 'main' })
       }).finally(() => {
         this.quickNavSaving = false
       })
@@ -557,6 +559,7 @@ export default {
           this.$modal.msgSuccess("修改成功");
           this.openMenu = false;
           this.getList();
+          refreshPortalMenusAfterAdminChange({ scope: 'main' })
         });
       }
     },

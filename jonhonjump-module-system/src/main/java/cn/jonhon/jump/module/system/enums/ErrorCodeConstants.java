@@ -113,7 +113,8 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_EMPLOYEE_API_ERROR = new ErrorCode(1_002_003_056, "子系统接口调用失败：【{}】");
     ErrorCode SUB_SYSTEM_EMPLOYEE_API_TYPE_NOT_SUPPORT = new ErrorCode(1_002_003_057, "不支持的适配器类型：【{}】");
     ErrorCode SUB_SYSTEM_EMPLOYEE_WORKSHOP_REQUIRED = new ErrorCode(1_002_003_058, "新增/修改子系统人员必须指定车间");
-    ErrorCode SUB_SYSTEM_EMPLOYEE_DEPT_NOT_MAPPED = new ErrorCode(1_002_003_059, "所选部门未映射到该外部系统的车间，请先在外部车间管理中维护映射");
+    ErrorCode SUB_SYSTEM_EMPLOYEE_DEPT_NOT_MAPPED = new ErrorCode(1_002_003_059, "所选归属部门未映射到该业务系统的所属部门，请先在车间对照中维护");
+    ErrorCode SUB_SYSTEM_API_ENDPOINT_DISABLED = new ErrorCode(1_002_003_060, "该接口已停用：【{}】");
 
     // ========== 部门模块 1-002-004-000 ==========
     ErrorCode DEPT_NAME_DUPLICATE = new ErrorCode(1_002_004_000, "已经存在该名字的部门");

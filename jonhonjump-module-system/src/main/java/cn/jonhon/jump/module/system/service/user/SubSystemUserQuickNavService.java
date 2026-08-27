@@ -51,4 +51,9 @@ public interface SubSystemUserQuickNavService {
 
     void syncUserQuickNavFromRoles(Collection<Long> userIds, Long subSystemId);
 
+    /**
+     * 子系统菜单展示信息变更后失效快捷导航 Redis 缓存
+     */
+    void evictCacheByMenuIds(Collection<Long> menuIds);
+
 }

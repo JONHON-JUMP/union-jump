@@ -169,34 +169,50 @@ const user = {
      * - redisOnly / background：仅 Redis，未命中返回 null（不打库）
      * - preferRedis：先 Redis，未命中再打库写回（后台懒加载用）
      */
-    LoadMainMenus({ dispatch, rootState }, options = {}) {
+    LoadMainMenus({ dispatch, commit, rootState }, options = {}) {
       const background = !!(options && options.background)
       const redisOnly = background || !!(options && options.redisOnly)
       const preferRedis = !!(options && options.preferRedis)
-      if (rootState.permission.defaultRoutes && rootState.permission.defaultRoutes.length) {
+      const force = !!(options && options.force)
+      // 管理端改菜单后必须 force：否则内存里已有 defaultRoutes 会永久短路，全部应用仍显示已删菜单
+      if (!force && rootState.permission.defaultRoutes && rootState.permission.defaultRoutes.length) {
         return Promise.resolve(rootState.permission.defaultRoutes)
       }
-      const applyMenus = userInfo => {
+      const applyMenus = (userInfo, { addLiveRoutes }) => {
         if (!userInfo || !userInfo.menus || !userInfo.menus.length) {
+          commit('permission/CLEAR_MENU_TREES', null, { root: true })
+          commit('portal/SET_MAIN_SIDEBAR_ROUTERS', [], { root: true })
           return null
         }
         return dispatch('GenerateRoutes', userInfo.menus).then(accessRoutes => {
-          const router = require('@/router').default
-          router.addRoutes(accessRoutes)
+          if (addLiveRoutes) {
+            const router = require('@/router').default
+            router.addRoutes(accessRoutes)
+          }
           dispatch('portal/ensureMainSidebarCached', null, { root: true })
           return accessRoutes
         })
       }
+      if (force) {
+        // 强制从库重建侧栏树，不重复 addRoutes，避免当前页（如菜单管理）白屏
+        return dispatch('GetInfo', { includeMenus: true, redisOnly: false }).then(info =>
+          applyMenus(info, { addLiveRoutes: false })
+        )
+      }
       if (preferRedis) {
         return dispatch('GetInfo', { includeMenus: true, redisOnly: true }).then(cached => {
-          const applied = applyMenus(cached)
+          const applied = applyMenus(cached, { addLiveRoutes: true })
           if (applied) {
             return applied
           }
-          return dispatch('GetInfo', { includeMenus: true, redisOnly: false }).then(applyMenus)
+          return dispatch('GetInfo', { includeMenus: true, redisOnly: false }).then(info =>
+            applyMenus(info, { addLiveRoutes: true })
+          )
         })
       }
-      return dispatch('GetInfo', { includeMenus: true, redisOnly }).then(applyMenus)
+      return dispatch('GetInfo', { includeMenus: true, redisOnly }).then(info =>
+        applyMenus(info, { addLiveRoutes: true })
+      )
     },
 
     // 退出系统（即使后端失败也清本地登录态，避免现场换人后仍残留 Token）

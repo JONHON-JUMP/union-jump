@@ -46,6 +46,11 @@ public class SubSystemApiConfigDO extends BaseDO {
     private String apiDelete;
     /** 班组下拉接口 */
     private String apiTeamCombo;
+    /**
+     * 接口目录树 JSON（菜单式：目录 + 叶子）。
+     * 叶子含 purpose：auth/query/create/update/delete；用户同步业务系统时调 purpose=create 的叶子。
+     */
+    private String apiCatalog;
     /** 参数映射 JSON：JUMP标准参数名→对方参数名 */
     private String paramMapping;
     /** 响应映射 JSON（http 适配器用）：successField/successValue/listPath/totalPath */

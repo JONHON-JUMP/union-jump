@@ -45,6 +45,9 @@ public class SubSystemApiConfigRespVO {
     @Schema(description = "班组下拉接口 JSON")
     private String apiTeamCombo;
 
+    @Schema(description = "接口目录树 JSON")
+    private String apiCatalog;
+
     @Schema(description = "参数映射 JSON")
     private String paramMapping;
 

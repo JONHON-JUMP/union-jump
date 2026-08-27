@@ -164,12 +164,14 @@ export default {
             this.$modal.msgSuccess(this.form.id ? '修改成功，已同步到各挂载子系统' : '新增成功')
             this.formOpen = false
             this.loadList()
-            // 通知外层刷新子系统菜单树（挂载关系变了）
-            this.$emit('changed')
+            const ids = [...(this.form.subSystemIds || []), ...(this.originalSubSystemIds || [])]
+              .map(Number)
+              .filter(id => Number.isFinite(id) && id > 0)
+            this.$emit('changed', { subSystemIds: [...new Set(ids)] })
           })
         }
         if (willUnmountAll) {
-          this.$modal.confirm('已取消全部子系统挂载，保存后各子系统的菜单副本将被删除（已分配角色或快捷导航的会被拦截提示），确定继续吗？')
+          this.$modal.confirm('已取消全部子系统挂载，保存后各子系统的菜单副本将被删除（同时解除角色授权与快捷导航引用），确定继续吗？')
             .then(doSubmit)
             .catch(() => {})
           return
@@ -178,12 +180,12 @@ export default {
       })
     },
     handleDelete(row) {
-      this.$modal.confirm(`确定删除通用菜单「${row.name}」吗？将同时删除其在各子系统的副本（已分配角色或快捷导航的副本会提示先解除）。`)
+      this.$modal.confirm(`确定删除通用菜单「${row.name}」吗？将同时删除各子系统副本，并解除角色授权与快捷导航引用。`)
         .then(() => deleteCommonMenu(row.id))
         .then(() => {
           this.$modal.msgSuccess('删除成功')
           this.loadList()
-          this.$emit('changed')
+          this.$emit('changed', { subSystemIds: (row.subSystemIds || []).map(Number) })
         })
         .catch(() => {})
     }

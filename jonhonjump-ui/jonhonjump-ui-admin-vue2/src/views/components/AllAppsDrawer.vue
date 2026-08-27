@@ -192,12 +192,21 @@
       </div>
 
       <div
+        v-else-if="menusLoading"
+        class="drawer-empty drawer-empty--menu drawer-empty--loading"
+      >
+        <span><i class="el-icon-loading" /></span>
+        <h3>菜单加载中</h3>
+        <p>全量菜单正在加载，请稍候…</p>
+      </div>
+
+      <div
         v-else
         class="drawer-empty drawer-empty--menu"
       >
         <span><i class="el-icon-menu" /></span>
         <h3>暂无可用应用</h3>
-        <p>当前账号还没有授权菜单，请联系管理员配置权限。</p>
+        <p>当前账号没有可展示的菜单，请联系管理员配置角色菜单权限。</p>
       </div>
 
       <transition name="folder-panel">
@@ -351,6 +360,10 @@ export default {
     systemLabel: {
       type: String,
       default: ''
+    },
+    menusLoading: {
+      type: Boolean,
+      default: false
     }
   },
   data() {
@@ -1288,6 +1301,20 @@ button {
   font-style: normal;
   font-weight: 700;
   line-height: 19px;
+}
+
+.drawer-empty--loading > span {
+  color: #3488cc;
+  background: #eef6fc;
+}
+
+.drawer-empty--loading > span .el-icon-loading {
+  animation: rotating 1.2s linear infinite;
+}
+
+@keyframes rotating {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
 }
 
 .drawer-empty {
