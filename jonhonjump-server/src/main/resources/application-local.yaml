@@ -241,10 +241,10 @@ jonhonjump:
   demo: false # 关闭演示模式
   recipe-change: # 工艺变更通知功能配置
     mq: # 工艺变更专用 RabbitMQ 配置，不影响系统其他业务的 spring.rabbitmq
-      host: 127.0.0.1 # 工艺变更专用 RabbitMQ 服务地址
+      host: 192.168.240.160 # 工艺变更专用 RabbitMQ 服务地址
       port: 5672 # 工艺变更专用 RabbitMQ 服务端口
       username: admin # 工艺变更专用 RabbitMQ 登录用户名
-      password: admin123 # 工艺变更专用 RabbitMQ 登录密码
+      password: admin*963. # 工艺变更专用 RabbitMQ 登录密码
       virtual-host: / # 工艺变更专用 RabbitMQ 虚拟主机
       publisher-confirm-type: correlated # 启用关联发布确认，JUMP 等待 Broker 确认分发结果
       publisher-returns: true # 启用无法路由消息的返回能力
@@ -256,7 +256,11 @@ jonhonjump:
       retry-exchange: EXCHANGE_RECIPE_CHANGE_RETRY # 车间处理失败消息进入的延迟重试交换机
       retry-routing-key-prefix: RECIPE_CHANGE_RETRY_ROUTE_ # 延迟重试交换机按车间路由的键前缀
       retry-queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_ # 车间延迟重试队列名称前缀
-      retry-delay-millis: 1200000 # 延迟重试等待时长，单位毫秒，当前为 20 分钟
+      retry-delay-millis: 180000 # 延迟重试队列消息存活时长,当前为3分钟
+#      retry-queue-overrides: # 指定车间使用独立版本重试队列，JUMP 自动声明、绑定，无需在管理页面手建 V2
+#        "3500":
+#          queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_V1_
+#          delay-millis: 60000
   wxa-code:
     env-version: develop # 小程序版本: 正式版为 "release"；体验版为 "trial"；开发版为 "develop"
   wxa-subscribe-message:
