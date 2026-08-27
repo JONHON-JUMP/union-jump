@@ -51,4 +51,9 @@ public interface UserQuickNavService {
 
     void syncUserQuickNavFromRoles(Collection<Long> userIds);
 
+    /**
+     * 菜单展示信息变更后失效快捷导航 Redis 缓存（库内仍只存 menuId，apps 名称等下次读取时重建）
+     */
+    void evictCacheByMenuIds(Collection<Long> menuIds);
+
 }

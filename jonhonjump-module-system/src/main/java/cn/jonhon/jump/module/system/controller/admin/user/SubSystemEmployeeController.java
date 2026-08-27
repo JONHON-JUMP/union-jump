@@ -86,24 +86,24 @@ public class SubSystemEmployeeController {
 
     @PostMapping("/create-from-main-user")
     @Operation(summary = "从主系统用户创建子系统人员（用户管理页联动：JUMP 用户已建好后调用）")
-    @PreAuthorize("@ss.hasPermission('sub-system:employee:create')")
+    @PreAuthorize("@ss.hasAnyPermissions('system:user:create', 'sub-system:employee:create')")
     public CommonResult<Boolean> createFromMainUser(@Valid @RequestBody SubSystemEmployeeCreateFromUserReqVO reqVO) {
         subSystemEmployeeService.createFromMainUser(reqVO);
         return success(true);
     }
 
     @GetMapping("/enabled-systems")
-    @Operation(summary = "已配置且启用人员接口的外部系统列表（用户创建联动下拉）")
-    @PreAuthorize("@ss.hasPermission('sub-system:employee:list')")
+    @Operation(summary = "外部系统列表（用户创建联动下拉）")
+    @PreAuthorize("@ss.hasAnyPermissions('system:user:query', 'system:user:create', 'sub-system:employee:list')")
     public CommonResult<List<SubSystemEnabledSystemVO>> getEnabledSystems() {
         return success(subSystemEmployeeService.getEnabledSystems());
     }
 
     @GetMapping("/workshop-options")
-    @Operation(summary = "联动下拉：某系统下按 JUMP 部门过滤的车间列表")
-    @PreAuthorize("@ss.hasPermission('sub-system:employee:list')")
+    @Operation(summary = "车间下拉：来自外部车间管理，优先按部门映射")
+    @PreAuthorize("@ss.hasAnyPermissions('system:user:query', 'system:user:create', 'sub-system:workshop:list', 'sub-system:employee:list')")
     public CommonResult<List<SubSystemWorkshopSimpleRespVO>> getWorkshopOptions(
-            @RequestParam("subSystemId") Long subSystemId,
+            @RequestParam(value = "subSystemId", required = false) Long subSystemId,
             @RequestParam(value = "deptId", required = false) Long deptId) {
         return success(subSystemEmployeeService.getWorkshopOptions(subSystemId, deptId));
     }

@@ -8,7 +8,9 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.UserQuickN
 import cn.jonhon.jump.module.system.dal.dataobject.permission.MenuColorDO;
 import cn.jonhon.jump.module.system.dal.dataobject.permission.MenuDO;
 import cn.jonhon.jump.module.system.dal.dataobject.permission.RoleDO;
+import cn.jonhon.jump.module.system.dal.dataobject.permission.RoleQuickNavDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.UserQuickNavDO;
+import cn.jonhon.jump.module.system.dal.mysql.permission.RoleQuickNavMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.UserQuickNavMapper;
 import cn.jonhon.jump.module.system.dal.redis.user.UserQuickNavRedisDAO;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
@@ -37,6 +39,8 @@ public class UserQuickNavServiceImpl implements UserQuickNavService {
 
     @Resource
     private UserQuickNavMapper userQuickNavMapper;
+    @Resource
+    private RoleQuickNavMapper roleQuickNavMapper;
     @Resource
     private UserQuickNavRedisDAO userQuickNavRedisDAO;
     @Resource
@@ -197,6 +201,29 @@ public class UserQuickNavServiceImpl implements UserQuickNavService {
         }
         userQuickNavMapper.deleteByUserIdsAndMenuIds(userIds, menuIds);
         userQuickNavRedisDAO.deleteList(userIds);
+    }
+
+    @Override
+    public void evictCacheByMenuIds(Collection<Long> menuIds) {
+        if (CollUtil.isEmpty(menuIds)) {
+            return;
+        }
+        Set<Long> userIds = new LinkedHashSet<>();
+        for (Long menuId : menuIds) {
+            if (menuId == null) {
+                continue;
+            }
+            userQuickNavMapper.selectListByMenuId(menuId).forEach(record -> userIds.add(record.getUserId()));
+            List<RoleQuickNavDO> roleRefs = roleQuickNavMapper.selectListByMenuId(menuId);
+            if (CollUtil.isEmpty(roleRefs)) {
+                continue;
+            }
+            Set<Long> roleIds = convertSet(roleRefs, RoleQuickNavDO::getRoleId);
+            userIds.addAll(permissionService.getUserRoleIdListByRoleId(roleIds));
+        }
+        if (CollUtil.isNotEmpty(userIds)) {
+            userQuickNavRedisDAO.deleteList(userIds);
+        }
     }
 
     @Override

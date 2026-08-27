@@ -61,6 +61,7 @@ public class GenericHttpEmployeeApiAdapter implements SubSystemEmployeeApi {
 
     @Override
     public SubSystemEmployeePageRespDTO page(SubSystemEmployeeQueryDTO query) {
+        requireEnabled(queryEndpoint, "查询");
         Map<String, Object> body = new HashMap<>();
         body.put("page", query.getPage());
         body.put("rows", query.getRows());
@@ -81,18 +82,21 @@ public class GenericHttpEmployeeApiAdapter implements SubSystemEmployeeApi {
 
     @Override
     public void create(SubSystemEmployeeDTO employee) {
+        requireEnabled(createEndpoint, "新增");
         JsonNode resp = doExecute(createEndpoint, mapParams(toEmployeeMap(employee)));
         checkSuccess(resp);
     }
 
     @Override
     public void update(SubSystemEmployeeDTO employee) {
+        requireEnabled(updateEndpoint, "修改");
         JsonNode resp = doExecute(updateEndpoint, mapParams(toEmployeeMap(employee)));
         checkSuccess(resp);
     }
 
     @Override
     public void delete(String userCode) {
+        requireEnabled(deleteEndpoint, "删除");
         Map<String, Object> body = new HashMap<>();
         body.put("userCode", userCode);
         JsonNode resp = doExecute(deleteEndpoint, mapParams(body));
@@ -129,6 +133,12 @@ public class GenericHttpEmployeeApiAdapter implements SubSystemEmployeeApi {
     }
 
     // ===================== 私有方法 =====================
+
+    private void requireEnabled(EndpointSpec endpoint, String label) {
+        if (endpoint == null || !endpoint.isEnabled()) {
+            throw new ExternalApiException(label + "接口已停用");
+        }
+    }
 
     private JsonNode doExecute(EndpointSpec endpoint, Map<String, Object> body) {
         String respBody = httpClient.execute(endpoint, body, null);

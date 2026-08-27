@@ -34,6 +34,7 @@ import java.util.stream.Collectors;
 
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.SUB_SYSTEM_EMPLOYEE_API_ERROR;
+import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.SUB_SYSTEM_EMPLOYEE_DEPT_NOT_MAPPED;
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.USER_NOT_EXISTS;
 
 /**
@@ -129,33 +130,36 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         if (user == null) {
             throw exception(USER_NOT_EXISTS);
         }
-        // 1. 组装统一 DTO：工号 = username，姓名 = nickname，域账号/ERP/卡号有则带
+        if (user.getDeptId() == null) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_DEPT_NOT_MAPPED);
+        }
+        SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService
+                .getWorkshopByDept(reqVO.getSubSystemId(), user.getDeptId());
+        if (workshop == null || workshop.getWorkshopCode() == null) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_DEPT_NOT_MAPPED);
+        }
         SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
         dto.setUserCode(user.getUsername());
         dto.setUserName(user.getNickname());
-        dto.setWorkshopCode(reqVO.getWorkshopCode());
-        dto.setTeamCode(reqVO.getTeamCode());
+        dto.setWorkshopCode(workshop.getWorkshopCode());
         dto.setDomainName(user.getDomainNo());
         if (CollUtil.isNotEmpty(user.getErpNos())) {
             dto.setErpNo(user.getErpNos().iterator().next());
         }
         dto.setCardNo(user.getCardNo());
-        // 2. 调目标系统（失败直接抛，JUMP 用户已建好不回滚）
         try {
             getApi(reqVO.getSubSystemId()).create(dto);
         } catch (ExternalApiException e) {
             throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
         }
-        // 3. 成功后落 sub_system_users 映射行（已存在则刷新车间/班组）
         SubSystemUsersDO existing = subSystemUsersMapper.selectBySubSystemIdAndUsername(
                 reqVO.getSubSystemId(), user.getUsername());
         if (existing != null) {
             existing.setMainUserId(user.getId());
             existing.setNickname(user.getNickname());
-            existing.setWorkshopId(reqVO.getWorkshopCode());
-            existing.setTeamId(reqVO.getTeamCode());
+            existing.setWorkshopId(workshop.getWorkshopCode());
             existing.setStatus("0");
-            existing.setRemark("用户创建联动同步");
+            existing.setRemark("用户创建同步业务系统");
             subSystemUsersMapper.updateById(existing);
             return;
         }
@@ -164,20 +168,23 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         subUser.setMainUserId(user.getId());
         subUser.setUsername(user.getUsername());
         subUser.setNickname(user.getNickname());
-        subUser.setWorkshopId(reqVO.getWorkshopCode());
-        subUser.setTeamId(reqVO.getTeamCode());
+        subUser.setWorkshopId(workshop.getWorkshopCode());
         subUser.setStatus("0");
-        subUser.setRemark("用户创建联动同步");
+        subUser.setRemark("用户创建同步业务系统");
         subSystemUsersMapper.insert(subUser);
     }
 
     @Override
     public List<SubSystemEnabledSystemVO> getEnabledSystems() {
+        // 仅返回「新增人员」叶子已启用的业务系统；勾选同步时调对方 create 接口，workshopCode=对照表部门编号
         List<Long> enabledIds = subSystemApiConfigService.getEnabledSubSystemIds();
         if (CollUtil.isEmpty(enabledIds)) {
             return Collections.emptyList();
         }
         List<SubSystemDO> subSystems = subSystemMapper.selectListByIds(enabledIds);
+        if (CollUtil.isEmpty(subSystems)) {
+            return Collections.emptyList();
+        }
         return subSystems.stream().map(sys -> {
             SubSystemEnabledSystemVO vo = new SubSystemEnabledSystemVO();
             vo.setId(sys.getId());

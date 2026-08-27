@@ -2,6 +2,8 @@ package cn.jonhon.jump.module.system.service.user;
 
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiConfigRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiConfigSaveReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
 
 import java.util.List;
@@ -35,5 +37,10 @@ public interface SubSystemApiConfigService {
      * 测试连接：按配置调一次查询接口（page=1,rows=1），返回耗时与结果摘要
      */
     String testConnection(Long id);
+
+    /**
+     * 本页调试：按已保存配置用 HTTP 调用指定接口，返回完整地址与响应
+     */
+    SubSystemApiTestRespVO testInvoke(SubSystemApiTestReqVO reqVO);
 
 }

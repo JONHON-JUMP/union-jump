@@ -24,14 +24,11 @@ import java.util.Map;
  * Camstar 人员接口适配器
  *
  * 对接 camstar_api（ASP.NET MVC，区域路由）：
- * - 认证：Cookie 会话。Cookie Nancal_Cam_SessionId = Base64(调用账号工号)；
- *   C# 侧 CurrentUser 解码 Cookie 拿工号查库还原用户（CurrentUser.cs:40-48）。
- *   先直接带 Cookie 调业务，失败时调 /Base/SSOLogin/SSOLoginIn?token= 激活会话后重试一次。
+ * - 鉴权本身也是一条接口（authConfig）：完整 URL + 工号/Cookie 名；
+ *   Cookie Nancal_Cam_SessionId = Base64(调用账号工号)。
+ *   业务接口失败时，若鉴权接口启用则调 SSO 激活会话后重试一次。
  * - 响应：AjaxResult JSON {code:200/500, message, data, total, rows}
- * - 路由：人员 /BasicData/Employee/*，班组 /BasicData/Team/getTeamComboByFactory
- *
- * authConfig JSON 约定：
- * {"userCode":"调用账号工号","cookieName":"Nancal_Cam_SessionId","loginPath":"/Base/SSOLogin/SSOLoginIn"}
+ * - 各业务接口 JSON：{"name","url"|"path","method","enabled"}
  */
 @Slf4j
 public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
@@ -39,32 +36,32 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
     private static final String DEFAULT_COOKIE_NAME = "Nancal_Cam_SessionId";
     private static final String DEFAULT_LOGIN_PATH = "/Base/SSOLogin/SSOLoginIn";
 
-    private final SubSystemApiConfigDO config;
     private final ExternalApiHttpClient httpClient;
     private final EndpointSpec queryEndpoint;
     private final EndpointSpec createEndpoint;
     private final EndpointSpec updateEndpoint;
     private final EndpointSpec deleteEndpoint;
     private final EndpointSpec teamComboEndpoint;
+    private final EndpointSpec authEndpoint;
     private final String cookieName;
-    private final String loginPath;
     private final String authUserCode;
     /** 会话 Cookie 值（= Base64(authUserCode)） */
     private volatile String cookieValue;
 
     public CamstarEmployeeApiAdapter(SubSystemApiConfigDO config) {
-        this.config = config;
         this.httpClient = new ExternalApiHttpClient(config.getBaseUrl(),
                 config.getConnectTimeoutMs(), config.getReadTimeoutMs());
         this.queryEndpoint = EndpointSpec.parse(config.getApiQuery(), "查询接口");
         this.createEndpoint = EndpointSpec.parse(config.getApiCreate(), "新增接口");
         this.updateEndpoint = EndpointSpec.parse(config.getApiUpdate(), "修改接口");
         this.deleteEndpoint = EndpointSpec.parse(config.getApiDelete(), "删除接口");
-        this.teamComboEndpoint = EndpointSpec.parse(config.getApiTeamCombo(), "班组下拉接口");
-        JsonNode auth = parseJson(config.getAuthConfig());
+        this.teamComboEndpoint = StrUtil.isBlank(config.getApiTeamCombo())
+                ? null
+                : EndpointSpec.parse(config.getApiTeamCombo(), "班组下拉接口");
+        JsonNode auth = parseJson(StrUtil.blankToDefault(config.getAuthConfig(), "{}"));
         this.authUserCode = text(auth, "userCode", "");
         this.cookieName = text(auth, "cookieName", DEFAULT_COOKIE_NAME);
-        this.loginPath = text(auth, "loginPath", DEFAULT_LOGIN_PATH);
+        this.authEndpoint = buildAuthEndpoint(auth);
         if (StrUtil.isNotBlank(this.authUserCode)) {
             this.cookieValue = Base64.getEncoder()
                     .encodeToString(this.authUserCode.getBytes(StandardCharsets.UTF_8));
@@ -73,6 +70,7 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
 
     @Override
     public SubSystemEmployeePageRespDTO page(SubSystemEmployeeQueryDTO query) {
+        requireEnabled(queryEndpoint, "查询");
         Map<String, Object> body = new HashMap<>();
         body.put("userCode", query.getUserCode());
         body.put("userName", query.getUserName());
@@ -93,6 +91,7 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
 
     @Override
     public void create(SubSystemEmployeeDTO employee) {
+        requireEnabled(createEndpoint, "新增");
         // C# 端方法签名：addOrUpdateUser(List<EmployeeEntity> list) —— 请求体是 JSON 数组
         Map<String, Object> item = toCamstarEmployee(employee);
         JsonNode resp = executeWithRelogin(createEndpoint, Collections.singletonList(item));
@@ -101,6 +100,7 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
 
     @Override
     public void update(SubSystemEmployeeDTO employee) {
+        requireEnabled(updateEndpoint, "修改");
         Map<String, Object> item = toCamstarEmployee(employee);
         JsonNode resp = executeWithRelogin(updateEndpoint, Collections.singletonList(item));
         checkSuccess(resp);
@@ -108,6 +108,7 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
 
     @Override
     public void delete(String userCode) {
+        requireEnabled(deleteEndpoint, "删除");
         Map<String, Object> body = new HashMap<>();
         body.put("userCode", userCode);
         JsonNode resp = executeWithRelogin(deleteEndpoint, body);
@@ -116,6 +117,9 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
 
     @Override
     public List<SubSystemTeamComboDTO> teamCombo(String workshopCode) {
+        if (teamComboEndpoint == null || !teamComboEndpoint.isEnabled()) {
+            return Collections.emptyList();
+        }
         Map<String, Object> params = new HashMap<>();
         params.put("workshopCode", workshopCode);
         JsonNode resp = executeWithRelogin(teamComboEndpoint, params);
@@ -147,11 +151,33 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
     /**
      * 执行请求；若失败（HTTP 错误或业务 code!=200）且尚未重登过，则先激活会话重试一次。
      */
+    private void requireEnabled(EndpointSpec endpoint, String label) {
+        if (endpoint == null || !endpoint.isEnabled()) {
+            throw new ExternalApiException(label + "接口已停用");
+        }
+    }
+
+    private EndpointSpec buildAuthEndpoint(JsonNode auth) {
+        EndpointSpec login = new EndpointSpec();
+        String url = firstNonBlank(text(auth, "url", ""), text(auth, "path", ""), text(auth, "loginPath", DEFAULT_LOGIN_PATH));
+        if (url.startsWith("http://") || url.startsWith("https://")) {
+            login.setUrl(url);
+        } else {
+            login.setPath(StrUtil.blankToDefault(url, DEFAULT_LOGIN_PATH));
+        }
+        login.setMethod(text(auth, "method", "GET"));
+        login.setName(text(auth, "name", "SSO登录"));
+        if (auth.has("enabled") && !auth.get("enabled").asBoolean(true)) {
+            login.setEnabled(false);
+        }
+        return login;
+    }
+
     private JsonNode executeWithRelogin(EndpointSpec endpoint, Object body) {
         try {
             return doExecute(endpoint, body);
         } catch (ExternalApiException first) {
-            if (StrUtil.isBlank(loginPath) || StrUtil.isBlank(authUserCode)) {
+            if (authEndpoint == null || !authEndpoint.isEnabled() || StrUtil.isBlank(authUserCode)) {
                 throw first;
             }
             try {
@@ -184,15 +210,12 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         }
     }
 
-    /** 激活会话：调 SSOLoginIn?token=Base64(工号)，成功后 cookieValue 即 token */
+    /** 激活会话：调鉴权接口 ?token=Base64(工号)，成功后 cookieValue 即 token */
     private void activateSession() {
-        EndpointSpec login = new EndpointSpec();
-        login.setPath(loginPath);
-        login.setMethod("GET");
         String token = Base64.getEncoder().encodeToString(authUserCode.getBytes(StandardCharsets.UTF_8));
         Map<String, Object> params = new HashMap<>();
         params.put("token", token);
-        httpClient.execute(login, params, null);
+        httpClient.execute(authEndpoint, params, null);
         this.cookieValue = token;
     }
 

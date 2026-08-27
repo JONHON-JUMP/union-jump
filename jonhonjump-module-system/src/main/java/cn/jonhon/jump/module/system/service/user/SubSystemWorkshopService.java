@@ -26,10 +26,8 @@ public interface SubSystemWorkshopService {
     void deleteSubSystemWorkshopList(List<Long> ids);
 
     /**
-     * 车间精简列表（人员/用户表单下拉用）
-     *
-     * @param subSystemId 外部系统 ID
-     * @param deptId      可选：按 JUMP 部门过滤（用户创建联动时传部门，未映射返回空）
+     * 车间精简列表（用户新增下拉）
+     * 优先：系统 + 部门映射；没有则该系统全部；再没有则全部车间（去重）
      */
     List<SubSystemWorkshopSimpleRespVO> getWorkshopSimpleList(Long subSystemId, Long deptId);
 

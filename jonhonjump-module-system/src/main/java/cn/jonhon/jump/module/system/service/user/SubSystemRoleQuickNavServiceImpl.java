@@ -48,6 +48,9 @@ public class SubSystemRoleQuickNavServiceImpl implements SubSystemRoleQuickNavSe
     @Resource
     @Lazy
     private SubSystemUserQuickNavService subSystemUserQuickNavService;
+    @Resource
+    @Lazy
+    private SubSystemPermissionContextService subSystemPermissionContextService;
 
     @Override
     public RoleQuickNavRespVO getRoleQuickNav(Long roleId) {
@@ -105,6 +108,8 @@ public class SubSystemRoleQuickNavServiceImpl implements SubSystemRoleQuickNavSe
                         subSystemId, mainUserIds, cancelledDefaults, validMenuIds);
             }
         }
+        // 清子系统权限包/快捷导航 Redis + bump rbac，在线用户及时重拉
+        subSystemPermissionContextService.evictByRoleId(roleId);
     }
 
     @Override

@@ -78,17 +78,17 @@ public class SubSystemWorkshopController {
     }
 
     @GetMapping("/simple-list")
-    @Operation(summary = "获得外部系统车间精简列表（人员/用户表单下拉用，可按部门过滤）")
-    @PreAuthorize("@ss.hasPermission('sub-system:workshop:list')")
+    @Operation(summary = "获得外部系统车间精简列表（用户表单下拉）")
+    @PreAuthorize("@ss.hasAnyPermissions('system:user:query', 'system:user:create', 'sub-system:workshop:list')")
     public CommonResult<List<SubSystemWorkshopSimpleRespVO>> getWorkshopSimpleList(
-            @RequestParam("subSystemId") Long subSystemId,
+            @RequestParam(value = "subSystemId", required = false) Long subSystemId,
             @RequestParam(value = "deptId", required = false) Long deptId) {
         return success(subSystemWorkshopService.getWorkshopSimpleList(subSystemId, deptId));
     }
 
     @GetMapping("/by-dept")
     @Operation(summary = "按 JUMP 部门查询映射车间（用户创建联动用）")
-    @PreAuthorize("@ss.hasPermission('sub-system:workshop:list')")
+    @PreAuthorize("@ss.hasAnyPermissions('system:user:query', 'system:user:create', 'sub-system:workshop:list')")
     public CommonResult<SubSystemWorkshopSimpleRespVO> getWorkshopByDept(
             @RequestParam("subSystemId") Long subSystemId,
             @RequestParam("deptId") Long deptId) {

@@ -39,12 +39,13 @@ export function getInfo(includeMenus = false, redisOnly = false) {
   })
 }
 
-/** 探测权限版本是否仍有效（菜单/角色/数据权限变更后需重登） */
+/** 探测权限版本是否仍有效（菜单/角色变更后静默重拉菜单） */
 export function checkPermission(rbacVersion) {
   return request({
     url: '/system/auth/check-permission',
     method: 'get',
-    params: { rbacVersion }
+    params: { rbacVersion },
+    headers: { isSilent: true }
   })
 }
 

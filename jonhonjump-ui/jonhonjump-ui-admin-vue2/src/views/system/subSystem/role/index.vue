@@ -254,6 +254,7 @@ import { getSubSystemRoleQuickNavList, saveSubSystemRoleQuickNav } from '@/api/s
 import { buildSubSystemRoleQuickNavCheckTree, getSubSystemQuickNavLeafIds } from '@/utils/roleQuickNavMenus'
 import { restoreRoleMenuCheckedKeys } from '@/utils/roleMenuTree'
 import RoleQuickNavDialog from '@/views/system/components/RoleQuickNavDialog.vue'
+import { refreshPortalMenusAfterAdminChange } from '@/utils/portalMenuRefresh'
 import { CommonStatusEnum } from '@/utils/constants'
 import { DICT_TYPE, ensureDictDatas, getDictDatas } from '@/utils/dict'
 import { getBaseHeader } from '@/utils/request'
@@ -576,6 +577,11 @@ export default {
       }).then(() => {
         this.$modal.msgSuccess('保存成功')
         this.openQuickNav = false
+        refreshPortalMenusAfterAdminChange({
+          scope: 'sub',
+          clientId: this.selectedClient && this.selectedClient.clientId,
+          subSystemId: this.selectedClient && this.selectedClient.id
+        })
       }).finally(() => {
         this.quickNavSaving = false
       })
@@ -600,6 +606,11 @@ export default {
       }).then(() => {
         this.$modal.msgSuccess('分配成功')
         this.openMenu = false
+        refreshPortalMenusAfterAdminChange({
+          scope: 'sub',
+          clientId: this.selectedClient && this.selectedClient.clientId,
+          subSystemId: this.selectedClient && this.selectedClient.id
+        })
       })
     },
     handleRowCheckboxChange(selection) {

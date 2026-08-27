@@ -151,6 +151,12 @@ const permission = {
     },
     SET_SIDEBAR_ROUTERS: (state, routes) => {
       state.sidebarRouters = routes
+    },
+    /** 清空动态菜单树（管理端强制刷新前），不碰已注册的 vue-router 实例 */
+    CLEAR_MENU_TREES: (state) => {
+      state.defaultRoutes = []
+      state.sidebarRouters = []
+      state.topbarRouters = []
     }
   },
   actions: {

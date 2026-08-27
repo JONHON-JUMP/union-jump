@@ -76,6 +76,7 @@ public class MenuServiceImpl implements MenuService {
         MenuDO menu = BeanUtils.toBean(createReqVO, MenuDO.class);
         initMenuProperty(menu);
         menuMapper.insert(menu);
+        // 与角色菜单变更一致：清受影响用户（含超管）权限 Redis 并 bump 版本，在线端探测后重拉全量菜单
         authPermissionInfoService.evictUsersAffectedByMenu(menu.getId());
         // 返回
         return menu.getId();
@@ -101,6 +102,7 @@ public class MenuServiceImpl implements MenuService {
         initMenuProperty(updateObj);
         menuMapper.updateById(updateObj);
         authPermissionInfoService.evictUsersAffectedByMenu(updateReqVO.getId());
+        userQuickNavService.evictCacheByMenuIds(collectQuickNavAffectedMenuIds(updateReqVO.getId()));
     }
 
     @Override
@@ -116,10 +118,10 @@ public class MenuServiceImpl implements MenuService {
         if (menuMapper.selectById(id) == null) {
             throw exception(MENU_NOT_EXISTS);
         }
-        // 已配置快捷导航时禁止删除，需先取消
-        if (userQuickNavService.existsByMenuId(id) || roleQuickNavService.existsByMenuId(id)) {
-            throw exception(MENU_HAS_QUICK_NAV);
-        }
+        // 角色授权 / 快捷导航：不拦截；先清相关用户 Redis（含角色默认），再级联删库
+        userQuickNavService.evictCacheByMenuIds(Collections.singletonList(id));
+        userQuickNavService.deleteByMenuId(id);
+        roleQuickNavService.deleteByMenuId(id);
         // 标记删除
         menuMapper.deleteById(id);
         authPermissionInfoService.evictUsersAffectedByMenu(id);
@@ -138,9 +140,9 @@ public class MenuServiceImpl implements MenuService {
                 throw exception(MENU_EXISTS_CHILDREN);
             }
         });
-        if (userQuickNavService.existsByMenuIds(ids) || roleQuickNavService.existsByMenuIds(ids)) {
-            throw exception(MENU_HAS_QUICK_NAV);
-        }
+        userQuickNavService.evictCacheByMenuIds(ids);
+        userQuickNavService.deleteByMenuIds(ids);
+        roleQuickNavService.deleteByMenuIds(ids);
 
         // 标记删除
         menuMapper.deleteByIds(ids);
@@ -377,6 +379,39 @@ public class MenuServiceImpl implements MenuService {
             return;
         }
         menuColorService.validateMenuColorExists(reqVO.getStyleId());
+    }
+
+    /**
+     * 快捷导航库内只存 menuId，但 Redis 缓存了 apps（含名称/图标/路径）。
+     * 目录变更（尤其一级样式）会影响子菜单卡片展示，故一并收集子孙菜单 id。
+     */
+    private Collection<Long> collectQuickNavAffectedMenuIds(Long menuId) {
+        if (menuId == null) {
+            return Collections.emptyList();
+        }
+        Set<Long> menuIds = new LinkedHashSet<>();
+        menuIds.add(menuId);
+        MenuDO menu = menuMapper.selectById(menuId);
+        if (menu != null && MenuTypeEnum.DIR.getType().equals(menu.getType())) {
+            collectDescendantMenuIds(menuId, menuIds);
+        }
+        return menuIds;
+    }
+
+    private void collectDescendantMenuIds(Long parentId, Set<Long> collector) {
+        List<MenuDO> children = menuMapper.selectList(MenuDO::getParentId, parentId);
+        if (CollUtil.isEmpty(children)) {
+            return;
+        }
+        for (MenuDO child : children) {
+            if (child == null || child.getId() == null) {
+                continue;
+            }
+            collector.add(child.getId());
+            if (MenuTypeEnum.DIR.getType().equals(child.getType())) {
+                collectDescendantMenuIds(child.getId(), collector);
+            }
+        }
     }
 
 }

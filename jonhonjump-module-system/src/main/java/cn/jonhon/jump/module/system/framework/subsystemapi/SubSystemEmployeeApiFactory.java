@@ -1,7 +1,9 @@
 package cn.jonhon.jump.module.system.framework.subsystemapi;
 
+import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemApiConfigMapper;
+import cn.jonhon.jump.module.system.framework.subsystemapi.http.EndpointSpec;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -36,9 +38,6 @@ public class SubSystemEmployeeApiFactory {
         if (config == null) {
             throw exception(SUB_SYSTEM_EMPLOYEE_API_NOT_CONFIGURED);
         }
-        if (config.getStatus() != null && config.getStatus() == 1) {
-            throw exception(SUB_SYSTEM_API_CONFIG_DISABLED);
-        }
         return cache.computeIfAbsent(subSystemId, id -> createAdapter(config));
     }
 
@@ -49,9 +48,17 @@ public class SubSystemEmployeeApiFactory {
         cache.remove(subSystemId);
     }
 
+    /** 是否已接入且「新增」接口启用（用户同步下拉用） */
     public boolean isConfigured(Long subSystemId) {
         SubSystemApiConfigDO config = subSystemApiConfigMapper.selectBySubSystemId(subSystemId);
-        return config != null && (config.getStatus() == null || config.getStatus() == 0);
+        if (config == null || StrUtil.isBlank(config.getApiCreate())) {
+            return false;
+        }
+        try {
+            return EndpointSpec.parse(config.getApiCreate(), "新增接口").isEnabled();
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     private SubSystemEmployeeApi createAdapter(SubSystemApiConfigDO config) {

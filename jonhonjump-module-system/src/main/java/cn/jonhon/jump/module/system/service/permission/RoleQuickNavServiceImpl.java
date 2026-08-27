@@ -8,6 +8,7 @@ import cn.jonhon.jump.module.system.dal.dataobject.permission.RoleDO;
 import cn.jonhon.jump.module.system.dal.dataobject.permission.RoleQuickNavDO;
 import cn.jonhon.jump.module.system.dal.mysql.permission.RoleQuickNavMapper;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
+import cn.jonhon.jump.module.system.service.auth.AuthPermissionInfoService;
 import cn.jonhon.jump.module.system.service.user.UserQuickNavService;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
@@ -38,6 +39,9 @@ public class RoleQuickNavServiceImpl implements RoleQuickNavService {
     @Resource
     @Lazy
     private UserQuickNavService userQuickNavService;
+    @Resource
+    @Lazy
+    private AuthPermissionInfoService authPermissionInfoService;
 
     @Override
     public RoleQuickNavRespVO getRoleQuickNav(Long roleId) {
@@ -66,6 +70,8 @@ public class RoleQuickNavServiceImpl implements RoleQuickNavService {
         }
         Set<Long> userIds = permissionService.getUserRoleIdListByRoleId(Collections.singleton(roleId));
         userQuickNavService.alignUsersAfterRoleQuickNavSave(userIds, cancelledDefaults, validMenuIds);
+        // 清权限包 Redis + bump rbac，在线用户及时感知并重拉菜单/快捷导航
+        authPermissionInfoService.evictUsersByRoleId(roleId);
     }
 
     @Override

@@ -106,11 +106,36 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
 
     @Override
     public List<SubSystemWorkshopSimpleRespVO> getWorkshopSimpleList(Long subSystemId, Long deptId) {
-        validateSubSystemExists(subSystemId);
-        List<SubSystemWorkshopDO> list = deptId != null
-                ? subSystemWorkshopMapper.selectListBySubSystemIdAndDeptId(subSystemId, deptId)
-                : subSystemWorkshopMapper.selectListBySubSystemId(subSystemId);
-        return list.stream().map(this::buildSimple).collect(Collectors.toList());
+        List<SubSystemWorkshopDO> list = Collections.emptyList();
+        if (subSystemId != null) {
+            if (subSystemMapper.selectById(subSystemId) == null) {
+                throw exception(SUB_SYSTEM_NOT_EXISTS);
+            }
+            if (deptId != null) {
+                list = subSystemWorkshopMapper.selectListBySubSystemIdAndDeptId(subSystemId, deptId);
+            }
+            if (CollUtil.isEmpty(list)) {
+                list = subSystemWorkshopMapper.selectListBySubSystemId(subSystemId);
+            }
+        }
+        if (CollUtil.isEmpty(list) && deptId != null) {
+            list = subSystemWorkshopMapper.selectListByDeptId(deptId);
+        }
+        if (CollUtil.isEmpty(list)) {
+            list = subSystemWorkshopMapper.selectList();
+        }
+        return distinctByCode(list);
+    }
+
+    private List<SubSystemWorkshopSimpleRespVO> distinctByCode(List<SubSystemWorkshopDO> list) {
+        if (CollUtil.isEmpty(list)) {
+            return Collections.emptyList();
+        }
+        return list.stream()
+                .filter(item -> item.getWorkshopCode() != null)
+                .collect(Collectors.toMap(SubSystemWorkshopDO::getWorkshopCode, this::buildSimple, (a, b) -> a,
+                        java.util.LinkedHashMap::new))
+                .values().stream().collect(Collectors.toList());
     }
 
     @Override
@@ -118,8 +143,16 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
         if (deptId == null) {
             return null;
         }
-        List<SubSystemWorkshopDO> list = subSystemWorkshopMapper.selectListBySubSystemIdAndDeptId(subSystemId, deptId);
-        return list.isEmpty() ? null : buildSimple(list.get(0));
+        // 先按 系统+部门；车间页常静默绑默认系统，再按部门兜底
+        if (subSystemId != null) {
+            List<SubSystemWorkshopDO> list = subSystemWorkshopMapper
+                    .selectListBySubSystemIdAndDeptId(subSystemId, deptId);
+            if (CollUtil.isNotEmpty(list)) {
+                return buildSimple(list.get(0));
+            }
+        }
+        List<SubSystemWorkshopDO> byDept = subSystemWorkshopMapper.selectListByDeptId(deptId);
+        return CollUtil.isEmpty(byDept) ? null : buildSimple(byDept.get(0));
     }
 
     // ===================== 私有方法 =====================

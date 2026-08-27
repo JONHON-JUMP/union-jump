@@ -3,6 +3,8 @@ package cn.jonhon.jump.module.system.controller.admin.user;
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiConfigRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiConfigSaveReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestRespVO;
 import cn.jonhon.jump.module.system.service.user.SubSystemApiConfigService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -82,6 +84,13 @@ public class SubSystemApiConfigController {
     @PreAuthorize("@ss.hasPermission('sub-system:apiconfig:list')")
     public CommonResult<String> testConnection(@RequestParam("id") Long id) {
         return success(subSystemApiConfigService.testConnection(id));
+    }
+
+    @PostMapping("/test")
+    @Operation(summary = "本页调试指定人员接口（HTTP）")
+    @PreAuthorize("@ss.hasPermission('sub-system:apiconfig:list')")
+    public CommonResult<SubSystemApiTestRespVO> testInvoke(@Valid @RequestBody SubSystemApiTestReqVO reqVO) {
+        return success(subSystemApiConfigService.testInvoke(reqVO));
     }
 
 }
