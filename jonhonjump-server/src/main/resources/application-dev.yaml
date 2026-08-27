@@ -199,6 +199,28 @@ jonhonjump:
     refund-notify-url: http://yunai.natapp1.cc/admin-api/pay/notify/refund # 支付渠道的【退款】回调地址
     transfer-notify-url: https://yunai.natapp1.cc/admin-api/pay/notify/transfer # 支付渠道的【转账】回调地址
   demo: false # 开启演示模式
+  recipe-change: # 工艺变更通知功能配置
+    mq: # 工艺变更专用 RabbitMQ 配置，不影响系统其他业务的 spring.rabbitmq
+      host: 192.168.240.160 # 工艺变更专用 RabbitMQ 服务地址
+      port: 5672 # 工艺变更专用 RabbitMQ 服务端口
+      username: admin # 工艺变更专用 RabbitMQ 登录用户名
+      password: admin*963. # 工艺变更专用 RabbitMQ 登录密码
+      virtual-host: / # 工艺变更专用 RabbitMQ 虚拟主机
+      publisher-confirm-type: correlated # 启用关联发布确认，JUMP 等待 Broker 确认分发结果
+      publisher-returns: true # 启用无法路由消息的返回能力
+      mandatory: true # 无匹配队列时要求 Broker 返回消息给 JUMP
+
+      exchange: EXCHANGE_RECIPE_CHANGE # 工艺变更主直连交换机
+      routing-key-prefix: RECIPE_CHANGE_ROUTE_ # 主交换机按车间路由的键前缀
+      queue-name-prefix: QUEUE_RECIPE_CHANGE_ # 车间主消费队列名称前缀
+      retry-exchange: EXCHANGE_RECIPE_CHANGE_RETRY # 车间处理失败消息进入的延迟重试交换机
+      retry-routing-key-prefix: RECIPE_CHANGE_RETRY_ROUTE_ # 延迟重试交换机按车间路由的键前缀
+      retry-queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_ # 车间延迟重试队列名称前缀
+      retry-delay-millis: 180000 # 延迟重试队列消息存活时长,当前为3分钟
+  #      retry-queue-overrides: # 指定车间使用独立版本重试队列，JUMP 自动声明、绑定，无需在管理页面手建 V2
+  #        "3500":
+  #          queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_V1_
+  #          delay-millis: 60000
   tencent-lbs-key: TVDBZ-TDILD-4ON4B-PFDZA-RNLKH-VVF6E # QQ 地图的密钥 https://lbs.qq.com/service/staticV2/staticGuide/staticDoc
 
 justauth:
