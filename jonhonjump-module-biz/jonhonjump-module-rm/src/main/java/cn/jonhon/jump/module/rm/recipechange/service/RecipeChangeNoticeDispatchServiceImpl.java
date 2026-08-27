@@ -161,8 +161,8 @@ public class RecipeChangeNoticeDispatchServiceImpl implements RecipeChangeNotice
     private void ensureQueueAndBinding(String workshopCode, String routingKey) {
         // 根据队列前缀和车间编码生成车间专属队列名称
         String queueName = recipeChangeRabbitMQProperties.getQueueNamePrefix() + workshopCode;
-        // 根据延迟重试队列前缀和车间编码生成车间专属延迟重试队列名称
-        String retryQueueName = recipeChangeRabbitMQProperties.getRetryQueueNamePrefix() + workshopCode;
+        // 根据车间版本覆盖配置生成当前生效的延迟重试队列名称；未覆盖时仍为默认 V1 队列名称。
+        String retryQueueName = recipeChangeRabbitMQProperties.getRetryQueueName(workshopCode);
         // 根据延迟重试路由键前缀和车间编码生成主队列死信时使用的路由键
         String retryRoutingKey = recipeChangeRabbitMQProperties.getRetryRoutingKeyPrefix() + workshopCode;
         // 首次为该车间创建队列前，确保正常交换机和延迟重试交换机已在专用 RabbitMQ Broker 中声明
@@ -175,18 +175,18 @@ public class RecipeChangeNoticeDispatchServiceImpl implements RecipeChangeNotice
                 .build();
         // 延迟重试队列中的消息等待指定时长后，死信回正常交换机和本车间主队列路由键
         Queue retryQueue = QueueBuilder.durable(retryQueueName)
-                .withArgument("x-message-ttl", recipeChangeRabbitMQProperties.getRetryDelayMillis())
+                .withArgument("x-message-ttl", recipeChangeRabbitMQProperties.getRetryDelayMillis(workshopCode))
                 .withArgument("x-dead-letter-exchange", recipeChangeDirectExchange.getName())
                 .withArgument("x-dead-letter-routing-key", routingKey)
                 .build();
         // 声明主队列，队列首次不存在时创建，已存在且属性一致时不产生副作用
         recipeChangeAmqpAdmin.declareQueue(queue);
-        // 声明延迟重试队列，消息在此等待 20 分钟后再回流主队列
+        // 声明当前生效版本的延迟重试队列，消息按该车间配置的 TTL 到期后回流主队列。
         recipeChangeAmqpAdmin.declareQueue(retryQueue);
         // 绑定将队列、直连 Exchange 和精确路由键关联起来
         // 只有 routingKey 完全匹配时，Exchange 才会将消息路由至该车间队列
         recipeChangeAmqpAdmin.declareBinding(BindingBuilder.bind(queue).to(recipeChangeDirectExchange).with(routingKey));
-        // 绑定延迟重试队列，使主队列的死信消息按车间进入对应的等待队列
+        // 每个车间的重试路由键只绑定当前生效版本的一个延迟队列，避免失败消息被复制到多个版本队列。
         recipeChangeAmqpAdmin.declareBinding(BindingBuilder.bind(retryQueue).to(recipeChangeRetryDirectExchange).with(retryRoutingKey));
     }
 

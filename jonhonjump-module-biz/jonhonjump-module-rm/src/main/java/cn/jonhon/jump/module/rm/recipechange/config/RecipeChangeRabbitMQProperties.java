@@ -4,6 +4,9 @@ import lombok.Data;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * 工艺变更 RabbitMQ 配置属性
  * 配置前缀为 application-local.yaml 中的 jonhonjump.recipe-change.mq
@@ -96,5 +99,47 @@ public class RecipeChangeRabbitMQProperties {
      * 延迟重试队列中的消息存活时间，超时后自动死信回主交换机，单位毫秒
      */
     private long retryDelayMillis;
+
+    /**
+     * 指定车间的版本化重试队列覆盖配置。
+     * 未配置的车间继续使用全局 V1 队列前缀和延迟时长；已配置的车间由 JUMP 自动声明并绑定对应版本队列。
+     */
+    private Map<String, RetryQueueOverride> retryQueueOverrides = new HashMap<>();
+
+    /**
+     * 获取车间当前生效的重试队列名称，确保 JUMP 与 Starter 可使用同一个版本化队列。
+     */
+    public String getRetryQueueName(String workshopCode) {
+        RetryQueueOverride override = getRetryQueueOverride(workshopCode);
+        String prefix = override != null && override.getQueueNamePrefix() != null && !override.getQueueNamePrefix().trim().isEmpty()
+                ? override.getQueueNamePrefix() : retryQueueNamePrefix;
+        return prefix + workshopCode;
+    }
+
+    /**
+     * 获取车间当前生效的重试延迟时长。
+     */
+    public long getRetryDelayMillis(String workshopCode) {
+        RetryQueueOverride override = getRetryQueueOverride(workshopCode);
+        return override != null && override.getDelayMillis() != null ? override.getDelayMillis() : retryDelayMillis;
+    }
+
+    /**
+     * 安全读取车间覆盖项。
+     * retry-queue-overrides 是可选配置；未配置或配置为空时 Spring 可能保留空 Map 或绑定为 null，
+     * 两种情况都必须回退全局默认值，不能影响既有车间的 MQ 声明。
+     */
+    private RetryQueueOverride getRetryQueueOverride(String workshopCode) {
+        return retryQueueOverrides == null ? null : retryQueueOverrides.get(workshopCode);
+    }
+
+    /** 单个车间的版本化重试队列覆盖项。 */
+    @Data
+    public static class RetryQueueOverride {
+        /** 例如 QUEUE_RECIPE_CHANGE_RETRY_V2_ */
+        private String queueNamePrefix;
+        /** 队列 x-message-ttl，单位毫秒 */
+        private Long delayMillis;
+    }
 
 }
