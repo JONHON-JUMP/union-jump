@@ -97,6 +97,24 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS = new ErrorCode(1_002_003_043, "用户不存在");
     ErrorCode SUB_SYSTEM_CARD_LOGIN_USER_DISABLED = new ErrorCode(1_002_003_044, "用户已停用");
     ErrorCode SUB_SYSTEM_CARD_LOGIN_CLIENT_MISMATCH = new ErrorCode(1_002_003_045, "clientId 与 Basic 认证不一致");
+    // ========== 外部车间模块 1-002-003-046 ==========
+    ErrorCode SUB_SYSTEM_WORKSHOP_NOT_EXISTS = new ErrorCode(1_002_003_046, "外部系统车间不存在");
+    ErrorCode SUB_SYSTEM_WORKSHOP_CODE_DUPLICATE = new ErrorCode(1_002_003_047, "已经存在编码为【{}】的外部系统车间");
+    ErrorCode SUB_SYSTEM_WORKSHOP_NAME_DUPLICATE = new ErrorCode(1_002_003_048, "已经存在名为【{}】的外部系统车间");
+    ErrorCode SUB_SYSTEM_WORKSHOP_HAS_USERS = new ErrorCode(1_002_003_049, "外部系统车间已分配用户，无法删除");
+    ErrorCode SUB_SYSTEM_WORKSHOP_DEPT_INVALID = new ErrorCode(1_002_003_050, "关联部门不存在");
+    // ========== 子系统人员接口配置模块 1-002-003-051 ==========
+    ErrorCode SUB_SYSTEM_API_CONFIG_NOT_EXISTS = new ErrorCode(1_002_003_051, "子系统人员接口配置不存在");
+    ErrorCode SUB_SYSTEM_API_CONFIG_DUPLICATE = new ErrorCode(1_002_003_052, "该外部系统已存在接口配置");
+    ErrorCode SUB_SYSTEM_API_CONFIG_DISABLED = new ErrorCode(1_002_003_053, "该外部系统的接口配置已停用");
+    ErrorCode SUB_SYSTEM_API_CONFIG_INVALID_JSON = new ErrorCode(1_002_003_054, "接口配置 JSON 格式错误：【{}】");
+    // ========== 子系统人员接口模块 1-002-003-055 ==========
+    ErrorCode SUB_SYSTEM_EMPLOYEE_API_NOT_CONFIGURED = new ErrorCode(1_002_003_055, "该外部系统未配置（或未启用）人员接口");
+    ErrorCode SUB_SYSTEM_EMPLOYEE_API_ERROR = new ErrorCode(1_002_003_056, "子系统接口调用失败：【{}】");
+    ErrorCode SUB_SYSTEM_EMPLOYEE_API_TYPE_NOT_SUPPORT = new ErrorCode(1_002_003_057, "不支持的适配器类型：【{}】");
+    ErrorCode SUB_SYSTEM_EMPLOYEE_WORKSHOP_REQUIRED = new ErrorCode(1_002_003_058, "新增/修改子系统人员必须指定车间");
+    ErrorCode SUB_SYSTEM_EMPLOYEE_DEPT_NOT_MAPPED = new ErrorCode(1_002_003_059, "所选归属部门未映射到该业务系统的所属部门，请先在车间对照中维护");
+    ErrorCode SUB_SYSTEM_API_ENDPOINT_DISABLED = new ErrorCode(1_002_003_060, "该接口已停用：【{}】");
 
     // ========== 部门模块 1-002-004-000 ==========
     ErrorCode DEPT_NAME_DUPLICATE = new ErrorCode(1_002_004_000, "已经存在该名字的部门");

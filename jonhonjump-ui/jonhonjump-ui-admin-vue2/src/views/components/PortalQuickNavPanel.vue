@@ -1,7 +1,13 @@
 <template>
-  <div class="portal-quick-nav-root">
   <div
-    v-if="homeApps.length || quickNavEditMode"
+    class="portal-quick-nav-root"
+    v-loading="showQuickNavLoading"
+    element-loading-text="快捷导航加载中"
+    element-loading-spinner="el-icon-loading"
+    element-loading-background="rgba(255, 255, 255, 0.55)"
+  >
+  <div
+    v-if="homeApps.length || quickNavEditMode || showQuickNavLoading"
     ref="appViewport"
     class="portal-quick-nav"
     :class="[
@@ -137,7 +143,7 @@
 </template>
 
 <script>
-import { mapGetters } from 'vuex'
+import { mapGetters, mapState } from 'vuex'
 import draggable from 'vuedraggable'
 import { syncUserQuickNavFromRole } from '@/api/system/user/quickNav'
 import { syncSubSystemUserQuickNavFromRole } from '@/api/system/user/subSystemQuickNav'
@@ -188,6 +194,10 @@ export default {
   },
   computed: {
     ...mapGetters(['sidebarRouters', 'currentSystemSidebarRouters', 'currentSystem', 'portalSystemList']),
+    ...mapState('portal', ['quickNavSyncing']),
+    showQuickNavLoading() {
+      return !!(this.quickNavLoading || this.quickNavSyncing)
+    },
     currentSubSystemId() {
       if (this.currentSystem === 'main') {
         return 0
@@ -429,7 +439,7 @@ export default {
         this.quickNavLoadedScope = scopeKey
         setQuickNavCache(scopeKey, menuIds, configured, lockedMenuIds, apps)
         this.emitQuickNavChange()
-        rememberQuickNavSignature(scopeKey, menuIds, lockedMenuIds)
+        rememberQuickNavSignature(scopeKey, menuIds, lockedMenuIds, apps)
         this.$nextTick(this.updateAppPagination)
       }).catch(() => {
         if (scopeKey === this.quickNavScopeKey) {
@@ -790,6 +800,11 @@ export default {
 <style lang="scss" scoped>
 $primary: #087ce5;
 $canvas: #eaf4fc;
+
+.portal-quick-nav-root {
+  position: relative;
+  min-height: 120px;
+}
 
 .portal-quick-nav {
   position: relative;

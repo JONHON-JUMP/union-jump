@@ -1,5 +1,5 @@
 server:
-  port: 12345
+  port: 8777
 
 --- #################### 数据库相关配置 ####################
 
@@ -50,7 +50,8 @@ spring:
         master:
           #          url: jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true # MySQL Connector/J 8.X 连接的示例
           #          url: jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=true&allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&rewriteBatchedStatements=true # MySQL Connector/J 5.X 连接的示例
-          url: jdbc:postgresql://192.168.240.131:5432/postgres?sslmode=disable # PostgreSQL（该服务器未启用 SSL，须用明文连接）
+          #url: jdbc:postgresql://192.168.240.131:5432/postgres?sslmode=disable # PostgreSQL（该服务器未启用 SSL，须用明文连接）
+          url: jdbc:postgresql://192.168.240.131:5432/postgres?sslmode=disable  # PostgreSQL（该服务器未启用 SSL，须用明文连接）
           #          url: jdbc:oracle:thin:@127.0.0.1:1521:xe # Oracle 连接的示例
           #          url: jdbc:sqlserver://127.0.0.1:1433;DatabaseName=ruoyi-vue-pro;SelectMethod=cursor;encrypt=false;rewriteBatchedStatements=true;useUnicode=true;characterEncoding=utf-8 # SQLServer 连接的示例
           #          url: jdbc:dm://127.0.0.1:5236?schema=RUOYI_VUE_PRO # DM 连接的示例
@@ -58,6 +59,7 @@ spring:
           #          url: jdbc:postgresql://127.0.0.1:5432/postgres # OpenGauss 连接的示例
           username: postgres
           password: 123gogogo
+          #password: 123gogogo
           #          username: sa # SQL Server 连接的示例
           #          password: Jonhonjump@2024 # SQL Server 连接的示例
           #          username: SYSDBA # DM 连接的示例
@@ -69,6 +71,14 @@ spring:
           url: jdbc:mysql://127.0.0.1:3306/ruoyi-vue-pro?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&rewriteBatchedStatements=true # MySQL Connector/J 8.X 连接的示例
           username: root
           password: 123456
+        oracle:
+          lazy: true
+          driver-class-name: oracle.jdbc.OracleDriver
+          url: jdbc:oracle:thin:@192.168.240.105:1521:orclv71
+          username: mesdb1
+          password: mesdb
+          druid:
+            validation-query: SELECT 1 FROM DUAL
 
   # Redis 配置。Redisson 默认的配置足够使用，一般不需要进行调优
   redis:

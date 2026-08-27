@@ -44,6 +44,17 @@
         </dependency>
 
         <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc8</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.oracle.database.nls</groupId>
+            <artifactId>orai18n</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
             <groupId>cn.jonhon.jump.boot</groupId>
             <artifactId>jonhonjump-spring-boot-starter-redis</artifactId>
         </dependency>
@@ -61,5 +72,25 @@
         </dependency>
 
     </dependencies>
+
+    <profiles>
+        <profile>
+            <id>process-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-compiler-plugin</artifactId>
+                        <configuration>
+                            <!-- 旧 MES 源码已移除，仅在显式 profile 中编译仍有对应生产代码的 process 测试。 -->
+                            <testIncludes>
+                                <testInclude>**/process/**/*.java</testInclude>
+                            </testIncludes>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 
 </project>

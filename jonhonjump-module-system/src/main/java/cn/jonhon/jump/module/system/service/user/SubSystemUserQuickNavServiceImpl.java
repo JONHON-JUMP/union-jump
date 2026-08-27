@@ -8,12 +8,14 @@ import cn.jonhon.jump.module.system.dal.dataobject.oauth2.OAuth2ClientDO;
 import cn.jonhon.jump.module.system.dal.dataobject.permission.MenuColorDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemMenuDO;
+import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemRoleQuickNavDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemUserQuickNavDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemUserRoleDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemUsersDO;
 import cn.jonhon.jump.module.system.dal.mysql.oauth2.OAuth2ClientMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMenuMapper;
+import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemRoleQuickNavMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUserQuickNavMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUserRoleMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUsersMapper;
@@ -48,6 +50,8 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
 
     @Resource
     private SubSystemUserQuickNavMapper subSystemUserQuickNavMapper;
+    @Resource
+    private SubSystemRoleQuickNavMapper subSystemRoleQuickNavMapper;
     @Resource
     private SubSystemUserQuickNavRedisDAO subSystemUserQuickNavRedisDAO;
     @Resource
@@ -233,6 +237,48 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
                 .map(uid -> SubSystemUserQuickNavRedisDAO.cacheKey(uid, subSystemId))
                 .collect(Collectors.toSet());
         subSystemUserQuickNavRedisDAO.deleteList(keys);
+    }
+
+    @Override
+    public void evictCacheByMenuIds(Collection<Long> menuIds) {
+        if (CollUtil.isEmpty(menuIds)) {
+            return;
+        }
+        Set<SubSystemQuickNavCacheKey> keys = new LinkedHashSet<>();
+        for (Long menuId : menuIds) {
+            if (menuId == null) {
+                continue;
+            }
+            List<SubSystemUserQuickNavDO> personal = subSystemUserQuickNavMapper.selectListByMenuId(menuId);
+            if (CollUtil.isNotEmpty(personal)) {
+                keys.addAll(convertCacheKeys(personal));
+            }
+            List<SubSystemRoleQuickNavDO> roleRefs = subSystemRoleQuickNavMapper.selectListByMenuId(menuId);
+            if (CollUtil.isEmpty(roleRefs)) {
+                continue;
+            }
+            for (SubSystemRoleQuickNavDO roleRef : roleRefs) {
+                Long roleId = roleRef.getRoleId();
+                if (roleId == null) {
+                    continue;
+                }
+                List<SubSystemUserRoleDO> userRoles = subSystemUserRoleMapper.selectListByRoleId(roleId);
+                if (CollUtil.isEmpty(userRoles)) {
+                    continue;
+                }
+                Set<Long> subUserIds = convertSet(userRoles, SubSystemUserRoleDO::getUserId);
+                List<SubSystemUsersDO> subUsers = subSystemUsersMapper.selectBatchIds(subUserIds);
+                for (SubSystemUsersDO subUser : subUsers) {
+                    if (subUser == null || subUser.getMainUserId() == null || subUser.getSubSystemId() == null) {
+                        continue;
+                    }
+                    keys.add(SubSystemUserQuickNavRedisDAO.cacheKey(subUser.getMainUserId(), subUser.getSubSystemId()));
+                }
+            }
+        }
+        if (CollUtil.isNotEmpty(keys)) {
+            subSystemUserQuickNavRedisDAO.deleteList(keys);
+        }
     }
 
     @Override

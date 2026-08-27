@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="cn.jonhon.jump.module.mes.process.dal.process.oracle.CaoeTableMapper">
+
+
+    <select id="queryDocInfo"
+            resultType="cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.CaoeDocInfoDTO">
+        SELECT oid, doc_state AS docState
+        FROM (
+            SELECT oid, doc_state, doc_version, doc_iteration
+            FROM caoe_doc
+            WHERE doc_number = #{docNumber}
+            ORDER BY doc_version DESC, TO_NUMBER(doc_iteration) DESC NULLS LAST
+        )
+        WHERE ROWNUM = 1
+    </select>
+
+    <select id="queryProcessState" resultType="java.lang.String">
+        SELECT pp_state FROM CAOE_PP
+        WHERE PP_NUMBER = #{accno} AND PP_VERSION = #{version} AND ROWNUM = 1
+    </select>
+
+    <select id="queryChildOperations"
+            resultType="cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.ProcessOperationDTO">
+        SELECT cname, cnumber, label, cversion FROM CAOE_PPOPLINK
+        WHERE FNUMBER = #{number} AND FVERSION = #{version}
+        ORDER BY label ASC
+    </select>
+
+    <select id="queryPdmOperationLink" resultType="java.lang.String">
+        SELECT op_link FROM CAOE_OP
+        WHERE OP_NUMBER = #{number} AND OP_VERSION = #{version}
+    </select>
+
+    <select id="queryMpmOperationOid" resultType="java.lang.String">
+        SELECT oid FROM CAOE_OP
+        WHERE OP_NUMBER = #{number} AND OP_VERSION = #{version}
+    </select>
+</mapper>

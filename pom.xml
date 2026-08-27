@@ -23,7 +23,7 @@
 <!--        <module>jonhonjump-module-crm</module>-->
 <!--        <module>jonhonjump-module-erp</module>-->
 <!--        <module>jonhonjump-module-iot</module>-->
-<!--        <module>jonhonjump-module-mes</module>-->
+        <module>jonhonjump-module-mes</module>
 <!-- 请参考 https://doc.iocoder.cn/ai/build/ 文档，完成 AI 模块的启动！！！ -->
 <!--        <module>jonhonjump-module-ai</module>-->
     </modules>

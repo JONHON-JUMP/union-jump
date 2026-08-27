@@ -114,6 +114,7 @@
       :quick-nav-locked-menu-ids="quickNavLockedMenuIds"
       :quick-nav-configured="quickNavConfigured"
       :sub-system-id="currentSubSystemId"
+      :menus-loading="allAppsMenusLoading"
       @open="openAppFromDrawer"
       @quick-nav-change="handleQuickNavChangeFromDrawer"
     />
@@ -175,7 +176,7 @@ export default {
     }
   },
   computed: {
-    ...mapGetters(['avatar', 'nickname', 'name', 'sidebarRouters', 'currentSystemSidebarRouters', 'currentSystemLabel', 'currentSystem', 'portalSystemList']),
+    ...mapGetters(['avatar', 'nickname', 'name', 'sidebarRouters', 'currentSystemSidebarRouters', 'currentSystemLabel', 'currentSystem', 'portalSystemList', 'allAppsMenusLoading']),
     todoBadgeValue() {
       return this.todoCount > 0 ? this.todoCount : ''
     },
@@ -247,18 +248,9 @@ export default {
     },
     drawerVisible(visible) {
       if (visible) {
-        // 首页 Panel 取消收藏后 Shell 可能仍持旧列表；打开抽屉前先对齐缓存，避免再收藏时把已取消项写回
         this.restoreQuickNavFromCache()
-      }
-      if (!visible || this.currentSystem === 'main') {
-        return
-      }
-      const loaded = !!(this.$store.state.portal.loadedSubSystems || {})[this.currentSystem]
-      if (!loaded) {
-        this.$store.dispatch('portal/ensureSubSystemLoaded', {
-          clientId: this.currentSystem,
-          activate: false
-        }).catch(() => {})
+        // 未就绪时立刻走 loading；并探测菜单/角色变更后的 rbac 版本后重拉
+        this.$store.dispatch('portal/ensureAllAppsMenusReady').catch(() => {})
       }
     },
     '$route.path'(newPath) {
@@ -381,7 +373,7 @@ export default {
         this.quickNavLockedMenuIds = lockedMenuIds
         this.quickNavConfigured = configured
         setQuickNavCache(scopeKey, menuIds, configured, lockedMenuIds, apps)
-        rememberQuickNavSignature(scopeKey, menuIds, lockedMenuIds)
+        rememberQuickNavSignature(scopeKey, menuIds, lockedMenuIds, apps)
       }).catch(() => {
         if (scopeKey === this.quickNavScopeKey) {
           this.quickNavMenuIds = []

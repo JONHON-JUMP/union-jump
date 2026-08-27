@@ -226,6 +226,43 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <!-- 同步创建业务系统人员（仅新增时显示；调对方「新增人员」接口） -->
+        <el-row v-if="form.id === undefined">
+          <el-col :span="24">
+            <el-form-item label="同步业务系统">
+              <el-checkbox v-model="syncSubSystem" @change="handleSyncChange">
+                同时调用业务系统「新增人员」
+              </el-checkbox>
+            </el-form-item>
+          </el-col>
+          <template v-if="syncSubSystem">
+            <el-col :span="12">
+              <el-form-item label="业务系统">
+                <el-select v-model="syncForm.subSystemId" placeholder="请选择要同步的业务系统" clearable filterable
+                           style="width: 100%" @change="resolveSyncWorkshop">
+                  <el-option
+                      v-for="item in syncSystemOptions"
+                      :key="item.id"
+                      :label="item.name"
+                      :value="item.id"
+                  ></el-option>
+                </el-select>
+                <div class="sync-hint">将调用该系统接口树中用途为「新增人员」且已启用的接口</div>
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="所属部门">
+                <span v-if="!form.deptId" class="sync-workshop-text is-muted">请先选择归属部门</span>
+                <span v-else-if="!syncForm.subSystemId" class="sync-workshop-text is-muted">请先选择业务系统</span>
+                <span v-else-if="syncWorkshop" class="sync-workshop-text">
+                  {{ syncWorkshop.workshopName }}
+                  <span class="sync-dept-code">部门编号 {{ syncWorkshop.workshopCode }}</span>
+                </span>
+                <span v-else class="sync-workshop-text is-empty">该归属部门未维护对照，无法同步</span>
+              </el-form-item>
+            </el-col>
+          </template>
+        </el-row>
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button type="primary" @click="submitForm">确 定</el-button>
@@ -302,6 +339,11 @@ import "@riophae/vue-treeselect/dist/vue-treeselect.css";
 
 import {listSimpleDepts} from "@/api/system/dept";
 import {listSimplePosts} from "@/api/system/post";
+import {
+  createSubSystemEmployeeFromMainUser,
+  getSubSystemEmployeeEnabledSystems
+} from "@/api/system/subSystemEmployee";
+import { getSubSystemWorkshopByDept } from "@/api/system/subSystemWorkshop";
 
 import {CommonStatusEnum} from "@/utils/constants";
 import {DICT_TYPE, getDictDatas} from "@/utils/dict";
@@ -343,6 +385,13 @@ export default {
       roleOptions: [],
       // 表单参数
       form: {},
+      // 同步创建子系统账号（新增时联动）
+      syncSubSystem: false,
+      syncForm: {
+        subSystemId: undefined
+      },
+      syncSystemOptions: [],
+      syncWorkshop: null,
       defaultProps: {
         children: "children",
         label: "name"
@@ -427,6 +476,12 @@ export default {
     // 根据名称筛选部门树
     deptName(val) {
       this.$refs.tree.filter(val);
+    },
+    // 新增用户选了部门后：按部门刷新可选的子系统车间
+    'form.deptId'() {
+      if (this.syncSubSystem) {
+        this.resolveSyncWorkshop()
+      }
     }
   },
   created() {
@@ -550,6 +605,9 @@ export default {
         postIds: [],
         roleIds: []
       };
+      this.syncSubSystem = false;
+      this.syncForm = { subSystemId: undefined };
+      this.syncWorkshop = null;
       this.resetForm("form");
     },
     /** 搜索按钮操作 */
@@ -567,6 +625,7 @@ export default {
       this.reset();
       // 获得下拉数据
       this.getTreeselect();
+      this.loadSyncSystems();
       // 打开表单，并设置初始化
       this.open = true;
       this.title = "添加用户";
@@ -630,14 +689,82 @@ export default {
               this.getList();
             });
           } else {
+            if (this.syncSubSystem) {
+              if (!this.syncForm.subSystemId) {
+                this.$modal.msgWarning("请选择要同步的业务系统");
+                return;
+              }
+              if (!this.form.deptId) {
+                this.$modal.msgWarning("请先选择归属部门，以便带出所属部门编号");
+                return;
+              }
+              if (!this.syncWorkshop || !this.syncWorkshop.workshopCode) {
+                this.$modal.msgWarning("该归属部门未维护对照，不能同步业务系统");
+                return;
+              }
+            }
             addUser(this.form).then(response => {
               this.$modal.msgSuccess("新增成功");
               this.open = false;
               this.getList();
+              if (this.syncSubSystem) {
+                this.createToSubSystem(response.data);
+              }
             });
           }
         }
       });
+    },
+    /** 勾选同步业务系统：拉取已启用「新增人员」接口的系统列表 */
+    handleSyncChange(val) {
+      if (val) {
+        this.loadSyncSystems();
+        this.resolveSyncWorkshop();
+      } else {
+        this.syncForm.subSystemId = undefined;
+        this.syncWorkshop = null;
+      }
+    },
+    loadSyncSystems() {
+      getSubSystemEmployeeEnabledSystems().then(res => {
+        this.syncSystemOptions = res.data || [];
+        if (this.syncSystemOptions.length === 0) {
+          this.$modal.msgWarning("没有已启用「新增人员」接口的业务系统。请先在【接口管理】接入并启用");
+          return;
+        }
+        // 只有一个可同步系统时自动选中，并立刻按归属部门带出所属部门编号
+        if (this.syncSystemOptions.length === 1 && !this.syncForm.subSystemId) {
+          this.syncForm.subSystemId = this.syncSystemOptions[0].id;
+          this.resolveSyncWorkshop();
+        }
+      }).catch(() => {
+        this.syncSystemOptions = [];
+        this.$modal.msgWarning("业务系统列表加载失败");
+      });
+    },
+    /** 所属部门（部门编号）按归属部门从车间对照带出，作为新增人员参数；未维护则禁止同步 */
+    resolveSyncWorkshop() {
+      this.syncWorkshop = null;
+      if (!this.syncForm.subSystemId || !this.form.deptId) {
+        return;
+      }
+      getSubSystemWorkshopByDept(this.syncForm.subSystemId, this.form.deptId).then(res => {
+        this.syncWorkshop = res.data || null;
+        if (!this.syncWorkshop) {
+          this.$modal.msgWarning("该归属部门未维护对照，不能同步业务系统");
+        }
+      }).catch(() => {
+        this.syncWorkshop = null;
+        this.$modal.msgWarning("所属部门对照加载失败");
+      });
+    },
+    createToSubSystem(userId) {
+      createSubSystemEmployeeFromMainUser({
+        userId: userId,
+        subSystemId: this.syncForm.subSystemId
+      }).then(() => {
+        this.$modal.msgSuccess("已调用业务系统「新增人员」");
+      }).catch(() => {});
     },
     /** 提交按钮（角色权限） */
     submitRole: function() {
@@ -752,5 +879,26 @@ export default {
 <style scoped>
 .user-list-table ::v-deep .el-table__row {
   cursor: pointer;
+}
+.sync-workshop-text {
+  color: #303133;
+  line-height: 32px;
+}
+.sync-workshop-text.is-empty {
+  color: #f56c6c;
+}
+.sync-workshop-text.is-muted {
+  color: #909399;
+}
+.sync-dept-code {
+  margin-left: 8px;
+  color: #909399;
+  font-size: 12px;
+}
+.sync-hint {
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 4px;
 }
 </style>

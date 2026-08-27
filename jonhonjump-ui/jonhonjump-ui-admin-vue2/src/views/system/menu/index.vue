@@ -224,6 +224,7 @@
 
 <script>
 import { listMenu, getMenu, delMenu, addMenu, updateMenu, delMenuList } from "@/api/system/menu";
+import { refreshPortalMenusAfterAdminChange } from '@/utils/portalMenuRefresh'
 import Treeselect from "@riophae/vue-treeselect";
 import "@riophae/vue-treeselect/dist/vue-treeselect.css";
 import IconSelect from "@/components/IconSelect";
@@ -458,12 +459,14 @@ export default {
               this.$modal.msgSuccess("修改成功");
               this.open = false;
               this.getList();
+              refreshPortalMenusAfterAdminChange({ scope: 'main' })
             });
           } else {
             addMenu(payload).then(response => {
               this.$modal.msgSuccess("新增成功");
               this.open = false;
               this.getList();
+              refreshPortalMenusAfterAdminChange({ scope: 'main' })
             });
           }
         }
@@ -491,21 +494,22 @@ export default {
     },
     /** 删除按钮操作 */
     handleDelete(row) {
-      this.$modal.confirm('是否确认删除名称为"' + row.name + '"的数据项?').then(function() {
-          return delMenu(row.id);
-        }).then(() => {
-          this.getList();
-          this.$modal.msgSuccess("删除成功");
-      }).catch(() => {});
+      const tip = '删除菜单「' + row.name + '」将同时解除角色授权与快捷导航引用，是否继续？'
+      this.$modal.confirm(tip).then(() => delMenu(row.id)).then(() => {
+        this.getList()
+        this.$modal.msgSuccess('删除成功')
+        refreshPortalMenusAfterAdminChange({ scope: 'main' })
+      }).catch(() => {})
     },
     /** 批量删除操作 */
     async handleDeleteBatch() {
-      await this.$modal.confirm('是否确认批量删除选中的菜单数据?')
       try {
-        await delMenuList(this.checkedIds);
-        this.checkedIds = [];
-        await this.getList();
-        this.$modal.msgSuccess("删除成功");
+        await this.$modal.confirm('批量删除将同时解除角色授权与快捷导航引用，是否继续？')
+        await delMenuList(this.checkedIds)
+        this.checkedIds = []
+        await this.getList()
+        this.$modal.msgSuccess('删除成功')
+        refreshPortalMenusAfterAdminChange({ scope: 'main' })
       } catch {}
     },
     /** 选择行数据 */

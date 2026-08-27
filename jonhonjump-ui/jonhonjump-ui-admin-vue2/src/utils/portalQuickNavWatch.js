@@ -16,21 +16,33 @@ function normalizeIds(ids) {
     .sort((a, b) => a - b)
 }
 
-export function quickNavSignature(menuIds, lockedMenuIds) {
-  return normalizeIds(menuIds).join(',') + '|' + normalizeIds(lockedMenuIds).join(',')
+export function quickNavSignature(menuIds, lockedMenuIds, apps) {
+  const ids = normalizeIds(menuIds).join(',')
+  const locked = normalizeIds(lockedMenuIds).join(',')
+  // 带上名称/路径：菜单改名、改图标路径时，在线用户也能感知并刷新卡片
+  const appPart = (apps || [])
+    .map(app => {
+      const id = app && (app.menuId != null ? app.menuId : app.id)
+      const name = (app && app.name) || ''
+      const path = (app && app.path) || ''
+      const icon = (app && (app.icon || app.svgIcon)) || ''
+      return `${id}:${name}:${path}:${icon}`
+    })
+    .join(';')
+  return `${ids}|${locked}|${appPart}`
 }
 
 /** 加载成功后写入基线签名，避免首次探测误报「已更新」 */
-export function seedQuickNavSignature(scopeKey, menuIds, lockedMenuIds) {
+export function seedQuickNavSignature(scopeKey, menuIds, lockedMenuIds, apps) {
   if (!scopeKey) {
     return
   }
-  LAST_SIG[scopeKey] = quickNavSignature(menuIds, lockedMenuIds)
+  LAST_SIG[scopeKey] = quickNavSignature(menuIds, lockedMenuIds, apps)
 }
 
 /** @deprecated 使用 seedQuickNavSignature */
-export function rememberQuickNavSignature(scopeKey, menuIds, lockedMenuIds) {
-  seedQuickNavSignature(scopeKey, menuIds, lockedMenuIds)
+export function rememberQuickNavSignature(scopeKey, menuIds, lockedMenuIds, apps) {
+  seedQuickNavSignature(scopeKey, menuIds, lockedMenuIds, apps)
 }
 
 function resolveSubSystemId(explicitId) {
@@ -76,7 +88,9 @@ export function checkQuickNavUpdateIfNeeded(subSystemId) {
   const scopeKey = scopeKeyOf(sid)
   const hadSig = Object.prototype.hasOwnProperty.call(LAST_SIG, scopeKey)
   const cached = getQuickNavCache(scopeKey) || {}
-  const prev = hadSig ? LAST_SIG[scopeKey] : quickNavSignature(cached.menuIds, cached.lockedMenuIds)
+  const prev = hadSig
+    ? LAST_SIG[scopeKey]
+    : quickNavSignature(cached.menuIds, cached.lockedMenuIds, cached.apps)
 
   return store.dispatch('portal/loadQuickNavConfig', {
     subSystemId: sid,
@@ -89,7 +103,7 @@ export function checkQuickNavUpdateIfNeeded(subSystemId) {
     const apps = Object.prototype.hasOwnProperty.call(data, 'apps')
       ? (Array.isArray(data.apps) ? data.apps : [])
       : null
-    const next = quickNavSignature(menuIds, lockedMenuIds)
+    const next = quickNavSignature(menuIds, lockedMenuIds, apps)
     setQuickNavCache(scopeKey, menuIds, configured, lockedMenuIds, apps)
     const changed = hadSig && prev !== next
     LAST_SIG[scopeKey] = next

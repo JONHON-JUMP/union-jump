@@ -64,9 +64,13 @@ function resolveCurrentSystemSearchRoutes(state) {
   const currentSystem = state.portal.currentSystem || 'main'
   if (currentSystem === 'main') {
     const cachedMain = state.portal.mainSidebarRouters
-    const source = cachedMain && cachedMain.length
+    const defaultRoutes = state.permission.defaultRoutes
+    const sidebar = state.permission.sidebarRouters
+    const source = (cachedMain && cachedMain.length)
       ? cachedMain
-      : (state.permission.sidebarRouters || [])
+      : (defaultRoutes && defaultRoutes.length)
+        ? defaultRoutes
+        : (sidebar || [])
     return filterRoutesForSystem(source, 'main')
   }
 

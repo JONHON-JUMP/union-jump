@@ -352,6 +352,13 @@ jonhonjump:
   iot:
     message-bus:
       type: redis # 消息总线的类型
+  mes:
+    process:
+      temporary-process-url: http://192.168.240.10:10011/api/jonhon/erpdata/mesdatainterface/sono/rest/SonoRest/GetPrtRoutInfo/v1 # MES 临时工艺信息查询接口地址
+      temporary-process-token: Basic YXZpY2l0MjAxNTphdmljaXQyMDE1 # MES 临时工艺信息查询接口请求头 Authorization 的值，向 MES 平台管理员申请后填入，暂默认为空
+      formal-process-url: http://mpm.caoe.com/plm-service/api/gate/object/v1/queryObjectInfo # MES 正式工艺版本查询接口地址
+      process-file-url: http://mpm.caoe.com/mpm-service/api/gate/release/v1/processReleaseForMes # MES 工艺文件地址查询接口地址
+      mpm-access-token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnbGF3YXkiLCJleHAiOjE3ODgwMTc4MTQsImp0aSI6IjA2YWE3Y2M3LTA1ZmQtNDE0Mi04ZThmLTgxODMwMmY4NGE1MiIsInVzZXJuYW1lIjoiTVBNSkNVU0VSIn0.HYfC6-IIPWyosLnBrfz-7xxZkARZH0wkWJoKEm19Q1A # MPM 平台接口请求头 X-Access-Token 的值，向 MPM 平台管理员申请后填入
 
 debug: false
 

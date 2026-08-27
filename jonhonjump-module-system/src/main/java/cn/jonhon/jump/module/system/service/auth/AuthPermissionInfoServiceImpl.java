@@ -89,14 +89,14 @@ public class AuthPermissionInfoServiceImpl implements AuthPermissionInfoService 
     }
 
     /**
-     * 登录轻量路径不写 Redis；后台补全含菜单树的权限包。
-     * 延迟数秒再打库，避免与首屏工作台/快捷导航抢连接导致超时。
+     * 登录轻量路径不写 Redis；后台尽快补全含菜单树的权限包，供门户全量菜单预热命中。
+     * 仅短延迟，避免与快捷导航首屏抢连接，又不过度拖慢「全部应用」。
      */
     private void warmFullPermissionInfoAsync(Long userId) {
         Long tenantId = TenantContextHolder.getTenantId();
         CompletableFuture.runAsync(() -> {
             try {
-                Thread.sleep(5_000L);
+                Thread.sleep(300L);
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
                 return;

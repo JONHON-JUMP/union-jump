@@ -98,7 +98,7 @@
           <right-toolbar :showSearch.sync="showSearch" @queryTable="getList" />
         </el-row>
 
-        <common-menu-dialog ref="commonMenuDialog" @changed="getList" />
+        <common-menu-dialog ref="commonMenuDialog" @changed="handleCommonMenuChanged" />
 
         <el-table v-if="refreshTable" v-loading="loading" :data="menuList" row-key="id"
                   :default-expand-all="isExpandAll"
@@ -329,6 +329,7 @@ import { isExternal } from '@/utils/validate'
 import { flattenMenuTree, inheritedStyleId as resolveInheritedStyleId, isFirstLevelMenu as checkFirstLevelMenu } from '@/utils/menuStyleInherit'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
+import { refreshPortalMenusAfterAdminChange } from '@/utils/portalMenuRefresh'
 import CommonMenuDialog from './CommonMenuDialog.vue'
 
 export default {
@@ -406,6 +407,23 @@ export default {
     this.loadClientList()
   },
   methods: {
+    refreshSubPortalMenus(extra = {}) {
+      const client = this.selectedClient
+      refreshPortalMenusAfterAdminChange({
+        scope: 'sub',
+        clientId: extra.clientId || (client && client.clientId),
+        subSystemId: extra.subSystemId || (client && client.id),
+        subSystemIds: extra.subSystemIds
+      })
+    },
+    handleCommonMenuChanged(payload) {
+      this.getList()
+      if (payload && Array.isArray(payload.subSystemIds) && payload.subSystemIds.length) {
+        this.refreshSubPortalMenus({ subSystemIds: payload.subSystemIds })
+      } else {
+        this.refreshSubPortalMenus()
+      }
+    },
     selected(name) {
       this.form.icon = name
     },
@@ -638,6 +656,7 @@ export default {
           this.open = false
           this.getList()
           this.loadClientList()
+          this.refreshSubPortalMenus()
         })
       })
     },
@@ -656,22 +675,24 @@ export default {
       }
     },
     handleDelete(row) {
-      this.$modal.confirm('是否确认删除名称为"' + row.name + '"的菜单？').then(() => {
+      this.$modal.confirm('删除菜单「' + row.name + '」将同时解除角色授权与快捷导航引用，是否继续？').then(() => {
         return deleteSubSystemMenu(row.id)
       }).then(() => {
         this.$modal.msgSuccess('删除成功')
         this.getList()
         this.loadClientList()
+        this.refreshSubPortalMenus()
       }).catch(() => {})
     },
     handleDeleteBatch() {
-      this.$modal.confirm('是否确认批量删除选中的外部系统菜单？').then(() => {
+      this.$modal.confirm('批量删除将同时解除角色授权与快捷导航引用，是否继续？').then(() => {
         return deleteSubSystemMenuList(this.checkedIds)
       }).then(() => {
         this.$modal.msgSuccess('删除成功')
         this.checkedIds = []
         this.getList()
         this.loadClientList()
+        this.refreshSubPortalMenus()
       }).catch(() => {})
     },
     handleClearPortalCache() {

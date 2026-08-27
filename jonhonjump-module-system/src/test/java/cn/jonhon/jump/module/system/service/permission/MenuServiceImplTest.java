@@ -117,8 +117,8 @@ public class MenuServiceImplTest extends BaseDbUnitTest {
         MenuDO dbMenuDO = menuMapper.selectById(id);
         assertNull(dbMenuDO);
         verify(permissionService).processMenuDeleted(id);
-        verify(userQuickNavService).existsByMenuId(id);
-        verify(roleQuickNavService).existsByMenuId(id);
+        verify(userQuickNavService).deleteByMenuId(id);
+        verify(roleQuickNavService).deleteByMenuId(id);
     }
 
     @Test

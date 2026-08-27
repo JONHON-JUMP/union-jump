@@ -56,7 +56,7 @@ public class SubSystemUsersController {
 
     @Operation(summary = "获得外部系统精简列表")
 
-    @PreAuthorize("@ss.hasPermission('sub-system:user:list')")
+    @PreAuthorize("@ss.hasAnyPermissions('sub-system:user:list', 'sub-system:apiconfig:list', 'system:user:query', 'system:user:create')")
 
     public CommonResult<List<SubSystemClientSimpleRespVO>> getClientSimpleList() {
 
