@@ -79,10 +79,11 @@ public interface SubSystemUsersService {
     /**
 
      * 获得外部系统精简列表
-
+     *
+     * @param portalOnly true=仅已绑定 OAuth 的 JUMP 门户业务系统（外部用户/角色/菜单等）；
+     *                   false/null=全部（含仅接口目标，供接口管理页使用）
      */
-
-    List<SubSystemClientSimpleRespVO> getClientSimpleList();
+    List<SubSystemClientSimpleRespVO> getClientSimpleList(Boolean portalOnly);
 
 
 
@@ -176,7 +177,7 @@ public interface SubSystemUsersService {
 
     List<SubSystemPostSimpleRespVO> getPostSimpleList(Long subSystemId);
 
-    List<SubSystemTeamSimpleRespVO> getTeamSimpleList(Long subSystemId);
+    List<SubSystemTeamSimpleRespVO> getTeamSimpleList(Long subSystemId, Long deptId);
 
     List<SubSystemMenuTreeRespVO> getUserHomeMenuTree(Long subSystemId, List<Long> roleIds);
 

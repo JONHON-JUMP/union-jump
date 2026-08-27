@@ -19,6 +19,10 @@ export function getSubSystemApiConfigBySubSystem(subSystemId) {
 export function createSubSystemApiConfig(data) {
   return request({ url: '/system/sub-system-api-config/create', method: 'post', data })
 }
+// 重命名接入系统显示名
+export function renameSubSystemApiAccess(data) {
+  return request({ url: '/system/sub-system-api-config/rename-system', method: 'put', data })
+}
 // 修改配置
 export function updateSubSystemApiConfig(data) {
   return request({ url: '/system/sub-system-api-config/update', method: 'put', data })

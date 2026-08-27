@@ -16,6 +16,16 @@ public interface SubSystemService {
 
     Long createSubSystem(SubSystemSaveReqVO createReqVO);
 
+    /**
+     * 仅用于人员接口接入：创建不绑定 OAuth2 的接口目标系统（可后续再在外部系统管理中补绑）
+     */
+    Long createApiOnlySubSystem(String systemName);
+
+    /**
+     * 仅改显示名称（接口接入树重命名、纠正 MES4200 等误名）
+     */
+    void updateSystemName(Long id, String systemName);
+
     void updateSubSystem(SubSystemSaveReqVO updateReqVO);
 
     void deleteSubSystem(Long id);

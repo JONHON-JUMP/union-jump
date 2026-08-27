@@ -125,8 +125,12 @@ public class SubSystemMetaImportService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public SubSystemUserImportRespVO importTeamList(Long subSystemId, List<SubSystemTeamImportExcelVO> rows, boolean updateSupport) {
+    public SubSystemUserImportRespVO importTeamList(Long subSystemId, Long deptId,
+                                                    List<SubSystemTeamImportExcelVO> rows, boolean updateSupport) {
         validateBound(subSystemId, rows);
+        if (deptId == null) {
+            throw exception(SUB_SYSTEM_IMPORT_NOT_BOUND);
+        }
         SubSystemUserImportRespVO resp = emptyResp();
         int i = 1;
         for (SubSystemTeamImportExcelVO row : rows) {
@@ -141,6 +145,7 @@ public class SubSystemMetaImportService {
                 SubSystemTeamDO exist = subSystemTeamMapper.selectBySubSystemIdAndTeamCode(subSystemId, row.getTeamCode().trim());
                 SubSystemTeamSaveReqVO req = new SubSystemTeamSaveReqVO();
                 req.setSubSystemId(subSystemId);
+                req.setDeptId(deptId);
                 req.setTeamCode(row.getTeamCode().trim());
                 req.setTeamName(row.getTeamName().trim());
                 req.setDescription(row.getDescription());

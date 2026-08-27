@@ -25,6 +25,7 @@ import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemEmployee
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemTeamComboDTO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import javax.annotation.Resource;
@@ -125,6 +126,7 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void createFromMainUser(SubSystemEmployeeCreateFromUserReqVO reqVO) {
         AdminUserDO user = adminUserMapper.selectById(reqVO.getUserId());
         if (user == null) {
@@ -133,8 +135,18 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         if (user.getDeptId() == null) {
             throw exception(SUB_SYSTEM_EMPLOYEE_DEPT_NOT_MAPPED);
         }
+        for (Long subSystemId : reqVO.getSubSystemIds()) {
+            syncOneFromMainUser(user, subSystemId);
+        }
+    }
+
+    /**
+     * 对单个接口目标：始终调对方「新增人员」；
+     * 仅当该系统已绑定 OAuth（JUMP 门户业务系统）时，再写入外部用户管理（sub_system_users）。
+     */
+    private void syncOneFromMainUser(AdminUserDO user, Long subSystemId) {
         SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService
-                .getWorkshopByDept(reqVO.getSubSystemId(), user.getDeptId());
+                .getWorkshopByDept(subSystemId, user.getDeptId());
         if (workshop == null || workshop.getWorkshopCode() == null) {
             throw exception(SUB_SYSTEM_EMPLOYEE_DEPT_NOT_MAPPED);
         }
@@ -148,27 +160,36 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         }
         dto.setCardNo(user.getCardNo());
         try {
-            getApi(reqVO.getSubSystemId()).create(dto);
+            getApi(subSystemId).create(dto);
         } catch (ExternalApiException e) {
             throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
         }
+        SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
+        // 仅接口目标（如 Camstar人员管理，无 OAuth）不同步到 JUMP 外部用户管理
+        if (subSystem == null || subSystem.getOauth2ClientId() == null) {
+            return;
+        }
+        upsertPortalSubSystemUser(user, subSystemId, workshop.getWorkshopCode());
+    }
+
+    private void upsertPortalSubSystemUser(AdminUserDO user, Long subSystemId, String workshopCode) {
         SubSystemUsersDO existing = subSystemUsersMapper.selectBySubSystemIdAndUsername(
-                reqVO.getSubSystemId(), user.getUsername());
+                subSystemId, user.getUsername());
         if (existing != null) {
             existing.setMainUserId(user.getId());
             existing.setNickname(user.getNickname());
-            existing.setWorkshopId(workshop.getWorkshopCode());
+            existing.setWorkshopId(workshopCode);
             existing.setStatus("0");
             existing.setRemark("用户创建同步业务系统");
             subSystemUsersMapper.updateById(existing);
             return;
         }
         SubSystemUsersDO subUser = new SubSystemUsersDO();
-        subUser.setSubSystemId(reqVO.getSubSystemId());
+        subUser.setSubSystemId(subSystemId);
         subUser.setMainUserId(user.getId());
         subUser.setUsername(user.getUsername());
         subUser.setNickname(user.getNickname());
-        subUser.setWorkshopId(workshop.getWorkshopCode());
+        subUser.setWorkshopId(workshopCode);
         subUser.setStatus("0");
         subUser.setRemark("用户创建同步业务系统");
         subSystemUsersMapper.insert(subUser);
@@ -176,7 +197,7 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
 
     @Override
     public List<SubSystemEnabledSystemVO> getEnabledSystems() {
-        // 仅返回「新增人员」叶子已启用的业务系统；勾选同步时调对方 create 接口，workshopCode=对照表部门编号
+        // 仅返回「新增人员」叶子已启用的系统；勾选同步时调对方 create；workshopCode=对照表部门编号
         List<Long> enabledIds = subSystemApiConfigService.getEnabledSubSystemIds();
         if (CollUtil.isEmpty(enabledIds)) {
             return Collections.emptyList();
@@ -189,6 +210,7 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
             SubSystemEnabledSystemVO vo = new SubSystemEnabledSystemVO();
             vo.setId(sys.getId());
             vo.setName(sys.getSystemName());
+            vo.setPortalBound(sys.getOauth2ClientId() != null);
             return vo;
         }).collect(Collectors.toList());
     }

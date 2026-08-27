@@ -22,7 +22,7 @@ public class SubSystemDO extends BaseDO {
     @TableId
     private Long id;
     /**
-     * OAuth2 客户端编号
+     * OAuth2 客户端编号；人员接口专用系统可为空（不绑门户）
      *
      * 关联 {@link OAuth2ClientDO#getId()}
      */

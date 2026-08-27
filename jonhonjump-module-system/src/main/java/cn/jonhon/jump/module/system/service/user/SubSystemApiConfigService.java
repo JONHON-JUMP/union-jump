@@ -19,6 +19,11 @@ public interface SubSystemApiConfigService {
 
     Long createApiConfig(SubSystemApiConfigSaveReqVO createReqVO);
 
+    /**
+     * 重命名接口接入树根节点对应的业务系统显示名
+     */
+    void renameAccessSystem(Long subSystemId, String systemName);
+
     void updateApiConfig(SubSystemApiConfigSaveReqVO updateReqVO);
 
     void deleteApiConfig(Long id);

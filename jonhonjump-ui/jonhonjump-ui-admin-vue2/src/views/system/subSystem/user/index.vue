@@ -27,7 +27,7 @@
               <el-tag size="mini" type="info">{{ item.userCount || 0 }} 人</el-tag>
             </div>
           </div>
-          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无业务系统" :image-size="60" />
         </div>
       </el-col>
 
@@ -35,17 +35,17 @@
       <el-col :span="20" :xs="24" v-loading="clientsLoading">
         <el-alert
           v-if="showSubSystemBindHint"
-          title="请先在左侧选择已登记的外部系统，再新增或导入该系统用户（无需关联主系统用户）"
+          title="请先在左侧选择已登记的业务系统，再新增或导入该系统用户（无需关联主系统用户）"
           type="warning"
           :closable="false"
           show-icon
           class="mb8"
         />
         <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
-          <el-form-item label="外部系统" prop="subSystemId">
+          <el-form-item label="业务系统" prop="subSystemId">
             <el-select
               v-model="queryParams.subSystemId"
-              placeholder="请选择外部系统"
+              placeholder="请选择业务系统"
               clearable
               filterable
               style="width: 240px"
@@ -110,7 +110,7 @@
             <el-table-column type="selection" width="55" fixed="left" />
             <el-table-column label="用户名" prop="username" :show-overflow-tooltip="true" width="110" fixed="left" />
             <el-table-column label="用户姓名" prop="nickname" :show-overflow-tooltip="true" width="100" fixed="left" />
-            <el-table-column label="车间编号" prop="workshopId" width="100" />
+            <el-table-column label="车间" prop="workshopId" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="班组编码" prop="teamId" width="110" />
             <el-table-column label="班组名称" prop="teamName" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="岗位" prop="postNames" width="120" :show-overflow-tooltip="true" />
@@ -148,18 +148,33 @@
     <!-- 新增/修改 -->
     <el-dialog :title="title" :visible.sync="open" width="760px" append-to-body>
       <el-form ref="form" :model="form" :rules="rules" label-width="110px">
-        <el-form-item label="外部系统">
+        <el-form-item label="业务系统">
           <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
         </el-form-item>
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" placeholder="请输入子系统用户名" maxlength="64" />
+          <el-input v-model="form.username" placeholder="请输入业务系统用户名" maxlength="64" />
         </el-form-item>
         <el-form-item label="用户姓名" prop="nickname">
           <el-input v-model="form.nickname" placeholder="请输入用户姓名" maxlength="64" />
         </el-form-item>
         <el-divider content-position="left">组织与权限</el-divider>
-        <el-form-item label="车间编号" prop="workshopId">
-          <el-input v-model="form.workshopId" placeholder="请输入车间编号" />
+        <el-form-item label="车间" prop="workshopId">
+          <el-select
+            v-model="form.workshopId"
+            placeholder="请从车间对照中选择"
+            clearable
+            filterable
+            style="width: 100%"
+            @change="handleWorkshopChange"
+          >
+            <el-option
+              v-for="item in workshopOptions"
+              :key="item.workshopCode"
+              :label="workshopOptionLabel(item)"
+              :value="item.workshopCode"
+            />
+          </el-select>
+          <div v-if="!workshopOptions.length" class="form-tip">暂无车间对照，请先在「车间对照」中维护</div>
         </el-form-item>
         <el-form-item label="班组" prop="teamId">
           <el-select v-model="form.teamId" placeholder="请选择班组" clearable filterable style="width: 100%">
@@ -305,6 +320,7 @@ import {
   importSubSystemUserTemplate,
   updateSubSystemUser
 } from '@/api/system/subSystemUsers'
+import { getSubSystemWorkshopSimpleList } from '@/api/system/subSystemWorkshop'
 import { getUser } from '@/api/system/user'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
@@ -326,7 +342,9 @@ export default {
       roleOptions: [],
       postOptions: [],
       teamOptions: [],
+      workshopOptions: [],
       menuPageOptions: [],
+      workshopDeptId: undefined,
       title: '',
       open: false,
       openRole: false,
@@ -420,7 +438,7 @@ export default {
     },
     loadClientList() {
       return this.withClientsLoading(() => {
-        return getSubSystemClientSimpleList().then(res => {
+        return getSubSystemClientSimpleList(true).then(res => {
           this.clientList = res.data || []
           if (this.syncSelectedClientFromList()) {
             return
@@ -437,14 +455,46 @@ export default {
         this.roleOptions = []
         this.postOptions = []
         this.teamOptions = []
+        this.workshopOptions = []
         this.menuPageOptions = []
+        this.workshopDeptId = undefined
         return Promise.resolve()
       }
       return Promise.all([
         getSubSystemRoleSimpleList(id).then(res => { this.roleOptions = res.data || [] }),
         getSubSystemPostSimpleList(id).then(res => { this.postOptions = res.data || [] }),
-        getSubSystemTeamSimpleList(id).then(res => { this.teamOptions = res.data || [] })
-      ])
+        getSubSystemWorkshopSimpleList(id).then(res => { this.workshopOptions = res.data || [] })
+      ]).then(() => this.reloadTeams(id))
+    },
+    workshopOptionLabel(item) {
+      const name = item.workshopName || '车间'
+      const code = item.workshopCode || ''
+      const dept = item.deptName ? (' / ' + item.deptName) : ''
+      return name + '（' + code + '）' + dept
+    },
+    handleWorkshopChange(workshopCode) {
+      this.form.teamId = undefined
+      const hit = (this.workshopOptions || []).find(w => w.workshopCode === workshopCode)
+      this.workshopDeptId = hit ? hit.deptId : undefined
+      const id = this.form.subSystemId || (this.selectedClient && this.selectedClient.id)
+      this.reloadTeams(id)
+    },
+    reloadTeams(subSystemId) {
+      if (!subSystemId) {
+        this.teamOptions = []
+        return Promise.resolve()
+      }
+      return getSubSystemTeamSimpleList(subSystemId, this.workshopDeptId).then(res => {
+        const list = res.data || []
+        if (list.length > 0 || !this.workshopDeptId) {
+          this.teamOptions = list
+          return
+        }
+        // 历史班组可能未挂 deptId，按部门过滤为空时回退到该系统全部班组
+        return getSubSystemTeamSimpleList(subSystemId).then(allRes => {
+          this.teamOptions = allRes.data || []
+        })
+      })
     },
     homeMenuNormalizer(node) {
       if (node.children && !node.children.length) {
@@ -545,6 +595,7 @@ export default {
         roleIds: [],
         postIds: []
       }
+      this.workshopDeptId = undefined
       this.resetForm('form')
     },
     cancel() {
@@ -557,7 +608,7 @@ export default {
         this.loadSubOptions().then(() => {
           this.menuPageOptions = []
           this.open = true
-          this.title = '添加外部系统用户'
+          this.title = '添加业务系统用户'
         })
       }).catch(() => {})
     },
@@ -620,10 +671,20 @@ export default {
             roleIds: res.data.roleIds || [],
             postIds: res.data.postIds || []
           }
-          return this.loadHomeMenuOptions()
+          if (this.form.workshopId && !(this.workshopOptions || []).some(w => w.workshopCode === this.form.workshopId)) {
+            this.workshopOptions = (this.workshopOptions || []).concat([{
+              workshopCode: this.form.workshopId,
+              workshopName: this.form.workshopId + '（未在对照中）',
+              deptId: undefined,
+              deptName: undefined
+            }])
+          }
+          const hit = (this.workshopOptions || []).find(w => w.workshopCode === this.form.workshopId)
+          this.workshopDeptId = hit ? hit.deptId : undefined
+          return this.reloadTeams(this.form.subSystemId).then(() => this.loadHomeMenuOptions())
         }).then(() => {
           this.open = true
-          this.title = '修改外部系统用户'
+          this.title = '修改业务系统用户'
         })
       })
     },
@@ -642,7 +703,7 @@ export default {
       })
     },
     handleDelete(row) {
-      this.$modal.confirm('是否确认删除该外部系统用户？').then(() => {
+      this.$modal.confirm('是否确认删除该业务系统用户？').then(() => {
         return deleteSubSystemUser(row.id)
       }).then(() => {
         this.$modal.msgSuccess('删除成功')
@@ -651,7 +712,7 @@ export default {
       }).catch(() => {})
     },
     handleDeleteBatch() {
-      this.$modal.confirm('是否确认批量删除选中的外部系统用户？').then(() => {
+      this.$modal.confirm('是否确认批量删除选中的业务系统用户？').then(() => {
         return deleteSubSystemUserList(this.checkedIds)
       }).then(() => {
         this.$modal.msgSuccess('删除成功')
@@ -706,6 +767,13 @@ export default {
 .sub-system-list {
   max-height: calc(100vh - 220px);
   overflow-y: auto;
+}
+
+.form-tip {
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 4px;
 }
 
 .sub-system-item {

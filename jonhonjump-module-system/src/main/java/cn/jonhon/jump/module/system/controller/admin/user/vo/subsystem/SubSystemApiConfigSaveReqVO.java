@@ -4,7 +4,6 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import javax.validation.constraints.NotBlank;
-import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Size;
 
 @Schema(description = "管理后台 - 子系统人员接口配置创建/更新 Request VO")
@@ -14,9 +13,12 @@ public class SubSystemApiConfigSaveReqVO {
     @Schema(description = "主键编号")
     private Long id;
 
-    @Schema(description = "外部系统 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "3")
-    @NotNull(message = "外部系统不能为空")
+    @Schema(description = "外部系统 ID（选择已有业务系统时必填；与 systemName 二选一）", example = "3")
     private Long subSystemId;
+
+    @Schema(description = "新建系统名称（手动接入、可不绑门户 OAuth；与 subSystemId 二选一）", example = "Camstar人员管理")
+    @Size(max = 100, message = "系统名称长度不能超过 100 个字符")
+    private String systemName;
 
     @Schema(description = "适配器类型：camstar=Camstar专用、http=通用HTTP", requiredMode = Schema.RequiredMode.REQUIRED, example = "camstar")
     @NotBlank(message = "适配器类型不能为空")

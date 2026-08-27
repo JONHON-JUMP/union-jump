@@ -34,4 +34,7 @@ public class SubSystemClientSimpleRespVO {
     @Schema(description = "外部系统班组数量")
     private Long teamCount;
 
+    @Schema(description = "是否 JUMP 门户业务系统（已绑定 OAuth）。false=仅接口目标，不出现在外部用户管理等业务系统列表")
+    private Boolean portalBound;
+
 }

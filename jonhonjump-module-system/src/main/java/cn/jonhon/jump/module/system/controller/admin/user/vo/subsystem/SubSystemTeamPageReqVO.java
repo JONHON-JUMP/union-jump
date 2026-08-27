@@ -18,6 +18,9 @@ public class SubSystemTeamPageReqVO extends PageParam {
     @Schema(description = "外部系统 ID", example = "1")
     private Long subSystemId;
 
+    @Schema(description = "JUMP 部门 ID", example = "100")
+    private Long deptId;
+
     @Schema(description = "班组编码", example = "WS01-T01")
     private String teamCode;
 

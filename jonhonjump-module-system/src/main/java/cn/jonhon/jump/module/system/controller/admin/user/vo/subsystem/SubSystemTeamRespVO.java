@@ -18,6 +18,15 @@ public class SubSystemTeamRespVO {
     @Schema(description = "外部系统名称")
     private String clientName;
 
+    @Schema(description = "JUMP 部门 ID")
+    private Long deptId;
+
+    @Schema(description = "JUMP 部门名称")
+    private String deptName;
+
+    @Schema(description = "车间编码（来自车间对照）")
+    private String workshopCode;
+
     @Schema(description = "班组编码")
     private String teamCode;
 

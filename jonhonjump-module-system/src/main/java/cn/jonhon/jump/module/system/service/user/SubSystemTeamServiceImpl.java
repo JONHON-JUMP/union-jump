@@ -8,10 +8,13 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemTeamRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemTeamSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUsersSimpleRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopSimpleRespVO;
+import cn.jonhon.jump.module.system.dal.dataobject.dept.DeptDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemTeamDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemUsersDO;
+import cn.jonhon.jump.module.system.dal.mysql.dept.DeptMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.AdminUserMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemTeamMapper;
@@ -43,6 +46,10 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
     private SubSystemUsersMapper subSystemUsersMapper;
     @Resource
     private AdminUserMapper adminUserMapper;
+    @Resource
+    private DeptMapper deptMapper;
+    @Resource
+    private SubSystemWorkshopService subSystemWorkshopService;
 
     @Override
     public PageResult<SubSystemTeamRespVO> getSubSystemTeamPage(SubSystemTeamPageReqVO pageReqVO) {
@@ -62,6 +69,7 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
     @Override
     public Long createSubSystemTeam(SubSystemTeamSaveReqVO createReqVO) {
         validateSubSystemExists(createReqVO.getSubSystemId());
+        validateDeptWorkshopMapped(createReqVO.getSubSystemId(), createReqVO.getDeptId());
         validateTeamDuplicate(createReqVO.getSubSystemId(), createReqVO.getTeamName(),
                 createReqVO.getTeamCode(), null);
         fillTeamLeaderName(createReqVO);
@@ -75,11 +83,13 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
     public void updateSubSystemTeam(SubSystemTeamSaveReqVO updateReqVO) {
         SubSystemTeamDO team = validateSubSystemTeamExists(updateReqVO.getId());
         validateSubSystemExists(updateReqVO.getSubSystemId());
+        validateDeptWorkshopMapped(updateReqVO.getSubSystemId(), updateReqVO.getDeptId());
         validateTeamDuplicate(updateReqVO.getSubSystemId(), updateReqVO.getTeamName(),
                 updateReqVO.getTeamCode(), updateReqVO.getId());
         fillTeamLeaderName(updateReqVO);
 
         SubSystemTeamDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemTeamDO.class);
+        // 系统归属不变；部门可随车间对照调整
         updateObj.setSubSystemId(team.getSubSystemId());
         subSystemTeamMapper.updateById(updateObj);
     }
@@ -130,11 +140,29 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
         Map<Long, SubSystemDO> subSystemMap = convertMap(
                 subSystemMapper.selectListByIds(convertSet(list, SubSystemTeamDO::getSubSystemId)),
                 SubSystemDO::getId);
+        java.util.Set<Long> deptIds = list.stream()
+                .map(SubSystemTeamDO::getDeptId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, DeptDO> deptMap = CollUtil.isEmpty(deptIds)
+                ? Collections.emptyMap()
+                : convertMap(deptMapper.selectBatchIds(deptIds), DeptDO::getId);
         return list.stream().map(team -> {
             SubSystemTeamRespVO vo = BeanUtils.toBean(team, SubSystemTeamRespVO.class);
             SubSystemDO subSystem = subSystemMap.get(team.getSubSystemId());
             if (subSystem != null) {
                 vo.setClientName(subSystem.getSystemName());
+            }
+            DeptDO dept = deptMap.get(team.getDeptId());
+            if (dept != null) {
+                vo.setDeptName(dept.getName());
+            }
+            if (team.getDeptId() != null) {
+                SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService
+                        .getWorkshopByDept(team.getSubSystemId(), team.getDeptId());
+                if (workshop != null) {
+                    vo.setWorkshopCode(workshop.getWorkshopCode());
+                }
             }
             return vo;
         }).collect(Collectors.toList());
@@ -156,6 +184,16 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
         }
         AdminUserDO mainUser = adminUserMapper.selectById(user.getMainUserId());
         reqVO.setTeamLeaderName(mainUser != null ? mainUser.getNickname() : null);
+    }
+
+    private void validateDeptWorkshopMapped(Long subSystemId, Long deptId) {
+        if (deptId == null) {
+            throw exception(SUB_SYSTEM_TEAM_DEPT_NOT_MAPPED);
+        }
+        SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService.getWorkshopByDept(subSystemId, deptId);
+        if (workshop == null || workshop.getWorkshopCode() == null) {
+            throw exception(SUB_SYSTEM_TEAM_DEPT_NOT_MAPPED);
+        }
     }
 
     private SubSystemDO validateSubSystemExists(Long subSystemId) {

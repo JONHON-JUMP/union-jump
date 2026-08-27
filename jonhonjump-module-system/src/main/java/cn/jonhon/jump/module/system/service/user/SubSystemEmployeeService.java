@@ -32,8 +32,8 @@ public interface SubSystemEmployeeService {
     String getDeleteTip(Long subSystemId);
 
     /**
-     * 从主系统用户创建子系统人员（用户管理页联动）：
-     * 按 userId 取 JUMP 用户信息组装统一 DTO → 调目标系统 → 成功后落 sub_system_users 映射行
+     * 从主系统用户同步到多个业务系统「新增人员」（用户管理页联动）：
+     * 对每个选中系统：调对方 create 接口；仅已绑定 OAuth 的 JUMP 门户业务系统再写入 sub_system_users。
      */
     void createFromMainUser(SubSystemEmployeeCreateFromUserReqVO reqVO);
 
