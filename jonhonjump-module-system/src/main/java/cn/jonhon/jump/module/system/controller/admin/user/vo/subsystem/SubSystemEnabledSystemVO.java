@@ -13,4 +13,7 @@ public class SubSystemEnabledSystemVO {
     @Schema(description = "业务系统名称")
     private String name;
 
+    @Schema(description = "是否 JUMP 门户业务系统（已绑定 OAuth）。true=同步时还会写入外部用户管理；false=仅调对方新增人员接口")
+    private Boolean portalBound;
+
 }

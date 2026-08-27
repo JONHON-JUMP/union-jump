@@ -150,9 +150,9 @@ export default {
     this.loadDeptOptions()
   },
   methods: {
-    /** 优先 mes4200，否则取第一个已登记系统；仅用于落库，不在页面展示 */
+    /** 优先 mes4200（Camstar人员管理门户客户端），否则取第一个已登记系统；仅用于落库，不在页面展示 */
     loadDefaultSubSystem() {
-      return getSubSystemClientSimpleList().then(res => {
+      return getSubSystemClientSimpleList(true).then(res => {
         const list = res.data || []
         const preferred = list.find(item => item.clientId === 'mes4200') || list[0]
         this.defaultSubSystemId = preferred ? preferred.id : undefined

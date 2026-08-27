@@ -96,29 +96,33 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 .collect(Collectors.toList());
     }
     @Override
-    public List<SubSystemClientSimpleRespVO> getClientSimpleList() {
+    public List<SubSystemClientSimpleRespVO> getClientSimpleList(Boolean portalOnly) {
         List<SubSystemDO> subSystems = subSystemMapper.selectListOrderByOauth2ClientId();
         if (CollUtil.isEmpty(subSystems)) {
             return Collections.emptyList();
         }
-        return subSystems.stream().map(subSystem -> {
-            SubSystemClientSimpleRespVO vo = new SubSystemClientSimpleRespVO();
-            vo.setId(subSystem.getId());
-            OAuth2ClientDO oauth2Client = getOAuth2Client(subSystem);
-            vo.setClientId(oauth2Client != null ? oauth2Client.getClientId() : null);
-            vo.setName(subSystem.getSystemName());
-            if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
-                vo.setLogo(subSystem.getSystemIcon());
-            } else if (oauth2Client != null) {
-                vo.setLogo(oauth2Client.getLogo());
-            }
-            vo.setUserCount(subSystemUsersMapper.selectCountBySubSystemId(subSystem.getId()));
-            vo.setRoleCount(subSystemRoleMapper.selectCountBySubSystemId(subSystem.getId()));
-            vo.setMenuCount(subSystemMenuMapper.selectCountBySubSystemId(subSystem.getId()));
-            vo.setPostCount(subSystemPostMapper.selectCountBySubSystemId(subSystem.getId()));
-            vo.setTeamCount(subSystemTeamMapper.selectCountBySubSystemId(subSystem.getId()));
-            return vo;
-        }).collect(Collectors.toList());
+        boolean onlyPortal = Boolean.TRUE.equals(portalOnly);
+        return subSystems.stream()
+                .filter(subSystem -> !onlyPortal || subSystem.getOauth2ClientId() != null)
+                .map(subSystem -> {
+                    SubSystemClientSimpleRespVO vo = new SubSystemClientSimpleRespVO();
+                    vo.setId(subSystem.getId());
+                    OAuth2ClientDO oauth2Client = getOAuth2Client(subSystem);
+                    vo.setClientId(oauth2Client != null ? oauth2Client.getClientId() : null);
+                    vo.setName(subSystem.getSystemName());
+                    vo.setPortalBound(subSystem.getOauth2ClientId() != null);
+                    if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
+                        vo.setLogo(subSystem.getSystemIcon());
+                    } else if (oauth2Client != null) {
+                        vo.setLogo(oauth2Client.getLogo());
+                    }
+                    vo.setUserCount(subSystemUsersMapper.selectCountBySubSystemId(subSystem.getId()));
+                    vo.setRoleCount(subSystemRoleMapper.selectCountBySubSystemId(subSystem.getId()));
+                    vo.setMenuCount(subSystemMenuMapper.selectCountBySubSystemId(subSystem.getId()));
+                    vo.setPostCount(subSystemPostMapper.selectCountBySubSystemId(subSystem.getId()));
+                    vo.setTeamCount(subSystemTeamMapper.selectCountBySubSystemId(subSystem.getId()));
+                    return vo;
+                }).collect(Collectors.toList());
     }
     @Override
     public PageResult<SubSystemUsersRespVO> getSubSystemUserPage(SubSystemUsersPageReqVO pageReqVO) {
@@ -265,8 +269,13 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         return BeanUtils.toBean(subSystemPostMapper.selectListBySubSystemId(subSystemId), SubSystemPostSimpleRespVO.class);
     }
     @Override
-    public List<SubSystemTeamSimpleRespVO> getTeamSimpleList(Long subSystemId) {
+    public List<SubSystemTeamSimpleRespVO> getTeamSimpleList(Long subSystemId, Long deptId) {
         validateSubSystemExists(subSystemId);
+        if (deptId != null) {
+            return BeanUtils.toBean(
+                    subSystemTeamMapper.selectListBySubSystemIdAndDeptId(subSystemId, deptId),
+                    SubSystemTeamSimpleRespVO.class);
+        }
         return BeanUtils.toBean(subSystemTeamMapper.selectListBySubSystemId(subSystemId), SubSystemTeamSimpleRespVO.class);
     }
     @Override

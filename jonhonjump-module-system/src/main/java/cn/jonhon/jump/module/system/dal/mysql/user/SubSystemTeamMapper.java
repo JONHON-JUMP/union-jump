@@ -17,6 +17,7 @@ public interface SubSystemTeamMapper extends BaseMapperX<SubSystemTeamDO> {
     default PageResult<SubSystemTeamDO> selectPage(SubSystemTeamPageReqVO reqVO) {
         return selectPage(reqVO, new LambdaQueryWrapperX<SubSystemTeamDO>()
                 .eqIfPresent(SubSystemTeamDO::getSubSystemId, reqVO.getSubSystemId())
+                .eqIfPresent(SubSystemTeamDO::getDeptId, reqVO.getDeptId())
                 .likeIfPresent(SubSystemTeamDO::getTeamCode, reqVO.getTeamCode())
                 .likeIfPresent(SubSystemTeamDO::getTeamName, reqVO.getTeamName())
                 .betweenIfPresent(SubSystemTeamDO::getCreateTime, reqVO.getCreateTime())
@@ -24,9 +25,20 @@ public interface SubSystemTeamMapper extends BaseMapperX<SubSystemTeamDO> {
                 .orderByDesc(SubSystemTeamDO::getId));
     }
 
+    default Long selectCountByDeptId(Long deptId) {
+        return selectCount(SubSystemTeamDO::getDeptId, deptId);
+    }
+
     default List<SubSystemTeamDO> selectListBySubSystemId(Long subSystemId) {
         return selectList(new LambdaQueryWrapperX<SubSystemTeamDO>()
                 .eq(SubSystemTeamDO::getSubSystemId, subSystemId)
+                .orderByAsc(SubSystemTeamDO::getTeamCode));
+    }
+
+    default List<SubSystemTeamDO> selectListBySubSystemIdAndDeptId(Long subSystemId, Long deptId) {
+        return selectList(new LambdaQueryWrapperX<SubSystemTeamDO>()
+                .eq(SubSystemTeamDO::getSubSystemId, subSystemId)
+                .eq(SubSystemTeamDO::getDeptId, deptId)
                 .orderByAsc(SubSystemTeamDO::getTeamCode));
     }
 

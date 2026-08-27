@@ -131,9 +131,17 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
         if (CollUtil.isEmpty(list)) {
             return Collections.emptyList();
         }
+        java.util.Set<Long> deptIds = list.stream()
+                .map(SubSystemWorkshopDO::getDeptId)
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toSet());
+        Map<Long, DeptDO> deptMap = CollUtil.isEmpty(deptIds)
+                ? Collections.emptyMap()
+                : convertMap(deptMapper.selectBatchIds(deptIds), DeptDO::getId);
         return list.stream()
                 .filter(item -> item.getWorkshopCode() != null)
-                .collect(Collectors.toMap(SubSystemWorkshopDO::getWorkshopCode, this::buildSimple, (a, b) -> a,
+                .collect(Collectors.toMap(SubSystemWorkshopDO::getWorkshopCode,
+                        w -> buildSimple(w, deptMap), (a, b) -> a,
                         java.util.LinkedHashMap::new))
                 .values().stream().collect(Collectors.toList());
     }
@@ -158,10 +166,28 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
     // ===================== 私有方法 =====================
 
     private SubSystemWorkshopSimpleRespVO buildSimple(SubSystemWorkshopDO workshop) {
+        Map<Long, DeptDO> deptMap = Collections.emptyMap();
+        if (workshop.getDeptId() != null) {
+            DeptDO dept = deptMapper.selectById(workshop.getDeptId());
+            if (dept != null) {
+                deptMap = Collections.singletonMap(dept.getId(), dept);
+            }
+        }
+        return buildSimple(workshop, deptMap);
+    }
+
+    private SubSystemWorkshopSimpleRespVO buildSimple(SubSystemWorkshopDO workshop, Map<Long, DeptDO> deptMap) {
         SubSystemWorkshopSimpleRespVO vo = new SubSystemWorkshopSimpleRespVO();
         vo.setId(workshop.getId());
+        vo.setDeptId(workshop.getDeptId());
         vo.setWorkshopCode(workshop.getWorkshopCode());
         vo.setWorkshopName(workshop.getWorkshopName());
+        if (workshop.getDeptId() != null && deptMap != null) {
+            DeptDO dept = deptMap.get(workshop.getDeptId());
+            if (dept != null) {
+                vo.setDeptName(dept.getName());
+            }
+        }
         return vo;
     }
 

@@ -112,7 +112,7 @@ export default {
       }).finally(() => {
         this.loading = false
       })
-      getSubSystemClientSimpleList().then(res => {
+      getSubSystemClientSimpleList(true).then(res => {
         this.subSystemOptions = (res.data || []).map(item => ({
           id: Number(item.id),
           name: item.name || item.systemName

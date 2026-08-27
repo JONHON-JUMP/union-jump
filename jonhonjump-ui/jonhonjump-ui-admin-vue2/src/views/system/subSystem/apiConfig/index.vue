@@ -10,7 +10,7 @@
           class="api-side__add"
           @click="openAddDialog"
           v-hasPermi="['sub-system:apiconfig:create']"
-        >接入业务系统</el-button>
+        >接入系统</el-button>
         <el-input
           v-model="clientKeyword"
           placeholder="筛选"
@@ -43,7 +43,7 @@
               <el-tag v-else-if="data.purposeHint" size="mini" type="warning">{{ data.purposeHint }}</el-tag>
             </span>
           </el-tree>
-          <el-empty v-else description="点上方接入业务系统" :image-size="48" />
+          <el-empty v-else description="点上方接入系统" :image-size="48" />
         </div>
       </aside>
 
@@ -64,6 +64,8 @@
                          v-hasPermi="['sub-system:apiconfig:update']">新增接口</el-button>
               <el-button size="mini" @click="renameDir" v-if="currentNode.dirKind !== 'system'"
                          v-hasPermi="['sub-system:apiconfig:update']">重命名</el-button>
+              <el-button size="mini" @click="renameSystem" v-if="currentNode.dirKind === 'system'"
+                         v-hasPermi="['sub-system:apiconfig:update']">重命名系统</el-button>
               <el-button size="mini" type="danger" plain @click="removeDir"
                          v-if="currentNode.dirKind !== 'system'"
                          v-hasPermi="['sub-system:apiconfig:update']">删除目录</el-button>
@@ -152,17 +154,29 @@
       </main>
     </div>
 
-    <el-dialog title="接入业务系统" :visible.sync="addDialogVisible" width="480px" append-to-body>
-      <el-form label-width="90px" size="small">
-        <el-form-item label="业务系统" required>
-          <el-select v-model="addSubSystemId" filterable style="width: 100%">
+    <el-dialog title="接入系统" :visible.sync="addDialogVisible" width="520px" append-to-body>
+      <el-form label-width="100px" size="small">
+        <el-form-item label="接入方式" required>
+          <el-radio-group v-model="addMode">
+            <el-radio label="existing">选择 JUMP 业务系统</el-radio>
+            <el-radio label="manual">添加其他系统</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item v-if="addMode === 'existing'" label="业务系统" required>
+          <el-select v-model="addSubSystemId" filterable clearable placeholder="如 MES4200" style="width: 100%">
             <el-option
               v-for="item in availableClients"
               :key="item.id"
-              :label="item.name + ' (' + item.clientId + ')'"
+              :label="item.name + (item.clientId ? (' (' + item.clientId + ')') : '')"
               :value="item.id"
             />
           </el-select>
+          <div v-if="!availableClients.length" class="form-tip">暂无可接入的 JUMP 业务系统（均已接入或尚未登记）</div>
+          <div v-else class="form-tip">来自已登记且绑定门户的业务系统；同步用户时会写入外部用户管理</div>
+        </el-form-item>
+        <el-form-item v-else label="系统名称" required>
+          <el-input v-model="addSystemName" maxlength="100" placeholder="如：Camstar人员管理" />
+          <div class="form-tip">非 JUMP 业务系统，只做接口配置；不出现在外部用户管理，同步时也只调对方接口</div>
         </el-form-item>
         <el-form-item label="适配器">
           <el-select v-model="addApiType" style="width: 100%">
@@ -188,6 +202,7 @@ import {
   deleteSubSystemApiConfig,
   getSubSystemApiConfigList,
   getSubSystemClientSimpleList,
+  renameSubSystemApiAccess,
   testSubSystemApiInvoke,
   updateSubSystemApiConfig
 } from '@/api/system/subSystemApiConfig'
@@ -373,7 +388,9 @@ export default {
       testBody: '',
       testResult: '',
       addDialogVisible: false,
+      addMode: 'existing',
       addSubSystemId: undefined,
+      addSystemName: '',
       addApiType: 'camstar',
       addHost: '',
       formMeta: {}
@@ -432,10 +449,21 @@ export default {
       })
     },
     availableClients() {
-      return (this.clientList || []).filter(item => !this.configMap[item.id])
+      // 「选择已有业务系统」只列门户业务系统；仅接口目标（如 Camstar人员管理）走手动新建
+      return (this.clientList || []).filter(item => {
+        if (this.configMap[item.id]) return false
+        if (item.portalBound === true) return true
+        if (item.portalBound === false) return false
+        return !!item.clientId
+      })
     },
     canConfirmAdd() {
-      return !!this.addSubSystemId && !!(this.addHost || '').trim()
+      const hostOk = !!(this.addHost || '').trim()
+      if (!hostOk) return false
+      if (this.addMode === 'manual') {
+        return !!(this.addSystemName || '').trim()
+      }
+      return !!this.addSubSystemId
     },
     currentApiTitle() {
       if (!this.currentNode || this.currentNode.type !== 'api') return ''
@@ -786,7 +814,9 @@ export default {
       })
     },
     openAddDialog() {
+      this.addMode = this.availableClients.length ? 'existing' : 'manual'
       this.addSubSystemId = undefined
+      this.addSystemName = ''
       this.addApiType = 'camstar'
       this.addHost = ''
       this.addDialogVisible = true
@@ -795,8 +825,7 @@ export default {
       if (!this.canConfirmAdd) return
       const host = this.addHost.trim().replace(/\/+$/, '')
       const catalog = buildDefaultCatalog({ baseUrl: host }, host)
-      createSubSystemApiConfig({
-        subSystemId: this.addSubSystemId,
+      const payload = {
         baseUrl: host,
         connectTimeoutMs: 10000,
         readTimeoutMs: 30000,
@@ -811,11 +840,35 @@ export default {
         apiCatalog: JSON.stringify(catalog),
         deleteTip: this.addApiType === 'camstar' ? '删除将同时删除该用户在 Camstar 的域账号，不可恢复！' : '',
         status: 0
-      }).then(() => {
+      }
+      if (this.addMode === 'manual') {
+        payload.systemName = this.addSystemName.trim()
+      } else {
+        payload.subSystemId = this.addSubSystemId
+      }
+      createSubSystemApiConfig(payload).then(() => {
         this.$modal.msgSuccess('已接入')
         this.addDialogVisible = false
         this.loadAll()
       })
+    },
+    renameSystem() {
+      if (!this.currentNode || this.currentNode.dirKind !== 'system') return
+      this.$prompt('系统显示名称（如：Camstar人员管理）', '重命名系统', {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        inputValue: this.currentNode.label || '',
+        inputPattern: /\S+/,
+        inputErrorMessage: '请输入名称'
+      }).then(({ value }) => {
+        return renameSubSystemApiAccess({
+          id: this.currentNode.subSystemId,
+          systemName: String(value).trim()
+        }).then(() => {
+          this.$modal.msgSuccess('已重命名')
+          return this.loadAll()
+        })
+      }).catch(() => {})
     },
     handleDeleteConfig() {
       if (!this.formMeta.id) return

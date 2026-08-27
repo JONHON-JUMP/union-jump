@@ -5,6 +5,7 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiConfigSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemRenameReqVO;
 import cn.jonhon.jump.module.system.service.user.SubSystemApiConfigService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -55,10 +56,18 @@ public class SubSystemApiConfigController {
     }
 
     @PostMapping("/create")
-    @Operation(summary = "创建子系统人员接口配置")
+    @Operation(summary = "创建子系统人员接口配置（可选已有业务系统，或填写 systemName 手动新建）")
     @PreAuthorize("@ss.hasPermission('sub-system:apiconfig:create')")
     public CommonResult<Long> createApiConfig(@Valid @RequestBody SubSystemApiConfigSaveReqVO createReqVO) {
         return success(subSystemApiConfigService.createApiConfig(createReqVO));
+    }
+
+    @PutMapping("/rename-system")
+    @Operation(summary = "重命名接口接入对应的业务系统显示名")
+    @PreAuthorize("@ss.hasPermission('sub-system:apiconfig:update')")
+    public CommonResult<Boolean> renameAccessSystem(@Valid @RequestBody SubSystemRenameReqVO reqVO) {
+        subSystemApiConfigService.renameAccessSystem(reqVO.getId(), reqVO.getSystemName());
+        return success(true);
     }
 
     @PutMapping("/update")

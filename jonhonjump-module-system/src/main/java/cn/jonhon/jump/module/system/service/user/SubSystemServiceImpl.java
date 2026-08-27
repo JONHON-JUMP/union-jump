@@ -154,6 +154,66 @@ public class SubSystemServiceImpl implements SubSystemService {
 
     @Override
 
+    public Long createApiOnlySubSystem(String systemName) {
+
+        String name = StrUtil.trim(systemName);
+
+        if (StrUtil.isBlank(name)) {
+
+            throw exception(SUB_SYSTEM_API_CONFIG_TARGET_REQUIRED);
+
+        }
+
+        validateSystemNameDuplicate(name, null);
+
+        SubSystemDO subSystem = new SubSystemDO();
+
+        subSystem.setOauth2ClientId(null);
+
+        subSystem.setSystemName(name);
+
+        subSystem.setDescription("Camstar/人员接口目标（非 JUMP 门户业务系统，不出现在外部用户管理）");
+
+        subSystem.setStatus(0);
+
+        subSystemMapper.insert(subSystem);
+
+        return subSystem.getId();
+
+    }
+
+
+
+    @Override
+
+    public void updateSystemName(Long id, String systemName) {
+
+        validateSubSystemExists(id);
+
+        String name = StrUtil.trim(systemName);
+
+        if (StrUtil.isBlank(name)) {
+
+            throw exception(SUB_SYSTEM_API_CONFIG_TARGET_REQUIRED);
+
+        }
+
+        validateSystemNameDuplicate(name, id);
+
+        SubSystemDO updateObj = new SubSystemDO();
+
+        updateObj.setId(id);
+
+        updateObj.setSystemName(name);
+
+        subSystemMapper.updateById(updateObj);
+
+    }
+
+
+
+    @Override
+
     public void updateSubSystem(SubSystemSaveReqVO updateReqVO) {
 
         validateSubSystemExists(updateReqVO.getId());
@@ -225,7 +285,13 @@ public class SubSystemServiceImpl implements SubSystemService {
 
         }
 
-        Set<Long> boundOauth2ClientIds = convertSet(subSystemMapper.selectList(), SubSystemDO::getOauth2ClientId);
+        Set<Long> boundOauth2ClientIds = subSystemMapper.selectList().stream()
+
+                .map(SubSystemDO::getOauth2ClientId)
+
+                .filter(java.util.Objects::nonNull)
+
+                .collect(Collectors.toSet());
 
         if (excludeSubSystemId != null) {
 
@@ -289,13 +355,21 @@ public class SubSystemServiceImpl implements SubSystemService {
 
         }
 
-        Map<Long, OAuth2ClientDO> clientMap = convertMap(
+        Set<Long> oauth2ClientIds = list.stream()
 
-                oauth2ClientMapper.selectList(OAuth2ClientDO::getId,
+                .map(SubSystemDO::getOauth2ClientId)
 
-                        convertSet(list, SubSystemDO::getOauth2ClientId)),
+                .filter(java.util.Objects::nonNull)
 
-                OAuth2ClientDO::getId);
+                .collect(Collectors.toSet());
+
+        Map<Long, OAuth2ClientDO> clientMap = CollUtil.isEmpty(oauth2ClientIds)
+
+                ? Collections.emptyMap()
+
+                : convertMap(oauth2ClientMapper.selectList(OAuth2ClientDO::getId, oauth2ClientIds),
+
+                        OAuth2ClientDO::getId);
 
         return list.stream()
 
@@ -309,7 +383,9 @@ public class SubSystemServiceImpl implements SubSystemService {
 
     private SubSystemRespVO buildResp(SubSystemDO subSystem) {
 
-        OAuth2ClientDO client = oauth2ClientMapper.selectById(subSystem.getOauth2ClientId());
+        OAuth2ClientDO client = subSystem.getOauth2ClientId() != null
+
+                ? oauth2ClientMapper.selectById(subSystem.getOauth2ClientId()) : null;
 
         return convertToRespVO(subSystem, client);
 
@@ -375,6 +451,12 @@ public class SubSystemServiceImpl implements SubSystemService {
 
     private void validateOauth2ClientDuplicate(Long oauth2ClientId, Long id) {
 
+        if (oauth2ClientId == null) {
+
+            return;
+
+        }
+
         SubSystemDO subSystem = subSystemMapper.selectByOauth2ClientId(oauth2ClientId);
 
         if (subSystem != null && !ObjectUtil.equal(subSystem.getId(), id)) {
@@ -384,6 +466,20 @@ public class SubSystemServiceImpl implements SubSystemService {
             String clientId = client != null ? client.getClientId() : String.valueOf(oauth2ClientId);
 
             throw exception(SUB_SYSTEM_CLIENT_ID_DUPLICATE, clientId);
+
+        }
+
+    }
+
+
+
+    private void validateSystemNameDuplicate(String systemName, Long id) {
+
+        SubSystemDO exists = subSystemMapper.selectOne(SubSystemDO::getSystemName, systemName);
+
+        if (exists != null && !ObjectUtil.equal(exists.getId(), id)) {
+
+            throw exception(SUB_SYSTEM_NAME_DUPLICATE, systemName);
 
         }
 

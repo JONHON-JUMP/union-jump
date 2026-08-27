@@ -86,6 +86,7 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_TEAM_CODE_DUPLICATE = new ErrorCode(1_002_003_032, "已经存在编码为【{}】的外部系统班组");
     ErrorCode SUB_SYSTEM_TEAM_HAS_USERS = new ErrorCode(1_002_003_033, "外部系统班组已分配用户，无法删除");
     ErrorCode SUB_SYSTEM_TEAM_LEADER_INVALID = new ErrorCode(1_002_003_034, "班组长必须是当前外部系统下的用户");
+    ErrorCode SUB_SYSTEM_TEAM_DEPT_NOT_MAPPED = new ErrorCode(1_002_003_061, "所选部门未维护车间对照，请先在车间对照中维护");
     ErrorCode SUB_SYSTEM_OAUTH2_CLIENT_NOT_EXISTS = new ErrorCode(1_002_003_035, "OAuth2 客户端不存在，请先在 OAuth2 客户端管理中创建");
     ErrorCode SUB_SYSTEM_CLIENT_ID_DUPLICATE = new ErrorCode(1_002_003_036, "OAuth2 客户端【{}】已关联其他外部系统");
     ErrorCode SUB_SYSTEM_HAS_RELATED_DATA = new ErrorCode(1_002_003_037, "外部系统已存在业务数据，无法删除");
@@ -108,6 +109,8 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_API_CONFIG_DUPLICATE = new ErrorCode(1_002_003_052, "该外部系统已存在接口配置");
     ErrorCode SUB_SYSTEM_API_CONFIG_DISABLED = new ErrorCode(1_002_003_053, "该外部系统的接口配置已停用");
     ErrorCode SUB_SYSTEM_API_CONFIG_INVALID_JSON = new ErrorCode(1_002_003_054, "接口配置 JSON 格式错误：【{}】");
+    ErrorCode SUB_SYSTEM_API_CONFIG_TARGET_REQUIRED = new ErrorCode(1_002_003_062, "请选择已有业务系统，或填写新建系统名称");
+    ErrorCode SUB_SYSTEM_NAME_DUPLICATE = new ErrorCode(1_002_003_063, "已存在名为【{}】的业务系统");
     // ========== 子系统人员接口模块 1-002-003-055 ==========
     ErrorCode SUB_SYSTEM_EMPLOYEE_API_NOT_CONFIGURED = new ErrorCode(1_002_003_055, "该外部系统未配置（或未启用）人员接口");
     ErrorCode SUB_SYSTEM_EMPLOYEE_API_ERROR = new ErrorCode(1_002_003_056, "子系统接口调用失败：【{}】");

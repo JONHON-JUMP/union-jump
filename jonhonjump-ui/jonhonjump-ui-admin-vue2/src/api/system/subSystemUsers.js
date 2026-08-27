@@ -32,10 +32,11 @@ export function getMyPortalMenusVersion(subSystemId) {
   })
 }
 
-export function getSubSystemClientSimpleList() {
+export function getSubSystemClientSimpleList(portalOnly) {
   return request({
     url: '/system/sub-system-users/client-simple-list',
-    method: 'get'
+    method: 'get',
+    params: portalOnly === true ? { portalOnly: true } : undefined
   })
 }
 
@@ -107,11 +108,11 @@ export function getSubSystemPostSimpleList(subSystemId) {
   })
 }
 
-export function getSubSystemTeamSimpleList(subSystemId) {
+export function getSubSystemTeamSimpleList(subSystemId, deptId) {
   return request({
     url: '/system/sub-system-users/team-simple-list',
     method: 'get',
-    params: { subSystemId }
+    params: { subSystemId, deptId }
   })
 }
 

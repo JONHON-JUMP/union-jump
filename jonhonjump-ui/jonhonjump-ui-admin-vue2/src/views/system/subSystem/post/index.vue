@@ -262,7 +262,7 @@ export default {
   methods: {
     loadClientList() {
       return this.withClientsLoading(() => {
-        return getSubSystemClientSimpleList().then(res => {
+        return getSubSystemClientSimpleList(true).then(res => {
           this.clientList = res.data || []
           if (this.syncSelectedClientFromList()) {
             return

@@ -53,15 +53,11 @@ public class SubSystemUsersController {
 
 
     @GetMapping("/client-simple-list")
-
-    @Operation(summary = "获得外部系统精简列表")
-
+    @Operation(summary = "获得外部系统精简列表（portalOnly=true 仅 JUMP 门户业务系统）")
     @PreAuthorize("@ss.hasAnyPermissions('sub-system:user:list', 'sub-system:apiconfig:list', 'system:user:query', 'system:user:create')")
-
-    public CommonResult<List<SubSystemClientSimpleRespVO>> getClientSimpleList() {
-
-        return success(subSystemUsersService.getClientSimpleList());
-
+    public CommonResult<List<SubSystemClientSimpleRespVO>> getClientSimpleList(
+            @RequestParam(value = "portalOnly", required = false) Boolean portalOnly) {
+        return success(subSystemUsersService.getClientSimpleList(portalOnly));
     }
 
 
@@ -236,10 +232,12 @@ public class SubSystemUsersController {
     }
 
     @GetMapping("/team-simple-list")
-    @Operation(summary = "获得外部系统班组精简列表")
+    @Operation(summary = "获得业务系统班组精简列表（可按部门过滤）")
     @PreAuthorize("@ss.hasPermission('sub-system:user:list')")
-    public CommonResult<List<SubSystemTeamSimpleRespVO>> getTeamSimpleList(@RequestParam("subSystemId") Long subSystemId) {
-        return success(subSystemUsersService.getTeamSimpleList(subSystemId));
+    public CommonResult<List<SubSystemTeamSimpleRespVO>> getTeamSimpleList(
+            @RequestParam("subSystemId") Long subSystemId,
+            @RequestParam(value = "deptId", required = false) Long deptId) {
+        return success(subSystemUsersService.getTeamSimpleList(subSystemId, deptId));
     }
 
     @GetMapping("/home-menu-tree-list")

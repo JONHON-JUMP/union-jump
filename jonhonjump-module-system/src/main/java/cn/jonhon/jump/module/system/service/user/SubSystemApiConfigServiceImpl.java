@@ -18,6 +18,7 @@ import cn.jonhon.jump.module.system.framework.subsystemapi.http.EndpointSpec;
 import cn.jonhon.jump.module.system.framework.subsystemapi.http.ExternalApiHttpClient;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import javax.annotation.Resource;
@@ -46,6 +47,8 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     @Resource
     private SubSystemMapper subSystemMapper;
     @Resource
+    private SubSystemService subSystemService;
+    @Resource
     private SubSystemEmployeeApiFactory subSystemEmployeeApiFactory;
 
     @Override
@@ -61,14 +64,33 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public Long createApiConfig(SubSystemApiConfigSaveReqVO createReqVO) {
-        validateSubSystemExists(createReqVO.getSubSystemId());
-        validateDuplicate(createReqVO.getSubSystemId(), null);
+        Long subSystemId = resolveSubSystemIdForCreate(createReqVO);
+        createReqVO.setSubSystemId(subSystemId);
+        validateSubSystemExists(subSystemId);
+        validateDuplicate(subSystemId, null);
         validateJsonFields(createReqVO);
 
         SubSystemApiConfigDO config = BeanUtils.toBean(createReqVO, SubSystemApiConfigDO.class);
         subSystemApiConfigMapper.insert(config);
         return config.getId();
+    }
+
+    /** 选择已有系统，或按名称新建仅接口接入的系统 */
+    private Long resolveSubSystemIdForCreate(SubSystemApiConfigSaveReqVO createReqVO) {
+        if (createReqVO.getSubSystemId() != null) {
+            return createReqVO.getSubSystemId();
+        }
+        if (StrUtil.isNotBlank(createReqVO.getSystemName())) {
+            return subSystemService.createApiOnlySubSystem(createReqVO.getSystemName());
+        }
+        throw exception(SUB_SYSTEM_API_CONFIG_TARGET_REQUIRED);
+    }
+
+    @Override
+    public void renameAccessSystem(Long subSystemId, String systemName) {
+        subSystemService.updateSystemName(subSystemId, systemName);
     }
 
     @Override

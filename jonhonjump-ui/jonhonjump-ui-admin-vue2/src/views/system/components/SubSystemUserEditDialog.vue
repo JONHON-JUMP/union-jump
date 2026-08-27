@@ -1,13 +1,13 @@
 <template>
   <el-dialog :title="dialogTitle" :visible.sync="dialogVisible" width="760px" append-to-body @close="handleClose">
     <el-form ref="form" :model="form" :rules="rules" label-width="110px">
-      <el-form-item label="外部系统" prop="subSystemId">
+      <el-form-item label="业务系统" prop="subSystemId">
         <el-select
           v-if="isCreateMode"
           v-model="form.subSystemId"
-          placeholder="请选择要添加的外部系统"
+          placeholder="请选择要添加的业务系统"
           filterable
-          no-data-text="暂无可添加的外部系统"
+          no-data-text="暂无可添加的业务系统"
           style="width: 100%"
           @change="handleSubSystemChange"
         >
@@ -22,7 +22,7 @@
       </el-form-item>
       <el-alert
         v-if="isCreateMode && availableClientList.length === 0"
-        title="当前用户已关联全部外部系统，无可继续添加"
+        title="当前用户已关联全部业务系统，无可继续添加"
         type="info"
         :closable="false"
         show-icon
@@ -36,7 +36,7 @@
         show-icon
         style="margin-bottom: 16px"
       />
-      <el-divider content-position="left">子系统用户信息</el-divider>
+      <el-divider content-position="left">业务系统用户信息</el-divider>
       <el-row :gutter="16">
         <el-col :span="12">
           <el-form-item label="用户名" prop="username">
@@ -49,13 +49,30 @@
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="车间编号">
-            <el-input v-model="form.workshopId" placeholder="请输入车间编号" />
+          <el-form-item label="车间">
+            <el-select
+              v-model="form.workshopId"
+              placeholder="请从车间对照中选择"
+              clearable
+              filterable
+              style="width: 100%"
+              :disabled="identityLocked"
+              @change="handleWorkshopChange"
+            >
+              <el-option
+                v-for="item in workshopOptions"
+                :key="item.workshopCode"
+                :label="workshopOptionLabel(item)"
+                :value="item.workshopCode"
+              />
+            </el-select>
+            <div v-if="workshopHint" class="form-tip">{{ workshopHint }}</div>
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="班组">
-            <el-select v-model="form.teamId" placeholder="请选择班组" clearable filterable style="width: 100%">
+            <el-select v-model="form.teamId" placeholder="请选择班组" clearable filterable style="width: 100%"
+                       :disabled="identityLocked">
               <el-option
                 v-for="item in teamOptions"
                 :key="item.teamCode"
@@ -138,6 +155,7 @@ import {
   getSubSystemUserHomeMenuTree,
   updateSubSystemUser
 } from '@/api/system/subSystemUsers'
+import { getSubSystemWorkshopByDept, getSubSystemWorkshopSimpleList } from '@/api/system/subSystemWorkshop'
 
 export default {
   name: 'SubSystemUserEditDialog',
@@ -159,6 +177,11 @@ export default {
       type: String,
       default: ''
     },
+    /** 主用户归属部门，用于默认选中车间对照、过滤班组 */
+    mainUserDeptId: {
+      type: Number,
+      default: undefined
+    },
     excludeSubSystemIds: {
       type: Array,
       default: () => []
@@ -176,11 +199,14 @@ export default {
       roleOptions: [],
       postOptions: [],
       teamOptions: [],
+      workshopOptions: [],
       menuPageOptions: [],
       matchOk: false,
       matchHint: '',
+      workshopHint: '',
+      workshopDeptId: undefined,
       rules: {
-        subSystemId: [{ required: true, message: '请选择外部系统', trigger: 'change' }],
+        subSystemId: [{ required: true, message: '请选择业务系统', trigger: 'change' }],
         username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }]
       }
     }
@@ -197,11 +223,9 @@ export default {
     isCreateMode() {
       return !this.recordId
     },
-    /** 从主用户详情开通：只挂接同名子系统用户 */
     isBindMode() {
       return this.isCreateMode && !!this.mainUserId
     },
-    /** 挂接流程中：未匹配成功前锁定姓名；匹配后可改车间班组角色等 */
     identityLocked() {
       return this.isBindMode && !this.matchOk
     },
@@ -211,12 +235,12 @@ export default {
     },
     dialogTitle() {
       if (this.isBindMode) {
-        return '开通外部系统访问'
+        return '开通业务系统访问'
       }
       if (this.isCreateMode) {
-        return '添加外部系统用户'
+        return '添加业务系统用户'
       }
-      return this.clientName ? `修改外部系统用户 - ${this.clientName}` : '修改外部系统用户'
+      return this.clientName ? `修改业务系统用户 - ${this.clientName}` : '修改业务系统用户'
     }
   },
   watch: {
@@ -264,16 +288,56 @@ export default {
       this.roleOptions = []
       this.postOptions = []
       this.teamOptions = []
+      this.workshopOptions = []
       this.menuPageOptions = []
       this.matchOk = false
       this.matchHint = ''
+      this.workshopHint = ''
+      this.workshopDeptId = undefined
       if (this.$refs.form) {
         this.$refs.form.clearValidate()
       }
     },
+    workshopOptionLabel(item) {
+      const name = item.workshopName || '车间'
+      const code = item.workshopCode || ''
+      const dept = item.deptName ? (' / ' + item.deptName) : ''
+      return name + '（' + code + '）' + dept
+    },
     loadClientList() {
-      return getSubSystemClientSimpleList().then(res => {
+      return getSubSystemClientSimpleList(true).then(res => {
         this.clientList = res.data || []
+      })
+    },
+    loadWorkshopOptions(subSystemId) {
+      if (!subSystemId) {
+        this.workshopOptions = []
+        return Promise.resolve()
+      }
+      return getSubSystemWorkshopSimpleList(subSystemId).then(res => {
+        this.workshopOptions = res.data || []
+        if (this.workshopOptions.length === 0) {
+          this.workshopHint = '暂无车间对照，请先在「车间对照」中维护'
+        }
+      }).catch(() => {
+        this.workshopOptions = []
+        this.workshopHint = '车间对照加载失败'
+      })
+    },
+    loadTeamOptions(subSystemId, deptId) {
+      if (!subSystemId) {
+        this.teamOptions = []
+        return Promise.resolve()
+      }
+      return getSubSystemTeamSimpleList(subSystemId, deptId || undefined).then(res => {
+        const list = res.data || []
+        if (list.length > 0 || !deptId) {
+          this.teamOptions = list
+          return
+        }
+        return getSubSystemTeamSimpleList(subSystemId).then(allRes => {
+          this.teamOptions = allRes.data || []
+        })
       })
     },
     loadSubOptions(subSystemId) {
@@ -281,23 +345,104 @@ export default {
         this.roleOptions = []
         this.postOptions = []
         this.teamOptions = []
+        this.workshopOptions = []
         this.menuPageOptions = []
         return Promise.resolve()
       }
       return Promise.all([
         getSubSystemRoleSimpleList(subSystemId).then(res => { this.roleOptions = res.data || [] }),
         getSubSystemPostSimpleList(subSystemId).then(res => { this.postOptions = res.data || [] }),
-        getSubSystemTeamSimpleList(subSystemId).then(res => { this.teamOptions = res.data || [] })
-      ])
+        this.loadWorkshopOptions(subSystemId)
+      ]).then(() => this.reloadTeamsForCurrentWorkshop(subSystemId))
+    },
+    reloadTeamsForCurrentWorkshop(subSystemId) {
+      const deptId = this.workshopDeptId || this.mainUserDeptId
+      return this.loadTeamOptions(subSystemId, deptId)
+    },
+    /** 历史手工录入的车间编号若不在对照中，补一条可选项，避免下拉空白 */
+    ensureWorkshopOption(workshopCode) {
+      if (!workshopCode) {
+        return
+      }
+      const exists = (this.workshopOptions || []).some(w => w.workshopCode === workshopCode)
+      if (exists) {
+        return
+      }
+      this.workshopOptions = (this.workshopOptions || []).concat([{
+        workshopCode,
+        workshopName: workshopCode + '（未在对照中）',
+        deptId: undefined,
+        deptName: undefined
+      }])
+    },
+    /**
+     * 同步车间选中与班组过滤。
+     * clearTeam=true 表示用户主动改车间；加载已有数据时不要清班组。
+     */
+    syncWorkshopSelection(workshopCode, clearTeam) {
+      this.ensureWorkshopOption(workshopCode)
+      const hit = (this.workshopOptions || []).find(w => w.workshopCode === workshopCode)
+      this.form.workshopId = workshopCode || undefined
+      this.workshopDeptId = hit ? hit.deptId : undefined
+      if (clearTeam) {
+        this.form.teamId = undefined
+      }
+      if (hit && hit.deptId) {
+        this.workshopHint = '已选车间对照：' + this.workshopOptionLabel(hit)
+      } else if (workshopCode && hit && !hit.deptId) {
+        this.workshopHint = '该车间编号不在当前对照中，建议改选正式对照项'
+      } else if (!workshopCode) {
+        this.workshopHint = this.workshopOptions.length
+          ? '请从车间对照中选择车间'
+          : '暂无车间对照，请先在「车间对照」中维护'
+      }
+      return this.reloadTeamsForCurrentWorkshop(this.form.subSystemId)
+    },
+    handleWorkshopChange(workshopCode) {
+      this.syncWorkshopSelection(workshopCode, true)
+    },
+    /** 优先保留已有车间；否则按主用户归属部门从对照默认选中 */
+    preferWorkshopFromDept(subSystemId, preferExisting) {
+      const existing = preferExisting ? this.form.workshopId : undefined
+      if (!subSystemId) {
+        return Promise.resolve()
+      }
+      if (existing) {
+        return this.syncWorkshopSelection(existing, false)
+      }
+      if (!this.mainUserDeptId) {
+        this.workshopHint = this.workshopOptions.length
+          ? '请从车间对照中选择车间'
+          : '暂无车间对照，请先在「车间对照」中维护'
+        return this.reloadTeamsForCurrentWorkshop(subSystemId)
+      }
+      return getSubSystemWorkshopByDept(subSystemId, this.mainUserDeptId).then(res => {
+        const data = res.data
+        if (data && data.workshopCode) {
+          return this.syncWorkshopSelection(data.workshopCode, true).then(() => {
+            this.workshopHint = '已按主用户归属部门自动选中车间对照'
+          })
+        }
+        this.workshopHint = '该归属部门未维护车间对照，请从下拉选择或先维护对照'
+        return this.reloadTeamsForCurrentWorkshop(subSystemId)
+      }).catch(() => {
+        this.workshopHint = '车间对照加载失败，请从下拉选择'
+        return this.reloadTeamsForCurrentWorkshop(subSystemId)
+      })
     },
     handleSubSystemChange(subSystemId) {
       this.form.teamId = undefined
       this.form.postIds = []
       this.form.roleIds = []
       this.form.homeMenuId = undefined
+      this.form.workshopId = undefined
+      this.workshopDeptId = undefined
+      this.workshopHint = ''
       this.matchOk = false
       this.matchHint = ''
       this.loadSubOptions(subSystemId).then(() => {
+        return this.preferWorkshopFromDept(subSystemId, false)
+      }).then(() => {
         if (this.isBindMode) {
           return this.matchRosterUser(subSystemId)
         }
@@ -308,28 +453,27 @@ export default {
       const username = (this.portalUsername || '').trim()
       if (!subSystemId || !username) {
         this.matchOk = false
-        this.matchHint = '缺少主用户登录名，无法匹配子系统用户'
+        this.matchHint = '缺少主用户登录名，无法匹配业务系统用户'
         return Promise.resolve()
       }
       return getSubSystemUserByUsername(subSystemId, username).then(res => {
         const data = res.data
         if (!data || !data.id) {
           this.matchOk = false
-          this.matchHint = `子系统中不存在同名用户「${username}」，请先在外部系统用户中导入或新增`
+          this.matchHint = `业务系统中不存在同名用户「${username}」，请先在业务系统用户中导入或新增`
           this.form.username = username
           this.form.nickname = undefined
-          this.form.workshopId = undefined
           this.form.teamId = undefined
           this.form.id = undefined
-          return
+          return this.preferWorkshopFromDept(subSystemId, false)
         }
         this.matchOk = true
-        this.matchHint = `已匹配子系统用户「${data.username}」，确认后写入 main_user_id；可同时修改车间、班组、岗位、角色等`
+        this.matchHint = `已匹配业务系统用户「${data.username}」，确认后写入关联；可同时修改车间、班组、岗位、角色等`
         this.applyRosterToForm(data)
-        return this.loadHomeMenuOptions()
+        return this.preferWorkshopFromDept(subSystemId, !!data.workshopId).then(() => this.loadHomeMenuOptions())
       }).catch(() => {
         this.matchOk = false
-        this.matchHint = '匹配子系统用户失败'
+        this.matchHint = '匹配业务系统用户失败'
       })
     },
     applyRosterToForm(data) {
@@ -344,6 +488,8 @@ export default {
       this.form.remark = data.remark
       this.form.roleIds = data.roleIds || []
       this.form.postIds = data.postIds || []
+      this.workshopHint = ''
+      this.workshopDeptId = undefined
     },
     loadHomeMenuOptions() {
       const subSystemId = this.form.subSystemId
@@ -402,7 +548,7 @@ export default {
         return this.loadSubOptions(data.subSystemId).then(() => {
           this.applyRosterToForm(data)
           this.form.mainUserId = data.mainUserId
-          return this.loadHomeMenuOptions()
+          return this.preferWorkshopFromDept(data.subSystemId, !!data.workshopId).then(() => this.loadHomeMenuOptions())
         })
       }).catch(() => {
         this.dialogVisible = false
@@ -410,11 +556,11 @@ export default {
     },
     submitForm() {
       if (this.isCreateMode && this.availableClientList.length === 0) {
-        this.$modal.msgWarning('当前用户已关联全部外部系统')
+        this.$modal.msgWarning('当前用户已关联全部业务系统')
         return
       }
       if (this.isBindMode && !this.matchOk) {
-        this.$modal.msgWarning(this.matchHint || '请先匹配到子系统同名用户')
+        this.$modal.msgWarning(this.matchHint || '请先匹配到业务系统同名用户')
         return
       }
       this.$refs.form.validate(valid => {
@@ -444,3 +590,12 @@ export default {
   }
 }
 </script>
+
+<style scoped>
+.form-tip {
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 4px;
+}
+</style>

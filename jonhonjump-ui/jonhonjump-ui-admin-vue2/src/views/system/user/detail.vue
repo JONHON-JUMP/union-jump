@@ -26,7 +26,7 @@
 
     <el-card shadow="never" class="user-detail-card">
       <div slot="header" class="user-detail-card__header">
-        <span>外部系统信息</span>
+        <span>业务系统信息</span>
         <el-button
           type="primary"
           plain
@@ -34,13 +34,13 @@
           size="mini"
           @click="handleAddSubSystemUser"
           v-hasPermi="['sub-system:user:create']"
-        >添加外部系统</el-button>
+        >添加业务系统</el-button>
       </div>
-      <el-table :data="subSystemList" border empty-text="暂无关联外部系统">
-        <el-table-column label="外部系统名称" prop="clientName" min-width="160" :show-overflow-tooltip="true" />
+      <el-table :data="subSystemList" border empty-text="暂无关联业务系统">
+        <el-table-column label="业务系统名称" prop="clientName" min-width="160" :show-overflow-tooltip="true" />
         <el-table-column label="用户名" prop="username" width="110" :show-overflow-tooltip="true" />
         <el-table-column label="用户姓名" prop="nickname" width="100" :show-overflow-tooltip="true" />
-        <el-table-column label="车间编号" prop="workshopId" width="100" :show-overflow-tooltip="true" />
+        <el-table-column label="车间" prop="workshopId" width="120" :show-overflow-tooltip="true" />
         <el-table-column label="班组编码" prop="teamId" width="110" :show-overflow-tooltip="true" />
         <el-table-column label="班组名称" prop="teamName" width="120" :show-overflow-tooltip="true" />
         <el-table-column label="岗位" prop="postNames" width="120" :show-overflow-tooltip="true" />
@@ -87,6 +87,7 @@
       :record-id="subSystemEditId"
       :main-user-id="subSystemEditMainUserId"
       :portal-username="user.username"
+      :main-user-dept-id="user.deptId"
       :exclude-sub-system-ids="linkedSubSystemIds"
       :client-name="subSystemEditClientName"
       @success="loadSubSystemList"
@@ -190,7 +191,7 @@ export default {
       if (!row || !row.id) {
         return
       }
-      this.$modal.confirm('是否确认删除该外部系统关联？').then(() => {
+      this.$modal.confirm('是否确认删除该业务系统关联？').then(() => {
         return deleteSubSystemUser(row.id)
       }).then(() => {
         this.$modal.msgSuccess('删除成功')
