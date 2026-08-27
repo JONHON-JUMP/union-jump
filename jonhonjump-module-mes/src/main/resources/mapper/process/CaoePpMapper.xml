@@ -19,7 +19,7 @@
 
     <select id="queryProcessState" resultType="java.lang.String">
         SELECT pp_state FROM CAOE_PP
-        WHERE PP_NUMBER = #{accno} AND PP_VERSION = #{version}
+        WHERE PP_NUMBER = #{accno} AND PP_VERSION = #{version} AND ROWNUM = 1
     </select>
 
     <select id="queryChildOperations"
