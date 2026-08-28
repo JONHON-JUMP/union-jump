@@ -43,15 +43,13 @@ public class RecipeChangeRetryServiceImpl implements RecipeChangeRetryService {
     private ObjectMapper objectMapper;
 
     /**
-     * 扫描发送失败通知并执行自动重试或转待人工处理
+     * 扫描发送失败通知并持续执行自动重试。
+     *
+     * 发送 MQ 失败不再受最大重试次数限制；retryCount 仅保留为审计统计字段。
      */
     @Override
     public void executeScheduledRetry() {
         for (RecipeChangeNoticeDO recipeChangeNotice : recipeChangeNoticeMapper.selectSendFailedNotices()) {
-            if (recipeChangeNotice.getRetryCount() >= recipeChangeNotice.getMaxRetry()) {
-                markPendingManual(recipeChangeNotice);
-                continue;
-            }
             recipeChangeNoticeDispatchService.dispatchRecipeChangeNotice(recipeChangeNotice.getId(), RecipeChangeOperationTypeEnum.SCHEDULED_RETRY.getType(), RecipeChangeTriggerTypeEnum.SYSTEM.getType(), JUMP, true);
         }
     }

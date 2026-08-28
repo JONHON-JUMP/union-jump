@@ -38,9 +38,9 @@
       <el-table-column label="MPM通知ID" prop="notifyId" />
       <el-table-column label="车间" prop="workshopCode" />
       <el-table-column label="当前状态" prop="statusName" />
-      <el-table-column label="自动重试次数(手动触发不累计次数)" >
+      <el-table-column label="自动重试次数" >
         <template slot-scope="scope">
-          {{ scope.row.retryCount }}/{{ scope.row.maxRetry }}
+          {{ scope.row.retryCount }}
         </template>
       </el-table-column>
       <el-table-column label="创建时间" prop="createTime" >

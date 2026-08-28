@@ -14,6 +14,8 @@ import cn.jonhon.jump.module.rm.recipechange.enums.RecipeChangeTriggerTypeEnum;
 import cn.jonhon.jump.module.rm.recipechange.mq.message.RecipeChangeMessage;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.DirectExchange;
 import org.springframework.amqp.core.Queue;
@@ -33,6 +35,8 @@ import java.util.concurrent.TimeUnit;
  */
 @Service
 public class RecipeChangeNoticeDispatchServiceImpl implements RecipeChangeNoticeDispatchService {
+
+    private static final Logger log = LoggerFactory.getLogger(RecipeChangeNoticeDispatchServiceImpl.class);
 
     /**
      * JUMP 系统标识，用于分发链路创建的日志
@@ -133,6 +137,9 @@ public class RecipeChangeNoticeDispatchServiceImpl implements RecipeChangeNotice
             // 仅在收到确认后更新主状态及全链路日志
             recordSendSuccess(notice, message, routingKey, operationType, triggerType, operator);
         } catch (Exception exception) {
+            log.error("工艺变更 RabbitMQ 分发失败，noticeId={}, notifyId={}, workshopCode={}, operationType={}, triggerType={}, retryCount={}",
+                    notice.getId(), notice.getNotifyId(), notice.getWorkshopCode(), operationType, triggerType,
+                    notice.getRetryCount(), exception);
             // 发送异常、超时、未确认和无法路由都会在此统一落为发送失败
             recordSendFailure(notice, message, exception, operationType, triggerType, operator, increaseRetryCount);
         }
