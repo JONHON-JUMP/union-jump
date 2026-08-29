@@ -124,14 +124,6 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     }
 
     @Override
-    public List<Long> getEnabledSubSystemIds() {
-        return subSystemApiConfigMapper.selectList().stream()
-                .filter(this::isCreateEndpointEnabled)
-                .map(SubSystemApiConfigDO::getSubSystemId)
-                .collect(Collectors.toList());
-    }
-
-    @Override
     public String testConnection(Long id) {
         SubSystemApiConfigDO config = validateApiConfigExists(id);
         try {
@@ -152,14 +144,15 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
             throw exception(SUB_SYSTEM_API_ENDPOINT_DISABLED, reqVO.getApiKey());
         }
         Object body = parseTestBody(reqVO.getRequestBody());
+        boolean isAuthKey = "auth".equalsIgnoreCase(StrUtil.nullToEmpty(reqVO.getApiKey()).trim());
         // auth 接口：测试体可覆盖 token；默认用 authConfig.userCode 生成
-        if ("auth".equalsIgnoreCase(StrUtil.nullToEmpty(reqVO.getApiKey()).trim())) {
+        if (isAuthKey) {
             body = enrichAuthTestBody(config, body);
         }
         ExternalApiHttpClient httpClient = new ExternalApiHttpClient(
                 config.getBaseUrl(), config.getConnectTimeoutMs(), config.getReadTimeoutMs());
-        Map<String, String> headers = "auth".equalsIgnoreCase(StrUtil.nullToEmpty(reqVO.getApiKey()).trim())
-                ? null : buildAuthHeaders(config);
+        // 与真实调用一致：该接口声明不携带会话时不带 Cookie 头
+        Map<String, String> headers = isAuthKey ? null : buildAuthHeaders(config, endpoint);
         SubSystemApiTestRespVO resp = new SubSystemApiTestRespVO();
         resp.setUrl(endpoint.fullUrl(config.getBaseUrl()));
         resp.setMethod(endpoint.methodUpper());
@@ -281,7 +274,11 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         }
     }
 
-    private Map<String, String> buildAuthHeaders(SubSystemApiConfigDO config) {
+    private Map<String, String> buildAuthHeaders(SubSystemApiConfigDO config, EndpointSpec endpoint) {
+        // 接口声明不携带会话 Cookie（withSession=false）→ 裸调
+        if (endpoint != null && !endpoint.isWithSession()) {
+            return null;
+        }
         if (!"cookie_sso".equals(config.getAuthType()) || StrUtil.isBlank(config.getAuthConfig())) {
             return null;
         }

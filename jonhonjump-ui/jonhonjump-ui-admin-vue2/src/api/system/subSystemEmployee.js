@@ -34,19 +34,11 @@ export function getSubSystemEmployeeTeamCombo(subSystemId, workshopCode) {
 export function getSubSystemEmployeeDeleteTip(subSystemId) {
   return request({ url: '/system/sub-system-employee/delete-tip?subSystemId=' + subSystemId, method: 'get' })
 }
-// 从主系统用户创建子系统人员（用户管理页联动）
-export function createSubSystemEmployeeFromMainUser(data) {
-  return request({ url: '/system/sub-system-employee/create-from-main-user', method: 'post', data })
+// 可选「新增人员」接口目标列表（接口管理中 create 已启用；与花名册系统解耦）
+export function getSubSystemRegisterableApis() {
+  return request({ url: '/system/sub-system-employee/registerable-apis', method: 'get' })
 }
-// 已配置且启用人员接口的系统列表（用户创建联动下拉）
-export function getSubSystemEmployeeEnabledSystems() {
-  return request({ url: '/system/sub-system-employee/enabled-systems', method: 'get' })
-}
-// 联动下拉：按部门过滤车间
-export function getSubSystemEmployeeWorkshopOptions(subSystemId, deptId) {
-  return request({
-    url: '/system/sub-system-employee/workshop-options',
-    method: 'get',
-    params: { subSystemId, deptId }
-  })
+// 花名册人员手动调「新增人员」接口注册（成功自动置已注册，逐项返回结果）
+export function registerSubSystemEmployee(data) {
+  return request({ url: '/system/sub-system-employee/register-employee', method: 'post', data })
 }

@@ -224,6 +224,24 @@ public class SubSystemUsersController {
 
 
 
+    @PutMapping("/update-register-status")
+
+    @Operation(summary = "修改人员接口注册状态（0未注册 1已注册；人工在对方系统建过人可标已注册，改回未注册可重推）")
+
+    @PreAuthorize("@ss.hasPermission('sub-system:user:update')")
+
+    public CommonResult<Boolean> updateSubSystemUserRegisterStatus(@RequestParam("id") Long id,
+
+                                                                   @RequestParam("employeeRegistered") String employeeRegistered) {
+
+        subSystemUsersService.updateSubSystemUserRegisterStatus(id, employeeRegistered);
+
+        return success(true);
+
+    }
+
+
+
     @GetMapping("/post-simple-list")
     @Operation(summary = "获得外部系统岗位精简列表")
     @PreAuthorize("@ss.hasPermission('sub-system:user:list')")

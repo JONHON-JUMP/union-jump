@@ -36,6 +36,9 @@ public class SubSystemUsersPageReqVO extends PageParam {
     @Schema(description = "展示状态：unlinked未关联 / 0正常 / 1禁用（未关联按 main_user_id 为空判断）", example = "0")
     private String status;
 
+    @Schema(description = "人员接口注册状态：0未注册 / 1已注册", example = "0")
+    private String employeeRegistered;
+
     @Schema(description = "创建时间")
     @DateTimeFormat(pattern = FORMAT_YEAR_MONTH_DAY_HOUR_MINUTE_SECOND)
     private LocalDateTime[] createTime;

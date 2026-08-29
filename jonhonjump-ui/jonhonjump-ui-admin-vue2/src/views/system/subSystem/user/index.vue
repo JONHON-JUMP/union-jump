@@ -77,6 +77,12 @@
               <el-option label="禁用" value="1" />
             </el-select>
           </el-form-item>
+          <el-form-item label="接口注册" prop="employeeRegistered">
+            <el-select v-model="queryParams.employeeRegistered" placeholder="请选择" clearable style="width: 130px">
+              <el-option label="未注册" value="0" />
+              <el-option label="已注册" value="1" />
+            </el-select>
+          </el-form-item>
           <el-form-item>
             <el-button type="primary" icon="el-icon-search" @click="handleQuery">搜索</el-button>
             <el-button icon="el-icon-refresh" @click="resetQuery">重置</el-button>
@@ -103,6 +109,17 @@
                 v-hasPermi="['sub-system:user:delete']"
               >批量删除</el-button>
             </el-col>
+            <el-col :span="1.5">
+              <el-button
+                type="warning"
+                plain
+                icon="el-icon-position"
+                size="mini"
+                :disabled="checkedIds.length === 0"
+                @click="handleRegisterBatch"
+                v-hasPermi="['sub-system:employee:create', 'sub-system:user:update']"
+              >批量注册</el-button>
+            </el-col>
             <right-toolbar :showSearch.sync="showSearch" @queryTable="getList" />
           </el-row>
 
@@ -122,14 +139,30 @@
                 </el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="接口注册" align="center" width="90">
+              <template v-slot="scope">
+                <el-tag
+                  :type="scope.row.employeeRegistered === '1' ? 'success' : 'info'"
+                  size="mini"
+                  style="cursor: pointer"
+                  title="点击切换已注册/未注册"
+                  @click.native="handleToggleRegister(scope.row)"
+                >
+                  {{ scope.row.employeeRegistered === '1' ? '已注册' : '未注册' }}
+                </el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="备注" prop="remark" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="创建时间" align="center" prop="createTime" width="180">
               <template v-slot="scope">
                 <span>{{ parseTime(scope.row.createTime) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" align="center" width="200" fixed="right" class-name="small-padding fixed-width">
+            <el-table-column label="操作" align="center" width="240" fixed="right" class-name="small-padding fixed-width">
               <template v-slot="scope">
+                <el-button size="mini" type="text" icon="el-icon-position" @click="handleRegister(scope.row)"
+                           :disabled="scope.row.employeeRegistered === '1'"
+                           v-hasPermi="['sub-system:employee:create', 'sub-system:user:update']">注册</el-button>
                 <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
                            v-hasPermi="['sub-system:user:update']">修改</el-button>
                 <el-button size="mini" type="text" icon="el-icon-circle-check" @click="handleRole(scope.row)"
@@ -229,6 +262,15 @@
             未挂接主用户时，列表展示为「未关联」
           </div>
         </el-form-item>
+        <el-form-item label="接口注册" prop="employeeRegistered">
+          <el-radio-group v-model="form.employeeRegistered">
+            <el-radio label="0">未注册</el-radio>
+            <el-radio label="1">已注册</el-radio>
+          </el-radio-group>
+          <div class="form-tip">
+            标记是否已在对方系统建人（正常由「注册」调接口成功后自动置已注册）；人工在对方系统建过人可标已注册，改回未注册后可在列表重新推送
+          </div>
+        </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input v-model="form.remark" type="textarea" placeholder="请输入备注" />
         </el-form-item>
@@ -298,6 +340,69 @@
         <el-button @click="upload.open = false">取 消</el-button>
       </div>
     </el-dialog>
+
+    <!-- 手动调「新增人员」接口注册（接口目标与花名册系统解耦；逐项返回结果） -->
+    <el-dialog
+      title="调用「新增人员」接口注册"
+      :visible.sync="registerOpen"
+      width="640px"
+      append-to-body
+      :close-on-click-modal="!registerSubmitting"
+    >
+      <el-form label-width="110px">
+        <el-form-item label="花名册系统">
+          <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
+        </el-form-item>
+        <el-form-item label="新增人员接口">
+          <el-select
+            v-model="registerForm.apiSubSystemId"
+            placeholder="请选择接口目标"
+            filterable
+            style="width: 100%"
+            :disabled="registerSubmitting || registerResults.length > 0"
+          >
+            <el-option
+              v-for="item in registerApis"
+              :key="item.subSystemId"
+              :label="item.systemName"
+              :value="item.subSystemId"
+            />
+          </el-select>
+          <div v-if="!registerApis.length" class="form-tip" style="color:#f56c6c">
+            没有已启用「新增人员」的接口目标，请先在【接口管理】接入并启用
+          </div>
+          <div v-else class="form-tip">接口来自【接口管理】中「新增」用途已启用的系统，可与左侧花名册系统不同</div>
+        </el-form-item>
+        <el-form-item label="待注册用户">
+          <div class="register-users">
+            <div v-for="u in registerForm.users" :key="u.id" class="register-user-row">
+              <span>{{ u.username }}（{{ u.nickname || '-' }}）</span>
+              <el-tag v-if="u.employeeRegistered === '1'" size="mini" type="info">已注册，将跳过</el-tag>
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item v-if="registerResults.length" label="注册结果">
+          <div class="register-users">
+            <div v-for="r in registerResults" :key="r.id" class="register-user-row">
+              <span>{{ r.username || ('#' + r.id) }}</span>
+              <el-tag size="mini" :type="r.success ? 'success' : 'danger'">{{ r.success ? '成功' : '失败' }}</el-tag>
+              <span v-if="r.message" class="register-result-msg">{{ r.message }}</span>
+            </div>
+          </div>
+        </el-form-item>
+      </el-form>
+      <div slot="footer" class="dialog-footer">
+        <el-button
+          v-if="!registerResults.length"
+          type="primary"
+          :loading="registerSubmitting"
+          :disabled="!registerForm.apiSubSystemId"
+          @click="submitRegister"
+        >调接口注册</el-button>
+        <el-button v-else type="primary" @click="registerOpen = false">关 闭</el-button>
+        <el-button v-if="!registerResults.length" @click="registerOpen = false">取 消</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -318,8 +423,13 @@ import {
   getSubSystemUserPage,
   getSubSystemUserRoleIds,
   importSubSystemUserTemplate,
-  updateSubSystemUser
+  updateSubSystemUser,
+  updateSubSystemUserRegisterStatus
 } from '@/api/system/subSystemUsers'
+import {
+  getSubSystemRegisterableApis,
+  registerSubSystemEmployee
+} from '@/api/system/subSystemEmployee'
 import { getSubSystemWorkshopSimpleList } from '@/api/system/subSystemWorkshop'
 import { getUser } from '@/api/system/user'
 import { getBaseHeader } from '@/utils/request'
@@ -368,7 +478,17 @@ export default {
         workshopId: undefined,
         nickname: undefined,
         teamName: undefined,
-        status: undefined
+        status: undefined,
+        employeeRegistered: undefined
+      },
+      // 手动调「新增人员」接口注册
+      registerOpen: false,
+      registerSubmitting: false,
+      registerApis: [],
+      registerResults: [],
+      registerForm: {
+        apiSubSystemId: undefined,
+        users: []
       },
       rules: {
         username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }]
@@ -396,6 +516,7 @@ export default {
   },
   created() {
     this.loadClientList()
+    this.loadRegisterableApis()
   },
   methods: {
     formatErpNos(erpNos) {
@@ -546,6 +667,7 @@ export default {
       this.queryParams.nickname = undefined
       this.queryParams.teamName = undefined
       this.queryParams.status = undefined
+      this.queryParams.employeeRegistered = undefined
       this.queryParams.pageNo = 1
       this.listSubSystemId = item.id
       this.getList()
@@ -591,6 +713,7 @@ export default {
         teamId: undefined,
         homeMenuId: undefined,
         status: '0',
+        employeeRegistered: '0',
         remark: undefined,
         roleIds: [],
         postIds: []
@@ -667,6 +790,7 @@ export default {
             teamId: res.data.teamId,
             homeMenuId: res.data.homeMenuId,
             status: res.data.status || '0',
+            employeeRegistered: res.data.employeeRegistered || '0',
             remark: res.data.remark,
             roleIds: res.data.roleIds || [],
             postIds: res.data.postIds || []
@@ -758,6 +882,75 @@ export default {
     },
     handleRowCheckboxChange(selection) {
       this.checkedIds = selection.map(item => item.id)
+    },
+    /** 可选「新增人员」接口目标（接口管理中 create 已启用；与花名册系统解耦） */
+    loadRegisterableApis() {
+      return getSubSystemRegisterableApis().then(res => {
+        this.registerApis = res.data || []
+        if (!this.registerForm.apiSubSystemId && this.registerApis.length === 1) {
+          this.registerForm.apiSubSystemId = this.registerApis[0].subSystemId
+        }
+      }).catch(() => {
+        this.registerApis = []
+      })
+    },
+    /** 列表内点击切换 已注册/未注册（人工修正标记用） */
+    handleToggleRegister(row) {
+      const next = row.employeeRegistered === '1' ? '0' : '1'
+      const action = next === '1' ? '已注册（人工确认已在对方系统建人，避免重复推送）' : '未注册（之后可在列表重新推送）'
+      this.$modal.confirm('将用户 ' + row.username + ' 的接口注册状态改为【' + action + '】？').then(() => {
+        return updateSubSystemUserRegisterStatus(row.id, next)
+      }).then(() => {
+        this.$modal.msgSuccess('修改成功')
+        this.getList()
+      }).catch(() => {})
+    },
+    /** 行内「注册」：单个用户调「新增人员」接口 */
+    handleRegister(row) {
+      this.openRegisterDialog([row])
+    },
+    /** 工具栏「批量注册」：勾选多个用户 */
+    handleRegisterBatch() {
+      const rows = this.userList.filter(item => this.checkedIds.indexOf(item.id) !== -1)
+      if (!rows.length) {
+        this.$modal.msgWarning('请先勾选要注册的用户')
+        return
+      }
+      this.openRegisterDialog(rows)
+    },
+    openRegisterDialog(rows) {
+      if (!this.registerApis.length) {
+        this.loadRegisterableApis().then(() => {
+          if (!this.registerApis.length) {
+            this.$modal.msgWarning('没有已启用「新增人员」的接口目标，请先在【接口管理】接入并启用')
+          }
+        })
+      }
+      this.registerResults = []
+      this.registerForm.users = rows
+      this.registerOpen = true
+    },
+    submitRegister() {
+      if (!this.registerForm.apiSubSystemId) {
+        this.$modal.msgWarning('请选择「新增人员」接口目标')
+        return
+      }
+      this.registerSubmitting = true
+      registerSubSystemEmployee({
+        apiSubSystemId: this.registerForm.apiSubSystemId,
+        ids: this.registerForm.users.map(u => u.id)
+      }).then(res => {
+        this.registerResults = res.data || []
+        const failCount = this.registerResults.filter(r => !r.success).length
+        if (failCount) {
+          this.$modal.msgError('注册完成：' + (this.registerResults.length - failCount) + ' 成功 / ' + failCount + ' 失败')
+        } else {
+          this.$modal.msgSuccess('注册完成')
+        }
+        this.getList()
+      }).finally(() => {
+        this.registerSubmitting = false
+      })
     }
   }
 }
@@ -774,6 +967,30 @@ export default {
   font-size: 12px;
   line-height: 1.4;
   margin-top: 4px;
+}
+
+.register-users {
+  width: 100%;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  padding: 6px 12px;
+}
+
+.register-user-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
+  font-size: 13px;
+  color: #303133;
+}
+
+.register-result-msg {
+  color: #909399;
+  font-size: 12px;
+  word-break: break-all;
 }
 
 .sub-system-item {

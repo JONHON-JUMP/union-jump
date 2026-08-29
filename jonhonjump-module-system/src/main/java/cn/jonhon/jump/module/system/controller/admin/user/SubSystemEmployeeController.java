@@ -2,12 +2,12 @@ package cn.jonhon.jump.module.system.controller.admin.user;
 
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeCreateFromUserReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeePageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeSaveReqVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEnabledSystemVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopSimpleRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemRegisterableApiRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterRespVO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemTeamComboDTO;
 import cn.jonhon.jump.module.system.service.user.SubSystemEmployeeService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -84,28 +84,18 @@ public class SubSystemEmployeeController {
         return success(subSystemEmployeeService.getDeleteTip(subSystemId));
     }
 
-    @PostMapping("/create-from-main-user")
-    @Operation(summary = "从主系统用户创建子系统人员（用户管理页联动：JUMP 用户已建好后调用）")
-    @PreAuthorize("@ss.hasAnyPermissions('system:user:create', 'sub-system:employee:create')")
-    public CommonResult<Boolean> createFromMainUser(@Valid @RequestBody SubSystemEmployeeCreateFromUserReqVO reqVO) {
-        subSystemEmployeeService.createFromMainUser(reqVO);
-        return success(true);
+    @GetMapping("/registerable-apis")
+    @Operation(summary = "可选「新增人员」接口目标列表（接口管理中 create 已启用；与花名册系统解耦）")
+    @PreAuthorize("@ss.hasAnyPermissions('sub-system:user:list', 'sub-system:employee:list')")
+    public CommonResult<List<SubSystemRegisterableApiRespVO>> getRegisterableApis() {
+        return success(subSystemEmployeeService.getRegisterableApis());
     }
 
-    @GetMapping("/enabled-systems")
-    @Operation(summary = "外部系统列表（用户创建联动下拉）")
-    @PreAuthorize("@ss.hasAnyPermissions('system:user:query', 'system:user:create', 'sub-system:employee:list')")
-    public CommonResult<List<SubSystemEnabledSystemVO>> getEnabledSystems() {
-        return success(subSystemEmployeeService.getEnabledSystems());
-    }
-
-    @GetMapping("/workshop-options")
-    @Operation(summary = "车间下拉：来自外部车间管理，优先按部门映射")
-    @PreAuthorize("@ss.hasAnyPermissions('system:user:query', 'system:user:create', 'sub-system:workshop:list', 'sub-system:employee:list')")
-    public CommonResult<List<SubSystemWorkshopSimpleRespVO>> getWorkshopOptions(
-            @RequestParam(value = "subSystemId", required = false) Long subSystemId,
-            @RequestParam(value = "deptId", required = false) Long deptId) {
-        return success(subSystemEmployeeService.getWorkshopOptions(subSystemId, deptId));
+    @PostMapping("/register-employee")
+    @Operation(summary = "花名册人员手动调「新增人员」接口注册（成功自动置已注册；逐项返回结果）")
+    @PreAuthorize("@ss.hasAnyPermissions('sub-system:employee:create', 'sub-system:user:update')")
+    public CommonResult<List<SubSystemUserRegisterRespVO>> registerEmployee(@Valid @RequestBody SubSystemUserRegisterReqVO reqVO) {
+        return success(subSystemEmployeeService.registerEmployees(reqVO));
     }
 
 }

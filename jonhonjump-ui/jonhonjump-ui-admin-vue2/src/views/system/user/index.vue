@@ -226,59 +226,36 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <!-- 同步创建业务系统人员（仅新增时显示；调对方「新增人员」接口，可多选） -->
+        <!-- 登记子系统用户（仅新增时显示；纯本地花名册登记，不调外部接口，可多选） -->
         <el-row v-if="form.id === undefined">
           <el-col :span="24">
-            <el-form-item label="同步业务系统">
+            <el-form-item label="登记子系统">
               <el-checkbox v-model="syncSubSystem" @change="handleSyncChange">
-                同时调用业务系统「新增人员」
+                同时登记子系统用户
               </el-checkbox>
             </el-form-item>
           </el-col>
           <template v-if="syncSubSystem">
             <el-col :span="24">
-              <el-form-item label="业务系统">
+              <el-form-item label="子系统">
                 <el-select
                   v-model="syncForm.subSystemIds"
                   multiple
                   collapse-tags
-                  placeholder="可多选；选项来自接口管理中已启用「新增人员」的系统"
+                  placeholder="可多选；选项为已绑定门户的业务系统"
                   clearable
                   filterable
                   style="width: 100%"
-                  @change="resolveSyncWorkshops"
                 >
                   <el-option
                     v-for="item in syncSystemOptions"
                     :key="item.id"
-                    :label="syncSystemOptionLabel(item)"
+                    :label="item.name"
                     :value="item.id"
                   />
                 </el-select>
                 <div class="sync-hint">
-                  已绑定门户的系统会额外写入「外部用户管理」；仅接口目标（如 Camstar人员管理）只调对方新增人员，不写 JUMP 花名册。
-                </div>
-              </el-form-item>
-            </el-col>
-            <el-col :span="24">
-              <el-form-item label="所属部门">
-                <span v-if="!form.deptId" class="sync-workshop-text is-muted">请先选择归属部门</span>
-                <span v-else-if="!syncForm.subSystemIds || !syncForm.subSystemIds.length" class="sync-workshop-text is-muted">请先选择业务系统</span>
-                <div v-else class="sync-workshop-list">
-                  <div
-                    v-for="id in syncForm.subSystemIds"
-                    :key="id"
-                    class="sync-workshop-row"
-                  >
-                    <span class="sync-workshop-sys">{{ syncSystemName(id) }}</span>
-                    <span v-if="syncWorkshopMap[id]" class="sync-workshop-text">
-                      {{ syncWorkshopMap[id].workshopName }}
-                      <span class="sync-dept-code">部门编号 {{ syncWorkshopMap[id].workshopCode }}</span>
-                      <el-tag v-if="isPortalBound(id)" size="mini" type="success" class="sync-tag">写外部用户</el-tag>
-                      <el-tag v-else size="mini" type="info" class="sync-tag">仅接口</el-tag>
-                    </span>
-                    <span v-else class="sync-workshop-text is-empty">未维护车间对照，无法同步</span>
-                  </div>
+                  仅在 JUMP「外部用户管理」登记并关联该用户，不调用外部系统接口；车间按部门对照自动带出，角色与车间可在登记后于【子系统 → 用户管理】中调整。
                 </div>
               </el-form-item>
             </el-col>
@@ -360,11 +337,7 @@ import "@riophae/vue-treeselect/dist/vue-treeselect.css";
 
 import {listSimpleDepts} from "@/api/system/dept";
 import {listSimplePosts} from "@/api/system/post";
-import {
-  createSubSystemEmployeeFromMainUser,
-  getSubSystemEmployeeEnabledSystems
-} from "@/api/system/subSystemEmployee";
-import { getSubSystemWorkshopByDept } from "@/api/system/subSystemWorkshop";
+import { getSubSystemClientSimpleList } from "@/api/system/subSystemUsers";
 
 import {CommonStatusEnum} from "@/utils/constants";
 import {DICT_TYPE, getDictDatas} from "@/utils/dict";
@@ -406,14 +379,12 @@ export default {
       roleOptions: [],
       // 表单参数
       form: {},
-      // 同步创建子系统账号（新增时联动，可多选）
+      // 登记子系统用户（新增时联动，可多选；纯本地花名册，不调外部接口）
       syncSubSystem: false,
       syncForm: {
         subSystemIds: []
       },
       syncSystemOptions: [],
-      /** subSystemId → workshop 对照 */
-      syncWorkshopMap: {},
       defaultProps: {
         children: "children",
         label: "name"
@@ -498,12 +469,6 @@ export default {
     // 根据名称筛选部门树
     deptName(val) {
       this.$refs.tree.filter(val);
-    },
-    // 新增用户选了部门后：按部门刷新所选系统的车间对照
-    'form.deptId'() {
-      if (this.syncSubSystem) {
-        this.resolveSyncWorkshops()
-      }
     }
   },
   created() {
@@ -629,7 +594,6 @@ export default {
       };
       this.syncSubSystem = false;
       this.syncForm = { subSystemIds: [] };
-      this.syncWorkshopMap = {};
       this.resetForm("form");
     },
     /** 搜索按钮操作 */
@@ -711,107 +675,46 @@ export default {
               this.getList();
             });
           } else {
-            if (this.syncSubSystem) {
-              if (!this.syncForm.subSystemIds || !this.syncForm.subSystemIds.length) {
-                this.$modal.msgWarning("请选择要同步的业务系统");
-                return;
-              }
-              if (!this.form.deptId) {
-                this.$modal.msgWarning("请先选择归属部门，以便带出所属部门编号");
-                return;
-              }
-              const missing = this.syncForm.subSystemIds.filter(id => {
-                const w = this.syncWorkshopMap[id]
-                return !w || !w.workshopCode
-              })
-              if (missing.length) {
-                const names = missing.map(id => this.syncSystemName(id)).join('、')
-                this.$modal.msgWarning("以下系统未维护车间对照，不能同步：" + names);
-                return;
-              }
+            if (this.syncSubSystem
+                && (!this.syncForm.subSystemIds || !this.syncForm.subSystemIds.length)) {
+              this.$modal.msgWarning("请选择要登记的子系统");
+              return;
             }
-            addUser(this.form).then(response => {
+            // 勾选登记时随用户创建一并提交（后端同事务写入外部用户管理，不调外部接口）
+            addUser(Object.assign({}, this.form, {
+              subSystemIds: this.syncSubSystem ? this.syncForm.subSystemIds : []
+            })).then(() => {
               this.$modal.msgSuccess("新增成功");
               this.open = false;
               this.getList();
-              if (this.syncSubSystem) {
-                this.createToSubSystem(response.data);
-              }
             });
           }
         }
       });
     },
-    /** 勾选同步业务系统：拉取已启用「新增人员」接口的系统列表 */
+    /** 勾选登记子系统：拉取已绑定门户的业务系统列表 */
     handleSyncChange(val) {
       if (val) {
         this.loadSyncSystems();
-        this.resolveSyncWorkshops();
       } else {
         this.syncForm.subSystemIds = [];
-        this.syncWorkshopMap = {};
       }
     },
     loadSyncSystems() {
-      getSubSystemEmployeeEnabledSystems().then(res => {
+      getSubSystemClientSimpleList(true).then(res => {
         this.syncSystemOptions = res.data || [];
         if (this.syncSystemOptions.length === 0) {
-          this.$modal.msgWarning("没有已启用「新增人员」接口的业务系统。请先在【接口管理】接入并启用");
+          this.$modal.msgWarning("没有已绑定门户的业务系统。请先在【业务系统管理】绑定 OAuth 客户端");
           return;
         }
-        // 只有一个可同步系统时自动选中
+        // 只有一个可登记系统时自动选中
         if (this.syncSystemOptions.length === 1 && (!this.syncForm.subSystemIds || !this.syncForm.subSystemIds.length)) {
           this.syncForm.subSystemIds = [this.syncSystemOptions[0].id];
-          this.resolveSyncWorkshops();
         }
       }).catch(() => {
         this.syncSystemOptions = [];
         this.$modal.msgWarning("业务系统列表加载失败");
       });
-    },
-    syncSystemOptionLabel(item) {
-      if (!item) return ''
-      return item.portalBound ? (item.name + '（JUMP业务系统）') : (item.name + '（仅接口）')
-    },
-    syncSystemName(id) {
-      const hit = (this.syncSystemOptions || []).find(s => s.id === id)
-      return hit ? hit.name : ('系统#' + id)
-    },
-    isPortalBound(id) {
-      const hit = (this.syncSystemOptions || []).find(s => s.id === id)
-      return !!(hit && hit.portalBound)
-    },
-    /** 按所选系统 + 归属部门批量带出车间对照 */
-    resolveSyncWorkshops() {
-      const ids = this.syncForm.subSystemIds || []
-      const map = {}
-      if (!ids.length || !this.form.deptId) {
-        this.syncWorkshopMap = {}
-        return
-      }
-      const deptId = this.form.deptId
-      Promise.all(ids.map(id =>
-        getSubSystemWorkshopByDept(id, deptId).then(res => {
-          map[id] = res.data || null
-        }).catch(() => {
-          map[id] = null
-        })
-      )).then(() => {
-        this.syncWorkshopMap = Object.assign({}, map)
-        const missing = ids.filter(id => !map[id] || !map[id].workshopCode)
-        if (missing.length) {
-          const names = missing.map(id => this.syncSystemName(id)).join('、')
-          this.$modal.msgWarning("以下系统未维护车间对照：" + names)
-        }
-      })
-    },
-    createToSubSystem(userId) {
-      createSubSystemEmployeeFromMainUser({
-        userId: userId,
-        subSystemIds: this.syncForm.subSystemIds
-      }).then(() => {
-        this.$modal.msgSuccess("已按所选系统调用「新增人员」");
-      }).catch(() => {});
     },
     /** 提交按钮（角色权限） */
     submitRole: function() {
@@ -926,40 +829,6 @@ export default {
 <style scoped>
 .user-list-table ::v-deep .el-table__row {
   cursor: pointer;
-}
-.sync-workshop-text {
-  color: #303133;
-  line-height: 32px;
-}
-.sync-workshop-text.is-empty {
-  color: #f56c6c;
-}
-.sync-workshop-text.is-muted {
-  color: #909399;
-}
-.sync-workshop-list {
-  width: 100%;
-}
-.sync-workshop-row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-height: 28px;
-  margin-bottom: 4px;
-}
-.sync-workshop-sys {
-  min-width: 140px;
-  color: #606266;
-  font-weight: 500;
-}
-.sync-tag {
-  margin-left: 4px;
-}
-.sync-dept-code {
-  margin-left: 8px;
-  color: #909399;
-  font-size: 12px;
 }
 .sync-hint {
   color: #909399;

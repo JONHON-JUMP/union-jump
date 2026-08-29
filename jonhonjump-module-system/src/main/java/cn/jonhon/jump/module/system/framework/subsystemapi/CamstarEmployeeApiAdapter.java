@@ -62,7 +62,8 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         this.authUserCode = text(auth, "userCode", "");
         this.cookieName = text(auth, "cookieName", DEFAULT_COOKIE_NAME);
         this.authEndpoint = buildAuthEndpoint(auth);
-        if (StrUtil.isNotBlank(this.authUserCode)) {
+        // 会话关闭（enabled=false）：完全不带 Cookie、不重登；接口级 withSession=false 另行控制
+        if (this.authEndpoint.isEnabled() && StrUtil.isNotBlank(this.authUserCode)) {
             this.cookieValue = Base64.getEncoder()
                     .encodeToString(this.authUserCode.getBytes(StandardCharsets.UTF_8));
         }
@@ -149,7 +150,8 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
     // ===================== 私有方法 =====================
 
     /**
-     * 执行请求；若失败（HTTP 错误或业务 code!=200）且尚未重登过，则先激活会话重试一次。
+     * 执行请求；若失败（HTTP 错误或业务 code!=200）且该接口携带会话且尚未重登过，
+     * 则先激活会话重试一次（不携带会话的接口失败直接抛出）。
      */
     private void requireEnabled(EndpointSpec endpoint, String label) {
         if (endpoint == null || !endpoint.isEnabled()) {
@@ -177,7 +179,9 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         try {
             return doExecute(endpoint, body);
         } catch (ExternalApiException first) {
-            if (authEndpoint == null || !authEndpoint.isEnabled() || StrUtil.isBlank(authUserCode)) {
+            // 不携带会话的接口与会话无关，失败直接抛出，不做重登
+            if (!endpoint.isWithSession()
+                    || authEndpoint == null || !authEndpoint.isEnabled() || StrUtil.isBlank(authUserCode)) {
                 throw first;
             }
             try {
@@ -192,7 +196,7 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
 
     private JsonNode doExecute(EndpointSpec endpoint, Object body) {
         Map<String, String> headers = new HashMap<>();
-        if (StrUtil.isNotBlank(cookieValue)) {
+        if (endpoint.isWithSession() && StrUtil.isNotBlank(cookieValue)) {
             headers.put("Cookie", cookieName + "=" + cookieValue);
         }
         String respBody = httpClient.execute(endpoint, body, headers);

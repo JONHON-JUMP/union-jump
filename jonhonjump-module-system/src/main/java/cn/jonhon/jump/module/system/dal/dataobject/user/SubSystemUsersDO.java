@@ -53,6 +53,10 @@ public class SubSystemUsersDO extends BaseDO {
      */
     private String status;
     /**
+     * 子系统人员接口注册状态（0未注册 1已注册；调「新增人员」接口成功自动置1，页面可改）
+     */
+    private String employeeRegistered;
+    /**
      * 备注
      */
     private String remark;

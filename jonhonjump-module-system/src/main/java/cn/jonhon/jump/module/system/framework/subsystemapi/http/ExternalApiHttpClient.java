@@ -55,7 +55,7 @@ public class ExternalApiHttpClient {
             String respBody = response.body();
             if (!response.isOk()) {
                 throw new ExternalApiException(
-                        "HTTP " + response.getStatus() + "：" + truncate(respBody, 300));
+                        "HTTP " + response.getStatus() + "：" + truncate(respBody, 1000));
             }
             return respBody;
         } catch (ExternalApiException e) {

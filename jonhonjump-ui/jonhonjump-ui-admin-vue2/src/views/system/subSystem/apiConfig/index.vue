@@ -82,6 +82,49 @@
             show-icon
             title="目录只做分组。叶子接口可设置「用途」：用途=新增人员 时，用户管理勾选同步该业务系统会调用这条接口。"
           />
+
+          <!-- 会话鉴权（系统级，一次配置全系统接口共用；树上不再有独立鉴权接口） -->
+          <el-card v-if="currentNode.dirKind === 'system'" shadow="never" class="session-card">
+            <div slot="header">
+              <strong>会话鉴权（Cookie）</strong>
+              <span class="form-tip" style="margin-left:8px">登录一次生成 Cookie，本系统接口调用/测试时自动携带；个别不需要的接口可在其表单里关闭「携带会话 Cookie」</span>
+            </div>
+            <el-form label-width="100px" size="small">
+              <el-form-item label="启用会话">
+                <el-switch v-model="sessionForm.enabled" />
+              </el-form-item>
+              <template v-if="sessionForm.enabled">
+                <el-form-item label="登录地址">
+                  <el-input
+                    v-model="sessionForm.url"
+                    placeholder="如 http://192.168.240.125:8888/Base/SSOLogin/SSOLoginIn"
+                    style="width: 100%"
+                  />
+                </el-form-item>
+                <el-form-item label="请求方法">
+                  <el-select v-model="sessionForm.method" style="width: 120px">
+                    <el-option label="GET" value="GET" />
+                    <el-option label="POST" value="POST" />
+                  </el-select>
+                </el-form-item>
+                <el-form-item label="调用工号">
+                  <el-input v-model="sessionForm.userCode" placeholder="Camstar 调用账号" style="width: 240px" />
+                </el-form-item>
+                <el-form-item label="Cookie名">
+                  <el-input v-model="sessionForm.cookieName" style="width: 240px" />
+                </el-form-item>
+              </template>
+              <el-form-item>
+                <el-button size="mini" type="primary" @click="saveSession"
+                           v-hasPermi="['sub-system:apiconfig:update']">保存会话设置</el-button>
+                <el-button size="mini" type="success" plain :loading="sessionTesting" :disabled="!canTestSession"
+                           @click="testSession" v-hasPermi="['sub-system:apiconfig:list']">测试会话登录</el-button>
+              </el-form-item>
+              <el-form-item v-if="sessionTestResult" label="登录结果">
+                <el-input type="textarea" :rows="4" readonly v-model="sessionTestResult" />
+              </el-form-item>
+            </el-form>
+          </el-card>
         </div>
 
         <!-- 叶子接口 -->
@@ -106,7 +149,6 @@
             <el-form-item label="用途">
               <el-select v-model="editApi.purpose" style="width: 240px" placeholder="绑定业务动作">
                 <el-option label="无（仅配置/测试）" value="" />
-                <el-option label="鉴权登录" value="auth" />
                 <el-option label="查询人员" value="query" />
                 <el-option label="新增人员（用户同步用）" value="create" />
                 <el-option label="修改人员" value="update" />
@@ -128,20 +170,14 @@
             <el-form-item label="完整地址">
               <el-input v-model="editApi.url" placeholder="http://host/path" />
             </el-form-item>
-            <template v-if="editApi.purpose === 'auth'">
-              <el-form-item label="调用工号">
-                <el-input v-model="editApi.userCode" placeholder="Camstar 调用账号" style="width: 240px" />
-              </el-form-item>
-              <el-form-item label="Cookie名">
-                <el-input v-model="editApi.cookieName" style="width: 240px" />
-              </el-form-item>
-              <div class="form-tip">鉴权成功后生成 Cookie；下面「人员」增删改查调用/测试时会自动带上，无需在每条接口再配。</div>
-            </template>
-            <el-form-item v-else-if="isPersonPurpose" label="会话Cookie">
-              <span class="sync-workshop-text" v-if="authLeafSummary">
-                自动使用鉴权接口：{{ authLeafSummary }}
-              </span>
-              <span class="sync-workshop-text is-empty" v-else>未配置鉴权接口或未填调用工号，业务调用可能失败</span>
+            <el-form-item v-if="isPersonPurpose" label="会话Cookie">
+              <el-switch v-model="editApi.withSession" :disabled="!currentSessionEnabled" active-text="携带会话 Cookie" />
+              <div class="form-tip" v-if="sessionSummary">
+                {{ sessionSummary }}；无需 Cookie 的接口关闭本开关即可裸调
+              </div>
+              <div class="form-tip" v-else style="color:#f56c6c">
+                本系统未启用会话鉴权（接口直接裸调）；需要 Cookie 时请在左侧系统节点的「会话鉴权」中开启
+              </div>
             </el-form-item>
             <el-form-item label="请求参数">
               <el-input v-model="testBody" type="textarea" :rows="10" />
@@ -207,7 +243,7 @@ import {
   updateSubSystemApiConfig
 } from '@/api/system/subSystemApiConfig'
 
-const PURPOSES = ['auth', 'query', 'create', 'update', 'delete']
+const PURPOSES = ['query', 'create', 'update', 'delete']
 
 const CAMSTAR_SAMPLES = {
   auth: { token: '' },
@@ -252,17 +288,57 @@ function endpointFromField(json, defaults) {
     method: String(obj.method || d.method || 'POST').toUpperCase(),
     name: obj.name || d.name || '',
     enabled: obj.enabled === false ? false : true,
+    withSession: obj.withSession !== false
+  }
+}
+
+/** authConfig 列 → 系统级会话设置（树上不再有鉴权叶子，会话在系统节点维护） */
+function sessionFromConfig(config) {
+  const obj = parseJsonSafe(config && config.authConfig, {}) || {}
+  return {
+    enabled: obj.enabled !== false && !!(obj.userCode || '').trim(),
+    url: String(obj.url || obj.path || obj.loginPath || '').trim(),
+    method: String(obj.method || 'GET').toUpperCase(),
     userCode: obj.userCode || '',
     cookieName: obj.cookieName || 'Nancal_Cam_SessionId'
   }
 }
 
-/** 无 catalog 时，用旧字段拼默认菜单树 */
+/** 会话设置 → authConfig 列 JSON（关闭时保留字段、enabled=false：接口不带 Cookie、不重登） */
+function stringifySession(session) {
+  return JSON.stringify({
+    name: 'SSO登录',
+    url: String(session.url || '').trim(),
+    method: (session.method || 'GET').toUpperCase(),
+    enabled: session.enabled !== false,
+    userCode: session.userCode || '',
+    cookieName: session.cookieName || 'Nancal_Cam_SessionId'
+  })
+}
+
+/** 剔除旧版鉴权叶子（会话设置已上移到系统级）；「鉴权」目录剔除后为空则一并移除 */
+function stripAuthNodes(nodes) {
+  const result = []
+  ;(nodes || []).forEach(n => {
+    if (n.type === 'api' && n.purpose === 'auth') {
+      return
+    }
+    if (n.children) {
+      const children = stripAuthNodes(n.children)
+      if (n.type === 'dir' && children.length === 0 && (n.id === 'dir-auth' || n.name === '鉴权')) {
+        return
+      }
+      result.push(Object.assign({}, n, { children }))
+    } else {
+      result.push(n)
+    }
+  })
+  return result
+}
+
+/** 无 catalog 时，用旧字段拼默认菜单树（不含鉴权叶子，会话在系统节点配置） */
 function buildDefaultCatalog(config, host) {
   const h = host || (config && config.baseUrl) || ''
-  const auth = endpointFromField(config && config.authConfig, {
-    name: 'SSO登录', method: 'GET', url: joinUrl(h, '/Base/SSOLogin/SSOLoginIn')
-  })
   const query = endpointFromField(config && config.apiQuery, {
     name: '查询', method: 'POST', url: joinUrl(h, '/BasicData/Employee/getEmployeeInfo')
   })
@@ -278,30 +354,14 @@ function buildDefaultCatalog(config, host) {
   return {
     nodes: [
       {
-        id: 'dir-auth',
-        type: 'dir',
-        name: '鉴权',
-        children: [{
-          id: 'api-auth',
-          type: 'api',
-          name: auth.name || 'SSO登录',
-          purpose: 'auth',
-          method: auth.method,
-          url: auth.url,
-          enabled: auth.enabled,
-          userCode: auth.userCode,
-          cookieName: auth.cookieName || 'Nancal_Cam_SessionId'
-        }]
-      },
-      {
         id: 'dir-person',
         type: 'dir',
         name: '人员',
         children: [
-          { id: 'api-query', type: 'api', name: query.name || '查询', purpose: 'query', method: query.method, url: query.url, enabled: query.enabled },
-          { id: 'api-create', type: 'api', name: create.name || '新增', purpose: 'create', method: create.method, url: create.url, enabled: create.enabled },
-          { id: 'api-update', type: 'api', name: update.name || '修改', purpose: 'update', method: update.method, url: update.url, enabled: update.enabled },
-          { id: 'api-delete', type: 'api', name: del.name || '删除', purpose: 'delete', method: del.method, url: del.url, enabled: del.enabled }
+          { id: 'api-query', type: 'api', name: query.name || '查询', purpose: 'query', method: query.method, url: query.url, enabled: query.enabled, withSession: query.withSession },
+          { id: 'api-create', type: 'api', name: create.name || '新增', purpose: 'create', method: create.method, url: create.url, enabled: create.enabled, withSession: create.withSession },
+          { id: 'api-update', type: 'api', name: update.name || '修改', purpose: 'update', method: update.method, url: update.url, enabled: update.enabled, withSession: update.withSession },
+          { id: 'api-delete', type: 'api', name: del.name || '删除', purpose: 'delete', method: del.method, url: del.url, enabled: del.enabled, withSession: del.withSession }
         ]
       }
     ]
@@ -355,21 +415,11 @@ function stringifyEndpoint(api) {
     url: String(api.url).trim(),
     method: (api.method || 'POST').toUpperCase(),
     enabled: api.enabled !== false,
-    name: api.name || ''
+    name: api.name || '',
+    // 是否携带系统会话 Cookie（后端 EndpointSpec.withSession；false=该接口裸调）
+    withSession: api.withSession !== false
   }
   return JSON.stringify(payload)
-}
-
-function stringifyAuth(api) {
-  if (!api) return ''
-  return JSON.stringify({
-    name: api.name || 'SSO登录',
-    url: String(api.url || '').trim(),
-    method: (api.method || 'GET').toUpperCase(),
-    enabled: api.enabled !== false,
-    userCode: api.userCode || '',
-    cookieName: api.cookieName || 'Nancal_Cam_SessionId'
-  })
 }
 
 export default {
@@ -382,6 +432,12 @@ export default {
       configMap: {},
       /** subSystemId → catalog { nodes: [] }，内存编辑 */
       catalogMap: {},
+      /** subSystemId → 系统级会话设置（登录地址/工号/Cookie 名；树上不再有鉴权叶子） */
+      sessionMap: {},
+      /** 当前编辑的会话设置（系统节点面板表单） */
+      sessionForm: { enabled: false, url: '', method: 'GET', userCode: '', cookieName: 'Nancal_Cam_SessionId' },
+      sessionTesting: false,
+      sessionTestResult: '',
       clientKeyword: '',
       currentNode: null,
       editApi: {},
@@ -444,7 +500,8 @@ export default {
           id: item.id,
           subSystemId: item.id,
           systemName: item.name,
-          children: (catalog.nodes || []).map(mapNode)
+          // 树上不展示旧版鉴权叶子（会话设置在系统节点面板维护）
+          children: stripAuthNodes(catalog.nodes).map(mapNode)
         }
       })
     },
@@ -470,17 +527,26 @@ export default {
       const name = (this.editApi && this.editApi.name) || this.currentNode.label
       return (this.currentNode.systemName || '') + ' / ' + name
     },
-    /** 人员增删改查：Cookie 从鉴权叶子自动带，不在本页重复配置 */
+    /** 人员增删改查：Cookie 从系统级会话设置自动带，不在本页重复配置 */
     isPersonPurpose() {
       return ['query', 'create', 'update', 'delete'].indexOf(this.editApi && this.editApi.purpose) >= 0
     },
-    authLeafSummary() {
-      if (!this.currentNode || !this.currentNode.subSystemId) return ''
-      const catalog = this.catalogMap[this.currentNode.subSystemId]
-      if (!catalog) return ''
-      const auth = findByPurpose(catalog.nodes, 'auth')
-      if (!auth || !auth.userCode) return ''
-      return (auth.name || 'SSO登录') + ' / 工号 ' + auth.userCode + ' / ' + (auth.cookieName || 'Nancal_Cam_SessionId')
+    currentSession() {
+      if (!this.currentNode || !this.currentNode.subSystemId) return null
+      return this.sessionMap[this.currentNode.subSystemId] || null
+    },
+    currentSessionEnabled() {
+      return !!(this.currentSession && this.currentSession.enabled)
+    },
+    sessionSummary() {
+      const s = this.currentSession
+      if (!s || !s.enabled) {
+        return ''
+      }
+      return '本系统接口默认携带会话 Cookie：' + (s.url || '') + '（工号 ' + s.userCode + '）'
+    },
+    canTestSession() {
+      return !!(this.sessionForm.enabled && String(this.sessionForm.url || '').trim())
     }
   },
   created() {
@@ -497,9 +563,11 @@ export default {
         this.clientList = clients.data || []
         this.configMap = {}
         this.catalogMap = {}
+        this.sessionMap = {}
         ;(configs.data || []).forEach(c => {
           this.configMap[c.subSystemId] = c
           this.$set(this.catalogMap, c.subSystemId, normalizeCatalog(c.apiCatalog, c))
+          this.$set(this.sessionMap, c.subSystemId, sessionFromConfig(c))
         })
         this.$nextTick(() => {
           const keep = this.findTreeNode(keepKey)
@@ -559,24 +627,44 @@ export default {
     },
     handleNodeClick(data) {
       if (!data) return
+      // loadAll 刷新后会重选当前节点：同一节点不重复清空响应/参数（否则测试结果一闪而过）
+      const sameNode = !!(this.currentNode && this.currentNode.nodeKey === data.nodeKey)
       this.applyMeta(data.subSystemId)
       this.currentNode = data
-      this.testResult = ''
+      if (!sameNode) {
+        this.testResult = ''
+        this.sessionTestResult = ''
+      }
       if (data.type === 'api') {
         const catalog = this.catalogMap[data.subSystemId]
         const node = findInCatalog(catalog.nodes, data.catalogId) || {}
         this.editApi = {
           id: node.id,
           name: node.name || '',
-          purpose: node.purpose || '',
+          // 旧版鉴权叶子已在树上隐藏；防御性不再允许编辑 auth 用途
+          purpose: node.purpose === 'auth' ? '' : (node.purpose || ''),
           method: (node.method || 'POST').toUpperCase(),
           url: node.url || '',
           enabled: node.enabled !== false,
-          userCode: node.userCode || '',
-          cookieName: node.cookieName || 'Nancal_Cam_SessionId'
+          withSession: node.withSession !== false
         }
-        const sample = CAMSTAR_SAMPLES[node.purpose] || {}
-        this.testBody = JSON.stringify(sample, null, 2)
+        if (!sameNode) {
+          const sample = CAMSTAR_SAMPLES[node.purpose] || {}
+          this.testBody = JSON.stringify(sample, null, 2)
+        }
+      } else {
+        // 目录/系统节点：装载该系统的会话设置表单
+        this.applySessionForm(data.subSystemId)
+      }
+    },
+    applySessionForm(subSystemId) {
+      const s = this.sessionMap[subSystemId] || {}
+      this.sessionForm = {
+        enabled: !!s.enabled,
+        url: s.url || '',
+        method: s.method || 'GET',
+        userCode: s.userCode || '',
+        cookieName: s.cookieName || 'Nancal_Cam_SessionId'
       }
     },
     ensureUniquePurpose(nodes, purpose, exceptId) {
@@ -708,21 +796,18 @@ export default {
       node.method = (this.editApi.method || 'POST').toUpperCase()
       node.url = String(this.editApi.url || '').trim()
       node.enabled = this.editApi.enabled !== false
-      if (purpose === 'auth') {
-        node.userCode = this.editApi.userCode || ''
-        node.cookieName = this.editApi.cookieName || 'Nancal_Cam_SessionId'
-      }
+      // 是否携带系统会话 Cookie（false=该接口裸调）
+      node.withSession = this.editApi.withSession !== false
     },
     buildPayload(subSystemId) {
       const config = this.configMap[subSystemId]
       const catalog = this.catalogMap[subSystemId] || { nodes: [] }
-      const auth = findByPurpose(catalog.nodes, 'auth')
       const query = findByPurpose(catalog.nodes, 'query')
       const create = findByPurpose(catalog.nodes, 'create')
       const update = findByPurpose(catalog.nodes, 'update')
       const del = findByPurpose(catalog.nodes, 'delete')
       let baseUrl = (this.formMeta && this.formMeta.baseUrl) || (config && config.baseUrl) || ''
-      const urls = [auth, query, create].filter(Boolean).map(a => a.url)
+      const urls = [query, create].filter(Boolean).map(a => a.url)
       for (let i = 0; i < urls.length; i++) {
         const m = String(urls[i] || '').match(/^(https?:\/\/[^/]+)/i)
         if (m) {
@@ -730,19 +815,24 @@ export default {
           break
         }
       }
+      // 会话设置来自系统级 sessionMap（树上已无鉴权叶子）；关闭时保留字段、enabled=false
+      const session = this.sessionMap[subSystemId] || {}
+      const sessionOn = !!(session.enabled && String(session.url || '').trim())
+      const sessionHasUrl = !!String(session.url || '').trim()
       return {
         id: config.id,
         subSystemId,
         apiType: (config.apiType || 'camstar'),
         baseUrl: baseUrl || 'http://127.0.0.1',
-        authType: auth ? 'cookie_sso' : (config.authType || 'none'),
-        authConfig: auth ? stringifyAuth(auth) : (config.authConfig || ''),
+        authType: sessionOn ? 'cookie_sso' : 'none',
+        authConfig: sessionHasUrl ? stringifySession(Object.assign({}, session, { enabled: sessionOn })) : '',
         apiQuery: stringifyEndpoint(query),
         apiCreate: stringifyEndpoint(create),
         apiUpdate: stringifyEndpoint(update),
         apiDelete: stringifyEndpoint(del),
         apiTeamCombo: config.apiTeamCombo || '',
-        apiCatalog: JSON.stringify(catalog),
+        // 持久化时剔除旧版鉴权叶子（后端不解析目录树；会话信息在 authConfig 列）
+        apiCatalog: JSON.stringify({ nodes: stripAuthNodes(catalog.nodes) }),
         paramMapping: config.paramMapping || '',
         responseMapping: config.responseMapping || '',
         deleteTip: config.deleteTip || '',
@@ -750,6 +840,64 @@ export default {
         readTimeoutMs: config.readTimeoutMs || 30000,
         status: 0
       }
+    },
+    /** 系统节点面板：保存会话设置 */
+    saveSession() {
+      const sid = this.currentNode && this.currentNode.subSystemId
+      if (!sid || !this.configMap[sid]) {
+        return
+      }
+      if (!this.validSessionForm()) {
+        return
+      }
+      this.$set(this.sessionMap, sid, Object.assign({}, this.sessionForm))
+      this.persistCatalog()
+    },
+    /** 启用会话时地址与调用工号必填（否则保存后按 authConfig 解析会自动回到未启用） */
+    validSessionForm() {
+      if (!this.sessionForm.enabled) {
+        return true
+      }
+      if (!String(this.sessionForm.url || '').trim()) {
+        this.$modal.msgWarning('启用会话需填写登录地址')
+        return false
+      }
+      if (!String(this.sessionForm.userCode || '').trim()) {
+        this.$modal.msgWarning('启用会话需填写调用工号')
+        return false
+      }
+      return true
+    },
+    /** 系统节点面板：先保存配置再调鉴权接口验证会话 */
+    testSession() {
+      const sid = this.currentNode && this.currentNode.subSystemId
+      if (!sid || !this.configMap[sid]) {
+        return
+      }
+      if (!this.formMeta.id) {
+        this.$modal.msgWarning('请先保存')
+        return
+      }
+      if (!this.validSessionForm()) {
+        return
+      }
+      this.$set(this.sessionMap, sid, Object.assign({}, this.sessionForm))
+      this.sessionTesting = true
+      this.sessionTestResult = ''
+      updateSubSystemApiConfig(this.buildPayload(sid)).then(() => {
+        return testSubSystemApiInvoke({ id: this.formMeta.id, apiKey: 'auth', requestBody: '' })
+      }).then(res => {
+        const data = res.data || {}
+        this.sessionTestResult = [
+          (data.method || '') + ' ' + (data.url || ''),
+          data.success === false ? '失败' : '成功',
+          data.responseBody || ''
+        ].join('\n')
+      }).catch(err => {
+        this.sessionTestResult = (err && (err.msg || err.message)) || String(err)
+      }).finally(() => {
+        this.sessionTesting = false
+      })
     },
     persistCatalog() {
       const sid = (this.currentNode && this.currentNode.subSystemId)
@@ -787,7 +935,7 @@ export default {
       this.applyEditToCatalog()
       const purpose = this.editApi.purpose
       if (!purpose || PURPOSES.indexOf(purpose) < 0) {
-        this.$modal.msgWarning('测试需先设置用途（鉴权/查询/新增/修改/删除）')
+        this.$modal.msgWarning('测试需先设置用途（查询/新增/修改/删除）')
         return
       }
       this.testing = true
@@ -830,8 +978,9 @@ export default {
         connectTimeoutMs: 10000,
         readTimeoutMs: 30000,
         apiType: this.addApiType,
-        authType: this.addApiType === 'camstar' ? 'cookie_sso' : 'none',
-        authConfig: stringifyAuth(findByPurpose(catalog.nodes, 'auth')),
+        // 会话鉴权改为系统级设置，接入后再在系统节点开启（不预置 authConfig）
+        authType: 'none',
+        authConfig: '',
         apiQuery: stringifyEndpoint(findByPurpose(catalog.nodes, 'query')),
         apiCreate: stringifyEndpoint(findByPurpose(catalog.nodes, 'create')),
         apiUpdate: stringifyEndpoint(findByPurpose(catalog.nodes, 'update')),
@@ -885,6 +1034,9 @@ export default {
 </script>
 
 <style scoped>
+.session-card {
+  margin-top: 12px;
+}
 .api-config-page {
   height: calc(100vh - 120px);
   min-height: 480px;

@@ -66,6 +66,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     @Resource
     private SubSystemPermissionContextService subSystemPermissionContextService;
     @Resource
+    private SubSystemWorkshopService subSystemWorkshopService;
+    @Resource
     private cn.jonhon.jump.module.system.dal.redis.user.PortalMyMenusRedisDAO portalMyMenusRedisDAO;
     @Override
     public List<SubSystemUsersRespVO> getListByMainUserId(Long mainUserId) {
@@ -165,6 +167,9 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (StrUtil.isEmpty(user.getStatus())) {
             user.setStatus("0");
         }
+        if (StrUtil.isEmpty(user.getEmployeeRegistered())) {
+            user.setEmployeeRegistered("0");
+        }
         subSystemUsersMapper.insert(user);
         assignUserRoles(user.getId(), createReqVO.getSubSystemId(), createReqVO.getRoleIds());
         assignUserPosts(user.getId(), createReqVO.getSubSystemId(), createReqVO.getPostIds());
@@ -207,6 +212,65 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         subSystemUsersMapper.updateById(updateObj);
         subSystemPermissionContextService.evictBySubSystemUserId(roster.getId());
         return roster.getId();
+    }
+
+    @Override
+    public void registerFromMainUser(AdminUserDO mainUser, List<Long> subSystemIds) {
+        if (mainUser == null || CollUtil.isEmpty(subSystemIds)) {
+            return;
+        }
+        // 去重后加载，仅登记已绑定门户的业务系统
+        List<SubSystemDO> subSystems = subSystemMapper.selectListByIds(new LinkedHashSet<>(subSystemIds));
+        for (SubSystemDO subSystem : subSystems) {
+            if (subSystem.getOauth2ClientId() == null) {
+                // 仅接口目标（如 Camstar人员管理）不属于外部用户管理，跳过花名册登记
+                log.warn("[registerFromMainUser] subSystemId={}({}) 未绑定门户，跳过花名册登记",
+                        subSystem.getId(), subSystem.getSystemName());
+                continue;
+            }
+            String workshopCode = resolveWorkshopCode(subSystem.getId(), mainUser.getDeptId());
+            upsertRosterFromMainUser(mainUser, subSystem.getId(), workshopCode);
+        }
+    }
+
+    /** 部门 → 车间对照（本地表查询，尽力带出）；查不到返回 null，后续可在子系统用户管理中补 */
+    private String resolveWorkshopCode(Long subSystemId, Long deptId) {
+        if (deptId == null) {
+            return null;
+        }
+        SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService.getWorkshopByDept(subSystemId, deptId);
+        return workshop != null ? workshop.getWorkshopCode() : null;
+    }
+
+    private void upsertRosterFromMainUser(AdminUserDO mainUser, Long subSystemId, String workshopCode) {
+        SubSystemUsersDO roster = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, mainUser.getUsername());
+        if (roster != null) {
+            // 已绑其他主用户 → 同 bindMainUser 语义，报错并回滚整个建用户事务
+            if (roster.getMainUserId() != null && !Objects.equals(roster.getMainUserId(), mainUser.getId())) {
+                throw exception(SUB_SYSTEM_USER_MAIN_BOUND);
+            }
+            SubSystemUsersDO updateObj = new SubSystemUsersDO();
+            updateObj.setId(roster.getId());
+            updateObj.setMainUserId(mainUser.getId());
+            updateObj.setNickname(mainUser.getNickname());
+            updateObj.setWorkshopId(workshopCode);
+            updateObj.setStatus("0");
+            updateObj.setRemark("用户创建登记");
+            subSystemUsersMapper.updateById(updateObj);
+            subSystemPermissionContextService.evictBySubSystemUserId(roster.getId());
+            return;
+        }
+        SubSystemUsersDO subUser = new SubSystemUsersDO();
+        subUser.setSubSystemId(subSystemId);
+        subUser.setMainUserId(mainUser.getId());
+        subUser.setUsername(mainUser.getUsername());
+        subUser.setNickname(mainUser.getNickname());
+        subUser.setWorkshopId(workshopCode);
+        subUser.setStatus("0");
+        // 新登记默认未注册（是否已调「新增人员」接口，后续手动推送时自动置 1）
+        subUser.setEmployeeRegistered("0");
+        subUser.setRemark("用户创建登记");
+        subSystemUsersMapper.insert(subUser);
     }
 
     @Override
@@ -257,6 +321,15 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         updateObj.setStatus(status);
         subSystemUsersMapper.updateById(updateObj);
         subSystemPermissionContextService.evictBySubSystemUserId(id);
+    }
+
+    @Override
+    public void updateSubSystemUserRegisterStatus(Long id, String employeeRegistered) {
+        validateSubSystemUserExists(id);
+        SubSystemUsersDO updateObj = new SubSystemUsersDO();
+        updateObj.setId(id);
+        updateObj.setEmployeeRegistered("1".equals(employeeRegistered) ? "1" : "0");
+        subSystemUsersMapper.updateById(updateObj);
     }
     @Override
     public List<SubSystemRoleSimpleRespVO> getRoleSimpleList(Long subSystemId) {

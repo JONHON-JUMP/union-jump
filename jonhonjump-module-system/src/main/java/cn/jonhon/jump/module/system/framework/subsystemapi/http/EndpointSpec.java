@@ -24,6 +24,8 @@ public class EndpointSpec {
     private String name;
     /** 是否启用，默认 true */
     private Boolean enabled = true;
+    /** 是否携带系统会话 Cookie（cookie_sso 会话用）；null=携带（兼容存量配置） */
+    private Boolean withSession;
 
     public static EndpointSpec parse(String json, String fieldName) {
         if (StrUtil.isBlank(json)) {
@@ -45,6 +47,11 @@ public class EndpointSpec {
     /** 未配置或显式 enabled=false 视为停用 */
     public boolean isEnabled() {
         return enabled == null || Boolean.TRUE.equals(enabled);
+    }
+
+    /** 是否携带系统会话 Cookie；未配置默认携带（兼容存量配置） */
+    public boolean isWithSession() {
+        return withSession == null || Boolean.TRUE.equals(withSession);
     }
 
     public String methodUpper() {

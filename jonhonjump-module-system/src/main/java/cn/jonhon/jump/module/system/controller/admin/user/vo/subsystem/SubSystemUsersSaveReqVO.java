@@ -43,6 +43,9 @@ public class SubSystemUsersSaveReqVO {
     @Schema(description = "状态（0正常 1禁用）", example = "0")
     private String status;
 
+    @Schema(description = "人员接口注册状态（0未注册 1已注册；页面可改，重推时改回 0）", example = "0")
+    private String employeeRegistered;
+
     @Schema(description = "备注")
     private String remark;
 

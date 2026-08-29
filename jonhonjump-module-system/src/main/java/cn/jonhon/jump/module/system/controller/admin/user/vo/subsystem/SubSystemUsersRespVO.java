@@ -49,6 +49,9 @@ public class SubSystemUsersRespVO {
     @Schema(description = "状态（0正常 1禁用）")
     private String status;
 
+    @Schema(description = "人员接口注册状态（0未注册 1已注册）")
+    private String employeeRegistered;
+
     @Schema(description = "备注")
     private String remark;
 

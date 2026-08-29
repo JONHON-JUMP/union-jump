@@ -92,6 +92,14 @@ export function updateSubSystemUserStatus(id, status) {
   })
 }
 
+// 修改人员接口注册状态（0未注册 1已注册）
+export function updateSubSystemUserRegisterStatus(id, employeeRegistered) {
+  return request({
+    url: '/system/sub-system-users/update-register-status?id=' + id + '&employeeRegistered=' + employeeRegistered,
+    method: 'put'
+  })
+}
+
 export function getSubSystemRoleSimpleList(subSystemId) {
   return request({
     url: '/system/sub-system-users/role-simple-list',

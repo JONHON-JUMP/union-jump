@@ -1,12 +1,12 @@
 package cn.jonhon.jump.module.system.service.user;
 
 import cn.jonhon.jump.framework.common.pojo.PageResult;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeCreateFromUserReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeePageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeSaveReqVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEnabledSystemVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopSimpleRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemRegisterableApiRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterRespVO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemTeamComboDTO;
 
 import java.util.List;
@@ -32,19 +32,14 @@ public interface SubSystemEmployeeService {
     String getDeleteTip(Long subSystemId);
 
     /**
-     * 从主系统用户同步到多个业务系统「新增人员」（用户管理页联动）：
-     * 对每个选中系统：调对方 create 接口；仅已绑定 OAuth 的 JUMP 门户业务系统再写入 sub_system_users。
+     * 可选「新增人员」接口目标列表（接口管理中 create 用途已启用的系统；与花名册系统解耦）
      */
-    void createFromMainUser(SubSystemEmployeeCreateFromUserReqVO reqVO);
+    List<SubSystemRegisterableApiRespVO> getRegisterableApis();
 
     /**
-     * 已配置且启用人员接口的外部系统列表（用户创建联动下拉用）
+     * 花名册人员手动调「新增人员」接口注册：逐项调所选接口目标的新增接口，
+     * 成功后把花名册行的人员接口注册状态置为已注册；已注册项跳过；单项失败不影响其余
      */
-    List<SubSystemEnabledSystemVO> getEnabledSystems();
-
-    /**
-     * 联动下拉：某系统下按 JUMP 部门过滤的车间列表（未映射返回空）
-     */
-    List<SubSystemWorkshopSimpleRespVO> getWorkshopOptions(Long subSystemId, Long deptId);
+    List<SubSystemUserRegisterRespVO> registerEmployees(SubSystemUserRegisterReqVO reqVO);
 
 }

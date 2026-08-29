@@ -40,6 +40,7 @@ public interface SubSystemUsersMapper extends BaseMapperX<SubSystemUsersDO> {
         LambdaQueryWrapperX<SubSystemUsersDO> wrapper = new LambdaQueryWrapperX<SubSystemUsersDO>()
                 .eqIfPresent(SubSystemUsersDO::getSubSystemId, reqVO.getSubSystemId())
                 .eqIfPresent(SubSystemUsersDO::getMainUserId, reqVO.getMainUserId())
+                .eqIfPresent(SubSystemUsersDO::getEmployeeRegistered, reqVO.getEmployeeRegistered())
                 .likeIfPresent(SubSystemUsersDO::getUsername, reqVO.getUsername())
                 .likeIfPresent(SubSystemUsersDO::getNickname, reqVO.getNickname())
                 .likeIfPresent(SubSystemUsersDO::getWorkshopId, reqVO.getWorkshopId())

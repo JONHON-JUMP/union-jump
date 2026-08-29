@@ -34,11 +34,6 @@ public interface SubSystemApiConfigService {
     SubSystemApiConfigDO getEnabledConfigBySubSystemId(Long subSystemId);
 
     /**
-     * 已启用配置的系统 ID 列表
-     */
-    List<Long> getEnabledSubSystemIds();
-
-    /**
      * 测试连接：按配置调一次查询接口（page=1,rows=1），返回耗时与结果摘要
      */
     String testConnection(Long id);

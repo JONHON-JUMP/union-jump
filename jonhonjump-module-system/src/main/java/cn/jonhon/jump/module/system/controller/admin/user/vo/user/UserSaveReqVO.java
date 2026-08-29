@@ -12,6 +12,7 @@ import lombok.Data;
 import org.hibernate.validator.constraints.Length;
 
 import javax.validation.constraints.*;
+import java.util.List;
 import java.util.Set;
 
 @Schema(description = "管理后台 - 用户创建/修改 Request VO")
@@ -108,6 +109,9 @@ public class UserSaveReqVO {
     @Schema(description = "密码", requiredMode = Schema.RequiredMode.REQUIRED, example = "123456")
     @Length(min = 4, max = 16, message = "密码长度为 4-16 位")
     private String password;
+
+    @Schema(description = "登记子系统编号数组（仅新增时生效；本地花名册登记，不调外部接口）", example = "[1,2]")
+    private List<Long> subSystemIds;
 
     @AssertTrue(message = "密码不能为空")
     @JsonIgnore

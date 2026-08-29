@@ -8,6 +8,7 @@ import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSyst
 import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSystemUserPermissionRespVO;
 import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.PortalPermContextRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
+import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 
 
 
@@ -125,6 +126,13 @@ public interface SubSystemUsersService {
      */
     Long bindMainUser(Long subSystemId, Long mainUserId);
 
+    /**
+     * 从主系统用户登记子系统花名册（纯本地，不调外部接口；upsert 语义）
+     *
+     * 仅登记已绑定 OAuth 的门户业务系统；车间按部门对照尽力带出，可后补
+     */
+    void registerFromMainUser(AdminUserDO mainUser, List<Long> subSystemIds);
+
 
 
     /**
@@ -164,6 +172,16 @@ public interface SubSystemUsersService {
      */
 
     void updateSubSystemUserStatus(Long id, String status);
+
+
+
+    /**
+
+     * 修改人员接口注册状态（0未注册 1已注册；页面可改，调「新增人员」接口成功后自动置 1）
+
+     */
+
+    void updateSubSystemUserRegisterStatus(Long id, String employeeRegistered);
 
 
 

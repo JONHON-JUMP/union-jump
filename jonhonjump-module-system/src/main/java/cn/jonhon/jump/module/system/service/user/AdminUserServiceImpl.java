@@ -93,6 +93,10 @@ public class AdminUserServiceImpl implements AdminUserService {
     private SubSystemPermissionContextService subSystemPermissionContextService;
 
     @Resource
+    @Lazy // 懒加载，避免循环依赖
+    private SubSystemUsersService subSystemUsersService;
+
+    @Resource
     private UserUidGenerator userUidGenerator;
 
     @Override
@@ -121,6 +125,8 @@ public class AdminUserServiceImpl implements AdminUserService {
             userPostMapper.insertBatch(convertList(user.getPostIds(),
                     postId -> new UserPostDO().setUserId(user.getId()).setPostId(postId)));
         }
+        // 2.3 登记子系统花名册（纯本地事务，不调外部接口；外部系统推送后续单独处理）
+        subSystemUsersService.registerFromMainUser(user, createReqVO.getSubSystemIds());
 
         // 3. 记录操作日志上下文
         LogRecordContext.putVariable("user", user);
