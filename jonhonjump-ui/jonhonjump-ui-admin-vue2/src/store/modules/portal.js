@@ -99,7 +99,9 @@ function createInitialPortalState() {
     /** 全部应用抽屉：正在拉当前系统菜单树（有旧树时不挡屏） */
     allAppsMenusLoading: false,
     /** 快捷导航强制同步中（角色/菜单变更后重拉，避免空白） */
-    quickNavSyncing: false
+    quickNavSyncing: false,
+    /** 并发 force 请求计数，避免互相覆盖导致 loading 卡住 */
+    quickNavSyncingCount: 0
   }
 }
 
@@ -141,7 +143,13 @@ const mutations = {
     state.allAppsMenusLoading = loading === true
   },
   SET_QUICK_NAV_SYNCING(state, syncing) {
-    state.quickNavSyncing = syncing === true
+    if (syncing === true) {
+      state.quickNavSyncingCount = (state.quickNavSyncingCount || 0) + 1
+      state.quickNavSyncing = true
+      return
+    }
+    state.quickNavSyncingCount = Math.max(0, (state.quickNavSyncingCount || 0) - 1)
+    state.quickNavSyncing = state.quickNavSyncingCount > 0
   },
   SET_PORTAL_PATH_LINKS(state, pathLinkMap) {
     state.pathLinkMap = pathLinkMap || {}
@@ -219,6 +227,7 @@ const mutations = {
     state.portalDefaultCache = null
     state.allAppsMenusLoading = false
     state.quickNavSyncing = false
+    state.quickNavSyncingCount = 0
     bumpPortalWarmGeneration()
     clearPersistedPortalCache()
     clearPortalSystemChoice()
@@ -253,8 +262,9 @@ const actions = {
       ...state.quickNavLoadEpoch,
       [cacheKey]: epoch
     }
-    // 强制重拉或首次无缓存：显示「加载中」，避免变更后空白误以为无权限
-    const showSyncing = force || !getQuickNavCache(cacheKey)
+    // 仅「本地还没有可渲染 apps」时挡加载；有缓存的后台 force 静默刷新，避免编辑态/已出卡一直转圈
+    const cachedBefore = getQuickNavCache(cacheKey)
+    const showSyncing = !(cachedBefore && Array.isArray(cachedBefore.apps))
     if (showSyncing) {
       commit('SET_QUICK_NAV_SYNCING', true)
     }
@@ -304,7 +314,7 @@ const actions = {
         delete next[cacheKey]
         state.quickNavInFlight = next
       }
-      if (showSyncing && Object.keys(state.quickNavInFlight).length === 0) {
+      if (showSyncing) {
         commit('SET_QUICK_NAV_SYNCING', false)
       }
     })

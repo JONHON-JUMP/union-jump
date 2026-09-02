@@ -28,6 +28,7 @@
 
     <draggable
       v-if="quickNavEditMode"
+      ref="editGrid"
       v-model="quickNavEditApps"
       class="app-grid app-grid--edit"
       :style="gridStyle"
@@ -35,13 +36,14 @@
       :delay="80"
       :delay-on-touch-only="true"
       :touch-start-threshold="5"
+      :force-fallback="true"
       ghost-class="app-tile-ghost"
       chosen-class="app-tile-chosen"
       @end="handleQuickNavDragEnd"
     >
       <div
-        v-for="app in quickNavEditApps"
-        :key="'edit-' + app.menuId"
+        v-for="(app, index) in quickNavEditApps"
+        :key="'edit-' + (app.menuId != null ? app.menuId : 'x') + '-' + index"
         class="app-tile app-tile--edit"
         :class="{ 'is-locked': isQuickNavLocked(app) }"
         role="listitem"
@@ -69,7 +71,7 @@
           <i v-else-if="app.icon" :class="app.icon" />
           <svg-icon v-else icon-class="component" />
         </span>
-        <strong :title="app.name">{{ app.name }}</strong>
+        <strong :title="displayAppName(app)">{{ displayAppName(app) }}</strong>
       </div>
     </draggable>
 
@@ -102,7 +104,7 @@
             <svg-icon v-else icon-class="component" />
             <em v-if="app.badge">{{ app.badge }}</em>
           </span>
-          <strong :title="app.name">{{ app.name }}</strong>
+          <strong :title="displayAppName(app)">{{ displayAppName(app) }}</strong>
         </button>
       </div>
     </transition>
@@ -196,6 +198,10 @@ export default {
     ...mapGetters(['sidebarRouters', 'currentSystemSidebarRouters', 'currentSystem', 'portalSystemList']),
     ...mapState('portal', ['quickNavSyncing']),
     showQuickNavLoading() {
+      // 编辑中或已有卡片：不挡操作；后台 force 同步静默进行
+      if (this.quickNavEditMode || (this.homeApps && this.homeApps.length > 0)) {
+        return false
+      }
       return !!(this.quickNavLoading || this.quickNavSyncing)
     },
     currentSubSystemId() {
@@ -278,11 +284,16 @@ export default {
     this.$nextTick(this.initAppPagination)
     document.addEventListener('keydown', this.handleQuickNavEditKeydown)
     document.addEventListener('visibilitychange', this.handleVisibilityChange)
+    window.addEventListener('resize', this.handleEditGridResize)
     this._onPortalQuickNavChanged = (payload) => {
       if (!payload || payload.scopeKey !== this.quickNavScopeKey || payload.source === 'panel') {
         return
       }
-      // 全部应用抽屉 / 变更探测后同步到首页
+      // 排序/删减过程中不打断编辑态；退出后再对齐外部变更
+      if (this.quickNavEditMode || this.quickNavSaving) {
+        this._pendingQuickNavPayload = payload
+        return
+      }
       this.applyQuickNavChange(payload)
     }
     this.$root.$on('portal-quick-nav-changed', this._onPortalQuickNavChanged)
@@ -290,6 +301,8 @@ export default {
   beforeDestroy() {
     document.removeEventListener('keydown', this.handleQuickNavEditKeydown)
     document.removeEventListener('visibilitychange', this.handleVisibilityChange)
+    window.removeEventListener('resize', this.handleEditGridResize)
+    window.removeEventListener('mousemove', this.trackEditPointer)
     if (this._onPortalQuickNavChanged) {
       this.$root.$off('portal-quick-nav-changed', this._onPortalQuickNavChanged)
       this._onPortalQuickNavChanged = null
@@ -305,6 +318,10 @@ export default {
     },
     appKey(app) {
       return app.path || `${app.name}|${app.subtitle || ''}|${app.menuId || ''}`
+    },
+    displayAppName(app) {
+      const name = app && typeof app.name === 'string' ? app.name.trim() : ''
+      return name || '未命名菜单'
     },
     buildHomeApps(menuIds, configured) {
       const scopeKey = this.quickNavScopeKey
@@ -396,6 +413,7 @@ export default {
       this.emitQuickNavChange()
     },
     onSystemChange() {
+      this._pendingQuickNavPayload = null
       this.exitQuickNavEditMode()
       this.closeContextMenu()
       this.restoreQuickNavFromCache()
@@ -518,11 +536,73 @@ export default {
         return
       }
       this.quickNavEditMode = true
+      // 按展示顺序复制；用 index 保证 key 唯一，避免同 menuId 时 Vue 合并成少一项
       this.quickNavEditApps = this.homeApps.map(app => ({ ...app }))
       this.suppressNextItemClick = true
       window.setTimeout(() => {
         this.suppressNextItemClick = false
       }, 400)
+      this.$nextTick(() => {
+        this.applyEditGridMaxHeight()
+        this.scrollEditGridIntoView()
+      })
+      window.addEventListener('mousemove', this.trackEditPointer)
+    },
+    /** draggable 的 ref 是组件实例，滚动/量高必须落到 $el */
+    getEditGridEl() {
+      const ref = this.$refs.editGrid
+      if (!ref) {
+        return null
+      }
+      return ref.$el || ref
+    },
+    /** 记录拖拽中的指针位置，滚轮滚动后用于补一帧 mousemove 让 Sortable 立即重算落点 */
+    trackEditPointer(event) {
+      this._editPointer = { x: event.clientX, y: event.clientY }
+    },
+    nudgeSortableAfterScroll() {
+      if (!this._editPointer) {
+        return
+      }
+      document.dispatchEvent(new MouseEvent('mousemove', {
+        clientX: this._editPointer.x,
+        clientY: this._editPointer.y
+      }))
+    },
+    /** 编辑态网格高度按「实际会裁切的祖先」实测，避免末行只露图标、标题被父级裁掉 */
+    applyEditGridMaxHeight() {
+      if (!this.quickNavEditMode) {
+        return
+      }
+      const grid = this.getEditGridEl()
+      if (!grid || typeof grid.getBoundingClientRect !== 'function') {
+        return
+      }
+      const rect = grid.getBoundingClientRect()
+      let clipBottom = window.innerHeight || document.documentElement.clientHeight
+      let ancestor = grid.parentElement
+      while (ancestor && ancestor !== document.body) {
+        const style = window.getComputedStyle(ancestor)
+        const oy = style.overflowY
+        if (oy === 'hidden' || oy === 'auto' || oy === 'scroll') {
+          clipBottom = Math.min(clipBottom, ancestor.getBoundingClientRect().bottom)
+        }
+        ancestor = ancestor.parentElement
+      }
+      // 底部再留一点边距；标题约 40px，避免只露出图标
+      const maxHeight = Math.max(200, Math.floor(clipBottom - rect.top - 20))
+      grid.style.maxHeight = `${maxHeight}px`
+    },
+    scrollEditGridIntoView() {
+      const grid = this.getEditGridEl()
+      if (grid && typeof grid.scrollTop === 'number') {
+        grid.scrollTop = 0
+      }
+    },
+    handleEditGridResize() {
+      if (this.quickNavEditMode) {
+        this.applyEditGridMaxHeight()
+      }
     },
     exitQuickNavEditMode() {
       if (!this.quickNavEditMode) {
@@ -530,6 +610,13 @@ export default {
       }
       this.quickNavEditMode = false
       this.quickNavEditApps = []
+      this._editPointer = null
+      window.removeEventListener('mousemove', this.trackEditPointer)
+      const pending = this._pendingQuickNavPayload
+      this._pendingQuickNavPayload = null
+      if (pending) {
+        this.applyQuickNavChange(pending)
+      }
       this.$nextTick(this.updateAppPagination)
     },
     handleQuickNavEditKeydown(event) {
@@ -619,7 +706,15 @@ export default {
       this.quickNavConfigured = config.configured !== false
       this.quickNavApps = Array.isArray(config.apps) ? [...config.apps] : []
       this.quickNavLoadedScope = this.quickNavScopeKey
+      rememberQuickNavSignature(
+        this.quickNavScopeKey,
+        this.quickNavMenuIds,
+        this.quickNavLockedMenuIds,
+        this.quickNavApps
+      )
       this.emitQuickNavChange()
+      // 本地刚保存成功，丢弃排队中的外部同步，避免立刻盖掉编辑结果
+      this._pendingQuickNavPayload = null
       if (this.quickNavEditMode) {
         this.quickNavEditApps = this.homeApps.map(app => ({ ...app }))
         if (!this.quickNavEditApps.length) {
@@ -710,7 +805,17 @@ export default {
       }
     },
     handleAppWheel(event) {
-      if (this.variant !== 'home' || this.quickNavEditMode || this.contextMenu.visible || this.appPageCount <= 1) {
+      if (this.quickNavEditMode) {
+        // 编辑态：滚轮始终滚编辑网格（拖拽克隆是 fixed，原生滚动可能命不中容器）
+        const grid = this.getEditGridEl()
+        if (grid && typeof grid.scrollTop === 'number') {
+          event.preventDefault()
+          grid.scrollTop += event.deltaY
+          this.nudgeSortableAfterScroll()
+        }
+        return
+      }
+      if (this.variant !== 'home' || this.contextMenu.visible || this.appPageCount <= 1) {
         return
       }
       const delta = Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY
@@ -944,10 +1049,15 @@ $canvas: #eaf4fc;
   min-height: 220px;
   /* 快捷项多时编辑区内部滚动：门户首页是固定高度布局(overflow:hidden)，
      全量铺开会被裁掉；Sortable 拖到边缘会自动滚动该容器 */
-  max-height: min(66vh, 640px);
+  max-height: min(72vh, 720px);
   overflow-y: auto;
+  overflow-x: hidden;
   overscroll-behavior: contain;
   padding-right: 6px;
+  /* 末行图标+标题约 140px，底部留白保证滚到底时标题完整可见 */
+  padding-bottom: 88px;
+  box-sizing: border-box;
+  -webkit-overflow-scrolling: touch;
 }
 
 .app-tile {
@@ -1051,7 +1161,9 @@ $canvas: #eaf4fc;
 
 .app-tile > strong {
   display: -webkit-box;
+  flex-shrink: 0;
   margin-top: 13px;
+  min-height: 1.35em;
   overflow: hidden;
   font-size: 15px;
   line-height: 1.35;
@@ -1107,6 +1219,14 @@ $canvas: #eaf4fc;
 
 .app-tile-ghost {
   opacity: .45;
+}
+
+/* forceFallback 模式下跟随鼠标的克隆元素（Sortable 内联 opacity .8，需 important 覆盖） */
+.app-grid--edit .sortable-fallback {
+  opacity: .96 !important;
+  border-radius: 22px;
+  box-shadow: 0 16px 34px rgba(16, 35, 62, .22);
+  cursor: grabbing;
 }
 
 .app-tile-chosen .app-icon {
