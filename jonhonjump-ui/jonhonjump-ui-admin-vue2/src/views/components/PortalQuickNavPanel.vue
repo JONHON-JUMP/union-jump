@@ -942,6 +942,12 @@ $canvas: #eaf4fc;
 .app-grid--edit {
   height: auto;
   min-height: 220px;
+  /* 快捷项多时编辑区内部滚动：门户首页是固定高度布局(overflow:hidden)，
+     全量铺开会被裁掉；Sortable 拖到边缘会自动滚动该容器 */
+  max-height: min(66vh, 640px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 6px;
 }
 
 .app-tile {
