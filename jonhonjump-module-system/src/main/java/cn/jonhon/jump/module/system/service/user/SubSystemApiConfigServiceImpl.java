@@ -4,10 +4,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.util.json.JsonUtils;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiConfigRespVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiConfigSaveReqVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestReqVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemApiConfigMapper;
@@ -171,6 +168,90 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         return resp;
     }
 
+    @Override
+    public String createExternalRole(SubSystemExternalRoleCreateReqVO reqVO) {
+        // 角色名固定拼接 车间编号_角色名称（与 Camstar 现网命名一致，如 5000_管理员）
+        String workshopCode = reqVO.getWorkshopCode().trim();
+        String roleName = workshopCode + "_" + reqVO.getRoleName().trim();
+        pushExternalRoleCreate(reqVO.getSubSystemId(), workshopCode, roleName);
+        return roleName;
+    }
+
+    @Override
+    public void pushExternalRoleCreate(Long subSystemId, String workshopCode, String externalRoleName) {
+        SubSystemApiConfigDO config = subSystemApiConfigMapper.selectBySubSystemId(subSystemId);
+        if (config == null) {
+            throw exception(SUB_SYSTEM_API_CONFIG_NOT_EXISTS);
+        }
+        EndpointSpec endpoint;
+        try {
+            endpoint = EndpointSpec.parse(config.getApiRoleCreate(), "role_create");
+        } catch (ExternalApiException e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
+        if (!endpoint.isEnabled()) {
+            throw exception(SUB_SYSTEM_API_ENDPOINT_DISABLED, "role_create");
+        }
+        // Camstar updateRoleInfo(List<RoleEntity>)：roleId 为空 → 新增裸角色（不挂页面）；请求体为 JSON 数组
+        Map<String, Object> item = new HashMap<>();
+        item.put("roleName", externalRoleName);
+        item.put("workshopCode", workshopCode);
+        ExternalApiHttpClient httpClient = new ExternalApiHttpClient(
+                config.getBaseUrl(), config.getConnectTimeoutMs(), config.getReadTimeoutMs());
+        String raw;
+        try {
+            raw = httpClient.execute(endpoint, Collections.singletonList(item), buildAuthHeaders(config, endpoint));
+        } catch (ExternalApiException e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
+        // 响应契约同 Camstar AjaxResult：code==200 成功，失败信息在 message
+        JsonNode resp;
+        try {
+            resp = JsonUtils.parseObject(raw, JsonNode.class);
+        } catch (Exception e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, "响应解析失败：" + StrUtil.brief(raw, 300));
+        }
+        if (resp.path("code").asInt(0) != 200) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, resp.path("message").asText("未知错误"));
+        }
+    }
+
+    @Override
+    public List<SubSystemRegisterableApiRespVO> listRoleCreateApis() {
+        List<SubSystemApiConfigDO> configs = subSystemApiConfigMapper.selectList();
+        if (CollUtil.isEmpty(configs)) {
+            return Collections.emptyList();
+        }
+        List<Long> apiSubSystemIds = configs.stream()
+                .filter(this::isRoleCreateEndpointEnabled)
+                .map(SubSystemApiConfigDO::getSubSystemId)
+                .distinct()
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(apiSubSystemIds)) {
+            return Collections.emptyList();
+        }
+        Map<Long, SubSystemDO> subSystemMap = convertMap(
+                subSystemMapper.selectListByIds(apiSubSystemIds), SubSystemDO::getId);
+        // 保序：按配置列表出现顺序
+        return apiSubSystemIds.stream()
+                .filter(subSystemMap::containsKey)
+                .map(id -> new SubSystemRegisterableApiRespVO()
+                        .setSubSystemId(id)
+                        .setSystemName(subSystemMap.get(id).getSystemName()))
+                .collect(Collectors.toList());
+    }
+
+    private boolean isRoleCreateEndpointEnabled(SubSystemApiConfigDO config) {
+        if (config == null || StrUtil.isBlank(config.getApiRoleCreate())) {
+            return false;
+        }
+        try {
+            return EndpointSpec.parse(config.getApiRoleCreate(), "role_create").isEnabled();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     private String resolveEndpointJson(SubSystemApiConfigDO config, String apiKey) {
         if (apiKey == null) {
             throw exception(SUB_SYSTEM_API_CONFIG_INVALID_JSON, "apiKey");
@@ -186,6 +267,12 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
                 return config.getApiUpdate();
             case "delete":
                 return config.getApiDelete();
+            case "role_query":
+                return config.getApiRoleQuery();
+            case "role_create":
+                return config.getApiRoleCreate();
+            case "role_delete":
+                return config.getApiRoleDelete();
             default:
                 throw exception(SUB_SYSTEM_API_CONFIG_INVALID_JSON, apiKey);
         }
@@ -347,6 +434,7 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     private void validateJsonFields(SubSystemApiConfigSaveReqVO reqVO) {
         String[] jsonFields = {reqVO.getAuthConfig(), reqVO.getApiQuery(), reqVO.getApiCreate(),
                 reqVO.getApiUpdate(), reqVO.getApiDelete(), reqVO.getApiTeamCombo(),
+                reqVO.getApiRoleQuery(), reqVO.getApiRoleCreate(), reqVO.getApiRoleDelete(),
                 reqVO.getApiCatalog(), reqVO.getParamMapping(), reqVO.getResponseMapping()};
         for (String json : jsonFields) {
             if (StrUtil.isBlank(json)) {

@@ -15,6 +15,10 @@ export function getSubSystemApiConfig(id) {
 export function getSubSystemApiConfigBySubSystem(subSystemId) {
   return request({ url: '/system/sub-system-api-config/get-by-sub-system?subSystemId=' + subSystemId, method: 'get' })
 }
+/** 已启用「角色新增」接口的接入系统（与门户角色系统解耦） */
+export function getSubSystemRoleCreateApis() {
+  return request({ url: '/system/sub-system-api-config/role-create-apis', method: 'get' })
+}
 // 新增配置
 export function createSubSystemApiConfig(data) {
   return request({ url: '/system/sub-system-api-config/create', method: 'post', data })
@@ -38,4 +42,8 @@ export function testSubSystemApiConnection(id) {
 // 本页调试指定接口
 export function testSubSystemApiInvoke(data) {
   return request({ url: '/system/sub-system-api-config/test', method: 'post', data })
+}
+// 新增外部系统角色（调对方「角色新增」接口，角色名自动拼 车间编号_角色名称）
+export function createExternalRole(data) {
+  return request({ url: '/system/sub-system-api-config/create-role', method: 'post', data })
 }

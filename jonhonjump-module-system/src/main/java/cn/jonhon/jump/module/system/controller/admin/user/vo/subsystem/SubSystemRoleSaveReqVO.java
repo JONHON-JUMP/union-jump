@@ -39,4 +39,14 @@ public class SubSystemRoleSaveReqVO {
     @InEnum(value = CommonStatusEnum.class, message = "状态必须是 {value}")
     private Integer status;
 
+    @Schema(description = "是否同步到外部系统（仅新建；需已启用角色新增接口）", example = "false")
+    private Boolean syncToExternal;
+
+    @Schema(description = "接口目标系统 ID（同步时必填；与本地角色所属系统可不同，如 Camstar人员管理）", example = "9")
+    private Long apiSubSystemId;
+
+    @Schema(description = "车间编号（同步到外部系统时必填，同时作为角色名前缀）", example = "4200")
+    @Size(max = 32, message = "车间编号长度不能超过 32 个字符")
+    private String workshopCode;
+
 }

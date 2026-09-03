@@ -153,6 +153,9 @@
                 <el-option label="新增人员（用户同步用）" value="create" />
                 <el-option label="修改人员" value="update" />
                 <el-option label="删除人员" value="delete" />
+                <el-option label="角色查询" value="role_query" />
+                <el-option label="角色新增（裸角色，不挂页面）" value="role_create" />
+                <el-option label="角色删除" value="role_delete" />
               </el-select>
               <div class="form-tip" v-if="editApi.purpose === 'create'">用户管理 → 添加用户 → 同步业务系统，将调用本接口</div>
             </el-form-item>
@@ -170,7 +173,7 @@
             <el-form-item label="完整地址">
               <el-input v-model="editApi.url" placeholder="http://host/path" />
             </el-form-item>
-            <el-form-item v-if="isPersonPurpose" label="会话Cookie">
+            <el-form-item v-if="isWithSessionPurpose" label="会话Cookie">
               <el-switch v-model="editApi.withSession" :disabled="!currentSessionEnabled" active-text="携带会话 Cookie" />
               <div class="form-tip" v-if="sessionSummary">
                 {{ sessionSummary }}；无需 Cookie 的接口关闭本开关即可裸调
@@ -243,7 +246,7 @@ import {
   updateSubSystemApiConfig
 } from '@/api/system/subSystemApiConfig'
 
-const PURPOSES = ['query', 'create', 'update', 'delete']
+const PURPOSES = ['query', 'create', 'update', 'delete', 'role_query', 'role_create', 'role_delete']
 
 const CAMSTAR_SAMPLES = {
   auth: { token: '' },
@@ -256,7 +259,11 @@ const CAMSTAR_SAMPLES = {
     userCode: '00078', userName: '张三', workshopCode: '4200',
     teamCode: '', domainName: '', erpNo: '', cardNo: ''
   }],
-  delete: { userCode: '00078' }
+  delete: { userCode: '00078' },
+  // Camstar 角色（裸角色，不挂页面）：全部 POST；新增/删除要求会话工号挂「管理员/Administrator」角色
+  role_query: { workshopCode: '4200' },
+  role_create: [{ roleName: 'JUMP测试角色', workshopCode: '4200' }],
+  role_delete: { roleId: '从角色查询结果中复制的 roleId' }
 }
 
 function uid(prefix) {
@@ -336,6 +343,38 @@ function stripAuthNodes(nodes) {
   return result
 }
 
+/** 角色目录（与人员目录同级）：Camstar 角色裸增删查（ROLEDEF 一行，NOTES=车间编码），不挂页面 */
+function buildRoleDir(config, host) {
+  const h = host || (config && config.baseUrl) || ''
+  const roleQuery = endpointFromField(config && config.apiRoleQuery, {
+    name: '角色查询', method: 'POST', url: joinUrl(h, '/BasicData/Role/getRoleInfo')
+  })
+  const roleCreate = endpointFromField(config && config.apiRoleCreate, {
+    name: '角色新增', method: 'POST', url: joinUrl(h, '/BasicData/Role/updateRoleInfo')
+  })
+  const roleDelete = endpointFromField(config && config.apiRoleDelete, {
+    name: '角色删除', method: 'POST', url: joinUrl(h, '/BasicData/Role/deleteRoleInfo')
+  })
+  return {
+    id: 'dir-role',
+    type: 'dir',
+    name: '角色',
+    children: [
+      { id: 'api-role-query', type: 'api', name: roleQuery.name || '角色查询', purpose: 'role_query', method: roleQuery.method, url: roleQuery.url, enabled: roleQuery.enabled, withSession: roleQuery.withSession },
+      { id: 'api-role-create', type: 'api', name: roleCreate.name || '角色新增', purpose: 'role_create', method: roleCreate.method, url: roleCreate.url, enabled: roleCreate.enabled, withSession: roleCreate.withSession },
+      { id: 'api-role-delete', type: 'api', name: roleDelete.name || '角色删除', purpose: 'role_delete', method: roleDelete.method, url: roleDelete.url, enabled: roleDelete.enabled, withSession: roleDelete.withSession }
+    ]
+  }
+}
+
+/** 存量 camstar 配置目录树无「角色」目录时自动补（仅展示层合并，保存时随 apiCatalog 持久化） */
+function ensureRoleDir(catalog, config) {
+  if (!catalog || !catalog.nodes) return
+  if ((config && config.apiType) !== 'camstar') return
+  if (findInCatalog(catalog.nodes, 'dir-role')) return
+  catalog.nodes.push(buildRoleDir(config, (config && config.baseUrl) || ''))
+}
+
 /** 无 catalog 时，用旧字段拼默认菜单树（不含鉴权叶子，会话在系统节点配置） */
 function buildDefaultCatalog(config, host) {
   const h = host || (config && config.baseUrl) || ''
@@ -363,7 +402,8 @@ function buildDefaultCatalog(config, host) {
           { id: 'api-update', type: 'api', name: update.name || '修改', purpose: 'update', method: update.method, url: update.url, enabled: update.enabled, withSession: update.withSession },
           { id: 'api-delete', type: 'api', name: del.name || '删除', purpose: 'delete', method: del.method, url: del.url, enabled: del.enabled, withSession: del.withSession }
         ]
-      }
+      },
+      buildRoleDir(config, host)
     ]
   }
 }
@@ -527,9 +567,10 @@ export default {
       const name = (this.editApi && this.editApi.name) || this.currentNode.label
       return (this.currentNode.systemName || '') + ' / ' + name
     },
-    /** 人员增删改查：Cookie 从系统级会话设置自动带，不在本页重复配置 */
-    isPersonPurpose() {
-      return ['query', 'create', 'update', 'delete'].indexOf(this.editApi && this.editApi.purpose) >= 0
+    /** 人员/角色接口：Cookie 从系统级会话设置自动带，不在本页重复配置 */
+    isWithSessionPurpose() {
+      const purposes = ['query', 'create', 'update', 'delete', 'role_query', 'role_create', 'role_delete']
+      return purposes.indexOf(this.editApi && this.editApi.purpose) >= 0
     },
     currentSession() {
       if (!this.currentNode || !this.currentNode.subSystemId) return null
@@ -566,7 +607,9 @@ export default {
         this.sessionMap = {}
         ;(configs.data || []).forEach(c => {
           this.configMap[c.subSystemId] = c
-          this.$set(this.catalogMap, c.subSystemId, normalizeCatalog(c.apiCatalog, c))
+          const catalog = normalizeCatalog(c.apiCatalog, c)
+          ensureRoleDir(catalog, c)
+          this.$set(this.catalogMap, c.subSystemId, catalog)
           this.$set(this.sessionMap, c.subSystemId, sessionFromConfig(c))
         })
         this.$nextTick(() => {
@@ -806,6 +849,9 @@ export default {
       const create = findByPurpose(catalog.nodes, 'create')
       const update = findByPurpose(catalog.nodes, 'update')
       const del = findByPurpose(catalog.nodes, 'delete')
+      const roleQuery = findByPurpose(catalog.nodes, 'role_query')
+      const roleCreate = findByPurpose(catalog.nodes, 'role_create')
+      const roleDelete = findByPurpose(catalog.nodes, 'role_delete')
       let baseUrl = (this.formMeta && this.formMeta.baseUrl) || (config && config.baseUrl) || ''
       const urls = [query, create].filter(Boolean).map(a => a.url)
       for (let i = 0; i < urls.length; i++) {
@@ -830,6 +876,9 @@ export default {
         apiCreate: stringifyEndpoint(create),
         apiUpdate: stringifyEndpoint(update),
         apiDelete: stringifyEndpoint(del),
+        apiRoleQuery: stringifyEndpoint(roleQuery),
+        apiRoleCreate: stringifyEndpoint(roleCreate),
+        apiRoleDelete: stringifyEndpoint(roleDelete),
         apiTeamCombo: config.apiTeamCombo || '',
         // 持久化时剔除旧版鉴权叶子（后端不解析目录树；会话信息在 authConfig 列）
         apiCatalog: JSON.stringify({ nodes: stripAuthNodes(catalog.nodes) }),
@@ -935,7 +984,7 @@ export default {
       this.applyEditToCatalog()
       const purpose = this.editApi.purpose
       if (!purpose || PURPOSES.indexOf(purpose) < 0) {
-        this.$modal.msgWarning('测试需先设置用途（查询/新增/修改/删除）')
+        this.$modal.msgWarning('测试需先设置用途（人员或角色的查询/新增/删除）')
         return
       }
       this.testing = true
@@ -985,6 +1034,9 @@ export default {
         apiCreate: stringifyEndpoint(findByPurpose(catalog.nodes, 'create')),
         apiUpdate: stringifyEndpoint(findByPurpose(catalog.nodes, 'update')),
         apiDelete: stringifyEndpoint(findByPurpose(catalog.nodes, 'delete')),
+        apiRoleQuery: stringifyEndpoint(findByPurpose(catalog.nodes, 'role_query')),
+        apiRoleCreate: stringifyEndpoint(findByPurpose(catalog.nodes, 'role_create')),
+        apiRoleDelete: stringifyEndpoint(findByPurpose(catalog.nodes, 'role_delete')),
         apiTeamCombo: '',
         apiCatalog: JSON.stringify(catalog),
         deleteTip: this.addApiType === 'camstar' ? '删除将同时删除该用户在 Camstar 的域账号，不可恢复！' : '',

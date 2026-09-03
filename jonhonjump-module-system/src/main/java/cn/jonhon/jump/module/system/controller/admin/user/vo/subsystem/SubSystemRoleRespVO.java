@@ -37,6 +37,9 @@ public class SubSystemRoleRespVO {
     @Schema(description = "状态")
     private Integer status;
 
+    @Schema(description = "角色接口注册状态（0未注册 1已注册）")
+    private String roleRegistered;
+
     @Schema(description = "数据范围")
     private Integer dataScope;
 

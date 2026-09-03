@@ -93,6 +93,24 @@ public class SubSystemRoleController {
         return success(true);
     }
 
+    @PutMapping("/update-register-status")
+    @Operation(summary = "修改角色接口注册状态（0未注册 1已注册；人工在对方系统建过可标已注册，改回未注册可重推）")
+    @PreAuthorize("@ss.hasPermission('sub-system:role:update')")
+    public CommonResult<Boolean> updateSubSystemRoleRegisterStatus(@RequestParam("id") Long id,
+                                                                   @RequestParam("roleRegistered") String roleRegistered) {
+        subSystemRoleService.updateSubSystemRoleRegisterStatus(id, roleRegistered);
+        return success(true);
+    }
+
+    @PostMapping("/register")
+    @Operation(summary = "未注册角色调对方「角色新增」接口补注册（成功自动置已注册）")
+    @PreAuthorize("@ss.hasPermission('sub-system:role:update')")
+    public CommonResult<Boolean> registerSubSystemRole(@RequestParam("id") Long id,
+                                                       @Valid @RequestBody(required = false) SubSystemRoleRegisterReqVO reqVO) {
+        subSystemRoleService.registerSubSystemRole(id, reqVO != null ? reqVO : new SubSystemRoleRegisterReqVO());
+        return success(true);
+    }
+
     @GetMapping("/menu-simple-list")
     @Operation(summary = "获得外部系统菜单精简列表")
     @PreAuthorize("@ss.hasPermission('sub-system:role:list')")

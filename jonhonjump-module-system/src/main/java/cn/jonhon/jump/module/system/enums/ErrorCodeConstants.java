@@ -66,6 +66,9 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_ROLE_NAME_DUPLICATE = new ErrorCode(1_002_003_016, "已经存在名为【{}】的外部系统角色");
     ErrorCode SUB_SYSTEM_ROLE_CODE_DUPLICATE = new ErrorCode(1_002_003_017, "已经存在标识为【{}】的外部系统角色");
     ErrorCode SUB_SYSTEM_ROLE_HAS_USERS = new ErrorCode(1_002_003_018, "外部系统角色已分配用户，无法删除");
+    ErrorCode SUB_SYSTEM_ROLE_ALREADY_REGISTERED = new ErrorCode(1_002_003_045, "该角色已接口注册，无需重复推送");
+    ErrorCode SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED = new ErrorCode(1_002_003_046, "同步到外部系统时请选择车间");
+    ErrorCode SUB_SYSTEM_ROLE_NAME_WORKSHOP_INVALID = new ErrorCode(1_002_003_047, "角色名称无法解析车间前缀，请选择车间后再注册");
     ErrorCode SUB_SYSTEM_MENU_NOT_EXISTS = new ErrorCode(1_002_003_019, "外部系统菜单不存在");
     ErrorCode SUB_SYSTEM_MENU_EXISTS_CHILDREN = new ErrorCode(1_002_003_020, "存在子菜单，无法删除");
     ErrorCode SUB_SYSTEM_MENU_HAS_ROLES = new ErrorCode(1_002_003_021, "外部系统菜单已分配角色，无法删除");

@@ -23,6 +23,16 @@ public interface SubSystemRoleService {
 
     void updateSubSystemRoleStatus(Long id, Integer status);
 
+    /**
+     * 修改角色接口注册状态（0未注册 1已注册；人工在对方系统建过可标已注册，改回未注册可重推）
+     */
+    void updateSubSystemRoleRegisterStatus(Long id, String roleRegistered);
+
+    /**
+     * 未注册角色补调对方「角色新增」接口；成功后置已注册
+     */
+    void registerSubSystemRole(Long id, SubSystemRoleRegisterReqVO reqVO);
+
     List<SubSystemMenuSimpleRespVO> getMenuSimpleList(Long subSystemId);
 
     Set<Long> getRoleMenuIds(Long roleId);

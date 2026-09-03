@@ -2,6 +2,7 @@ package cn.jonhon.jump.module.system.service.user;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.collection.CollectionUtils;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
@@ -58,6 +59,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     private SubSystemPermissionContextService subSystemPermissionContextService;
     @Resource
     private SubSystemUserQuickNavService subSystemUserQuickNavService;
+    @Resource
+    private SubSystemApiConfigService subSystemApiConfigService;
 
     @Override
     public PageResult<SubSystemRoleRespVO> getSubSystemRolePage(SubSystemRolePageReqVO pageReqVO) {
@@ -77,13 +80,49 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     @Override
     public Long createSubSystemRole(SubSystemRoleSaveReqVO createReqVO) {
         validateSubSystemExists(createReqVO.getSubSystemId());
-        validateRoleDuplicate(createReqVO.getSubSystemId(), createReqVO.getName(), createReqVO.getCode(), null);
+        boolean syncToExternal = Boolean.TRUE.equals(createReqVO.getSyncToExternal());
+        String roleName = StrUtil.trim(createReqVO.getName());
+        String workshopCode = StrUtil.trim(createReqVO.getWorkshopCode());
+        if (syncToExternal) {
+            if (StrUtil.isBlank(workshopCode)) {
+                throw exception(SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED);
+            }
+            Long apiSubSystemId = createReqVO.getApiSubSystemId();
+            if (apiSubSystemId == null || apiSubSystemId <= 0) {
+                // 未显式指定时，兼容旧调用：用本地角色所属系统
+                apiSubSystemId = createReqVO.getSubSystemId();
+            }
+            // 同步时：本地角色名统一为 车间编号_角色名称（输入已带此前缀则不再重复拼接）
+            roleName = buildExternalRoleName(workshopCode, roleName);
+            createReqVO.setName(roleName);
+            validateRoleDuplicate(createReqVO.getSubSystemId(), roleName, createReqVO.getCode(), null);
+
+            SubSystemRoleDO role = BeanUtils.toBean(createReqVO, SubSystemRoleDO.class);
+            role.setName(roleName);
+            role.setType(RoleTypeEnum.CUSTOM.getType());
+            role.setDataScope(DataScopeEnum.ALL.getScope());
+            role.setMenuCheckStrictly(1);
+            role.setDeptCheckStrictly(1);
+            role.setRoleRegistered("0");
+            subSystemRoleMapper.insert(role);
+
+            try {
+                subSystemApiConfigService.pushExternalRoleCreate(apiSubSystemId, workshopCode, roleName);
+                markRoleRegistered(role.getId(), "1");
+            } catch (RuntimeException ex) {
+                throw ex;
+            }
+            return role.getId();
+        }
+        validateRoleDuplicate(createReqVO.getSubSystemId(), roleName, createReqVO.getCode(), null);
 
         SubSystemRoleDO role = BeanUtils.toBean(createReqVO, SubSystemRoleDO.class);
+        role.setName(roleName);
         role.setType(RoleTypeEnum.CUSTOM.getType());
         role.setDataScope(DataScopeEnum.ALL.getScope());
         role.setMenuCheckStrictly(1);
         role.setDeptCheckStrictly(1);
+        role.setRoleRegistered("0");
         subSystemRoleMapper.insert(role);
         return role.getId();
     }
@@ -96,6 +135,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
 
         SubSystemRoleDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemRoleDO.class);
         updateObj.setSubSystemId(role.getSubSystemId());
+        // 注册状态不走普通修改，避免误清
+        updateObj.setRoleRegistered(null);
         subSystemRoleMapper.updateById(updateObj);
         subSystemPermissionContextService.evictByRoleId(updateReqVO.getId());
     }
@@ -132,6 +173,77 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         updateObj.setStatus(status);
         subSystemRoleMapper.updateById(updateObj);
         subSystemPermissionContextService.evictByRoleId(id);
+    }
+
+    @Override
+    public void updateSubSystemRoleRegisterStatus(Long id, String roleRegistered) {
+        validateSubSystemRoleExists(id);
+        markRoleRegistered(id, "1".equals(roleRegistered) ? "1" : "0");
+    }
+
+    @Override
+    public void registerSubSystemRole(Long id, SubSystemRoleRegisterReqVO reqVO) {
+        SubSystemRoleDO role = validateSubSystemRoleExists(id);
+        if ("1".equals(role.getRoleRegistered())) {
+            throw exception(SUB_SYSTEM_ROLE_ALREADY_REGISTERED);
+        }
+        String workshopCode = StrUtil.trim(reqVO != null ? reqVO.getWorkshopCode() : null);
+        String roleName = StrUtil.trim(role.getName());
+        if (StrUtil.isBlank(workshopCode)) {
+            workshopCode = parseWorkshopPrefix(roleName);
+        }
+        if (StrUtil.isBlank(workshopCode)) {
+            throw exception(SUB_SYSTEM_ROLE_NAME_WORKSHOP_INVALID);
+        }
+        Long apiSubSystemId = reqVO != null ? reqVO.getApiSubSystemId() : null;
+        if (apiSubSystemId == null || apiSubSystemId <= 0) {
+            apiSubSystemId = role.getSubSystemId();
+        }
+        // 名称尚未带车间前缀时，补全本地名再推送，与新建勾选同步规则一致
+        String externalName = buildExternalRoleName(workshopCode, roleName);
+        if (!Objects.equals(externalName, roleName)) {
+            validateRoleDuplicate(role.getSubSystemId(), externalName, role.getCode(), role.getId());
+            SubSystemRoleDO rename = new SubSystemRoleDO();
+            rename.setId(role.getId());
+            rename.setName(externalName);
+            subSystemRoleMapper.updateById(rename);
+            roleName = externalName;
+        }
+        subSystemApiConfigService.pushExternalRoleCreate(apiSubSystemId, workshopCode, roleName);
+        markRoleRegistered(role.getId(), "1");
+    }
+
+    private void markRoleRegistered(Long id, String roleRegistered) {
+        SubSystemRoleDO updateObj = new SubSystemRoleDO();
+        updateObj.setId(id);
+        updateObj.setRoleRegistered(roleRegistered);
+        subSystemRoleMapper.updateById(updateObj);
+    }
+
+    /** 车间编号_短名；若已带此前缀则原样返回 */
+    private static String buildExternalRoleName(String workshopCode, String roleName) {
+        String name = StrUtil.trim(roleName);
+        String workshop = StrUtil.trim(workshopCode);
+        if (StrUtil.isBlank(name) || StrUtil.isBlank(workshop)) {
+            return name;
+        }
+        String prefix = workshop + "_";
+        if (name.startsWith(prefix)) {
+            return name;
+        }
+        return prefix + name;
+    }
+
+    /** 从「车间_角色」解析车间段；无下划线则返回 null */
+    private static String parseWorkshopPrefix(String roleName) {
+        if (StrUtil.isBlank(roleName)) {
+            return null;
+        }
+        int idx = roleName.indexOf('_');
+        if (idx <= 0) {
+            return null;
+        }
+        return roleName.substring(0, idx);
     }
 
     @Override
