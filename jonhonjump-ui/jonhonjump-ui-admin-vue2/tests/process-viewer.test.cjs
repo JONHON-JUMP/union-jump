@@ -48,7 +48,12 @@ function createContext(component, overrides = {}) {
     ...component.data(),
     ...component.methods,
     $refs: {
-      queryForm: { validate: callback => callback(true), resetFields: () => {} },
+      queryForm: {
+        validate: callback => callback(true),
+        resetFields: () => {},
+        clearValidate: () => {},
+        validateField: (property, callback) => { if (callback) callback() }
+      },
       processTable: { toggleRowExpansion: () => {} }
     },
     $nextTick: callback => {
@@ -147,11 +152,97 @@ test('formal process query only sends the process number', () => {
   const temporaryRequest = component.methods.buildQueryRequest.call(
     context, { prtno: 'MAT-1', accno: '43091' }
   )
+  const materialOnlyRequest = component.methods.buildQueryRequest.call(
+    context, { prtno: 'MAT-1', accno: '' }
+  )
 
   assert.equal(formalRequest.accno, 'CX0000000048')
   assert.equal(Object.hasOwn(formalRequest, 'prtno'), false)
   assert.equal(temporaryRequest.prtno, 'MAT-1')
   assert.equal(temporaryRequest.accno, '43091')
+  assert.equal(materialOnlyRequest.prtno, 'MAT-1')
+  assert.equal(materialOnlyRequest.accno, '')
+})
+
+test('validates material and process numbers as a cross-field query', () => {
+  const component = loadComponent()
+  const validate = (computedName, queryParams, value) => {
+    const context = createContext(component, { queryParams })
+    const rule = component.computed[computedName].call(context)[0]
+    let validationError
+    rule.validator(null, value, error => { validationError = error })
+    return validationError
+  }
+
+  assert.equal(validate('materialRules', { prtno: '', accno: 'CX0000000048' }, ''), undefined)
+  assert.equal(validate('accnoRules', { prtno: '', accno: 'CX0000000048' }, 'CX0000000048'), undefined)
+  assert.equal(validate('materialRules', { prtno: 'MAT-1', accno: '' }, 'MAT-1'), undefined)
+  assert.equal(validate('accnoRules', { prtno: 'MAT-1', accno: '' }, ''), undefined)
+  assert.equal(validate('materialRules', { prtno: 'MAT-1', accno: '43091' }, 'MAT-1'), undefined)
+  assert.equal(validate('accnoRules', { prtno: 'MAT-1', accno: '43091' }, '43091'), undefined)
+  assert.equal(validate('materialRules', { prtno: '', accno: '' }, '').message, '请输入物料号或工艺规程号')
+  assert.equal(validate('accnoRules', { prtno: '', accno: '' }, '').message, '请输入物料号或工艺规程号')
+  assert.equal(validate('materialRules', { prtno: '', accno: '43091' }, '').message, '临时工艺必须输入物料号')
+  assert.equal(validate('accnoRules', { prtno: '', accno: '43091' }, '43091'), undefined)
+})
+
+test('revalidates only the related field after either query input changes', () => {
+  const component = loadComponent()
+  const cleared = []
+  const validated = []
+  const context = createContext(component, {
+    $refs: {
+      queryForm: {
+        clearValidate: property => cleared.push(property),
+        validateField: property => validated.push(property)
+      }
+    }
+  })
+
+  component.methods.handlePrtnoInput.call(context)
+  component.methods.handleAccnoInput.call(context)
+
+  assert.deepEqual(cleared, ['accno', 'prtno'])
+  assert.deepEqual(validated, ['accno', 'prtno'])
+})
+
+test('summarizes multiple formal and temporary process cards', () => {
+  const component = loadComponent()
+  const formalCard = {
+    accno: 'CX0000000048', version: 'A', isFormal: 1, isFix: 0, details: []
+  }
+  const temporaryCard = responseCards()[0]
+  const processTree = component.methods.normalizeCards.call(
+    createContext(component), [formalCard, temporaryCard]
+  )
+  const context = createContext(component, {
+    displayProcessTree: processTree,
+    activeProcess: processTree[0],
+    visibleProcessCount: processTree.length
+  })
+
+  assert.equal(component.computed.summaryProcessNo.call(context), '2 组工艺')
+  assert.equal(component.computed.summaryVersion.call(context), '—')
+  assert.equal(component.computed.summaryProcessType.call(context), '混合工艺')
+  assert.equal(component.computed.summaryOrderType.call(context), '混合')
+})
+
+test('saves and replays a material-only recent query', async () => {
+  const component = loadComponent({
+    queryProcessCard: () => Promise.resolve({ data: responseCards() })
+  })
+  const context = createContext(component, {
+    queryParams: { prtno: 'MAT-1', accno: '' }
+  })
+
+  await component.methods.handleQuery.call(context)
+
+  assert.equal(context.recentQueries[0].label, 'MAT-1')
+  context.queryParams = { prtno: '', accno: '43091' }
+  context.handleQuery = () => {}
+  component.methods.handleRecentQuery.call(context, context.recentQueries[0])
+  assert.equal(context.queryParams.prtno, 'MAT-1')
+  assert.equal(context.queryParams.accno, '')
 })
 
 test('keeps the newest result when concurrent queries finish out of order', async () => {

@@ -17,13 +17,14 @@
             clearable
             prefix-icon="el-icon-search"
             placeholder="请输入物料号"
+            @input="handlePrtnoInput"
             @keyup.enter.native="handleQuery"
           />
         </el-form-item>
         <el-form-item
           prop="accno"
           class="query-form__input"
-          :rules="[{ required: true, message: '请输入工艺规程号', trigger: 'blur' }]"
+          :rules="accnoRules"
         >
           <el-input
             v-model.trim="queryParams.accno"
@@ -67,14 +68,14 @@
       >
         <div>
           <div class="summary-title">
-            <h2>{{ activeProcess.processNo }}</h2>
-            <span class="version-tag">{{ activeProcess.version }}</span>
+            <h2>{{ summaryProcessNo }}</h2>
+            <span class="version-tag">{{ summaryVersion }}</span>
           </div>
           <dl class="summary-meta">
-            <div><dt>工艺类型</dt><dd>{{ activeProcess.name }}</dd></div>
+            <div><dt>工艺类型</dt><dd>{{ summaryProcessType }}</dd></div>
             <div><dt>工序数</dt><dd>{{ visibleOperationCount }}</dd></div>
             <div><dt>工艺卡数</dt><dd>{{ visibleProcessCount }}</dd></div>
-            <div><dt>订单类型</dt><dd>{{ activeProcess.isFix === 1 ? '返修' : '普通' }}</dd></div>
+            <div><dt>订单类型</dt><dd>{{ summaryOrderType }}</dd></div>
           </dl>
         </div>
         <div class="summary-actions">
@@ -192,9 +193,50 @@ export default {
       return this.flatDisplayNodes.filter(item => item.nodeType === 'card').length
     },
     materialRules() {
-      return this.isFormalProcess(this.queryParams.accno)
-        ? []
-        : [{ required: true, message: '请输入物料号', trigger: 'blur' }]
+      return [{
+        trigger: 'blur',
+        validator: (rule, value, callback) => {
+          const material = String(value || '').trim()
+          const accno = String(this.queryParams.accno || '').trim()
+          if (!material && !this.isFormalProcess(accno)) {
+            callback(new Error(accno ? '临时工艺必须输入物料号' : '请输入物料号或工艺规程号'))
+            return
+          }
+          callback()
+        }
+      }]
+    },
+    accnoRules() {
+      return [{
+        trigger: 'blur',
+        validator: (rule, value, callback) => {
+          if (!String(value || '').trim() && !String(this.queryParams.prtno || '').trim()) {
+            callback(new Error('请输入物料号或工艺规程号'))
+            return
+          }
+          callback()
+        }
+      }]
+    },
+    summaryProcessNo() {
+      return this.visibleProcessCount > 1
+        ? `${this.visibleProcessCount} 组工艺`
+        : (this.activeProcess && this.activeProcess.processNo) || '—'
+    },
+    summaryVersion() {
+      return this.visibleProcessCount > 1
+        ? '—'
+        : (this.activeProcess && this.activeProcess.version) || '—'
+    },
+    summaryProcessType() {
+      const types = new Set(this.displayProcessTree.map(card => card.isFormal))
+      if (types.size > 1) return '混合工艺'
+      return (this.activeProcess && this.activeProcess.name) || '—'
+    },
+    summaryOrderType() {
+      const fixTypes = new Set(this.displayProcessTree.map(card => card.isFix))
+      if (fixTypes.size > 1) return '混合'
+      return this.activeProcess && this.activeProcess.isFix === 1 ? '返修' : '普通'
     }
   },
   methods: {
@@ -250,14 +292,28 @@ export default {
       return String(accno || '').trim().startsWith('C')
     },
     buildQueryRequest(params) {
-      const request = { accno: params.accno }
-      if (!this.isFormalProcess(params.accno)) request.prtno = params.prtno
-      return request
+      const accno = String(params.accno || '').trim()
+      const prtno = String(params.prtno || '').trim()
+      if (this.isFormalProcess(accno)) return { accno }
+      return { prtno, accno }
     },
-    handleAccnoInput(value) {
-      if (this.isFormalProcess(value) && this.$refs.queryForm) {
-        this.$refs.queryForm.clearValidate('prtno')
-      }
+    revalidateRelatedField(property) {
+      const form = this.$refs && this.$refs.queryForm
+      if (!form) return
+      if (typeof form.clearValidate === 'function') form.clearValidate(property)
+      if (typeof form.validateField === 'function') form.validateField(property, () => {})
+    },
+    handlePrtnoInput() {
+      this.revalidateRelatedField('accno')
+    },
+    handleAccnoInput() {
+      this.revalidateRelatedField('prtno')
+    },
+    buildRecentQueryLabel(params) {
+      const prtno = String(params.prtno || '').trim()
+      const accno = String(params.accno || '').trim()
+      if (prtno && accno) return `${prtno} / ${accno}`
+      return prtno || accno
     },
     setAllExpanded(expanded) {
       const table = this.$refs && this.$refs.processTable
@@ -282,9 +338,7 @@ export default {
         if (this.processTree.length) {
           const recent = {
             ...querySnapshot,
-            label: querySnapshot.prtno
-              ? `${querySnapshot.prtno} / ${querySnapshot.accno}`
-              : querySnapshot.accno
+            label: this.buildRecentQueryLabel(querySnapshot)
           }
           this.recentQueries = [recent, ...this.recentQueries.filter(item => (
             item.prtno !== recent.prtno || item.accno !== recent.accno

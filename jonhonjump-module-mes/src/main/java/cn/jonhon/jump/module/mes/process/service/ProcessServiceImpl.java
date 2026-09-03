@@ -1,6 +1,7 @@
 package cn.jonhon.jump.module.mes.process.service;
 
 import cn.jonhon.jump.framework.common.exception.ErrorCode;
+import cn.jonhon.jump.framework.common.exception.ServiceException;
 import cn.jonhon.jump.module.mes.process.constant.CommonConstant;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardReqVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardDetailsRespVO;
@@ -30,7 +31,11 @@ import org.springframework.web.client.RestTemplate;
 import javax.annotation.Resource;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
 
@@ -83,89 +88,139 @@ public class ProcessServiceImpl implements ProcessService{
      */
     @Override
     public List<ProcessCardRespVO> queryCard(ProcessCardReqVO reqVO) {
-
-        // 正式工艺
-        if (reqVO.getAccno().startsWith(CommonConstant.PDM_FORMAL_ACCNO_PREFIX)) {
-            return queryFormalCard(reqVO.getAccno());
+        String prtno = reqVO == null ? "" : StringUtils.trimToEmpty(reqVO.getPrtno());
+        String accno = reqVO == null ? "" : StringUtils.trimToEmpty(reqVO.getAccno());
+        if (StringUtils.isBlank(prtno) && StringUtils.isBlank(accno)) {
+            throw exception(new ErrorCode(500, "物料号和工艺规程号不能同时为空"));
         }
-        // 临时工艺
-        else {
 
-            if (StringUtils.isEmpty(reqVO.getPrtno())) {
-                throw exception(new ErrorCode(500, "临时工艺必须输入物料号"));
-            }
-
-            int isFix = reqVO.getAccno().length() > 4
-                    ? YesOrNo.YES.getType() : YesOrNo.NO.getType();
-            TemporaryProcessReqVO temporaryProcessReqVO = TemporaryProcessReqVO.builder()
-                    .prtno(reqVO.getPrtno())
-                    .accno(reqVO.getAccno())
-                    .plndept(reqVO.getAccno().substring(0, Math.min(4, reqVO.getAccno().length())))
-                    .fxtype(String.valueOf(isFix))
-                    .build();
-            String reqParam = JSON.toJSONString(temporaryProcessReqVO);
-
-            JSONObject responseBodyJsonObject = queryTemporaryProcessInfo(reqParam);
-            log.info("临时工艺响应信息:{}", responseBodyJsonObject);
-
-            if (responseBodyJsonObject == null) {
-                throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
-            }
-            String oid = responseBodyJsonObject.getString(CommonConstant.OID);
-            if (StringUtils.isEmpty(oid)) {
-                throw exception(new ErrorCode(500, "临时工艺信息缺少oid"));
-            }
-
-            Object detailsPayload = responseBodyJsonObject.get(CommonConstant.DETAILS);
-            if (!(detailsPayload instanceof JSONArray) || ((JSONArray) detailsPayload).isEmpty()) {
-                throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
-            }
-
-            JSONArray jsonArray = (JSONArray) detailsPayload;
-            for (Object detail : jsonArray) {
-                if (!(detail instanceof JSONObject)) {
-                    throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
-                }
-            }
-
-            // 检查工艺版本是否发行
-            String docNumber;
-            if (reqVO.getAccno().length() > 4) {
-                docNumber = responseBodyJsonObject.getString(CommonConstant.ROUTNUMBER);
-            }
-            else {
-                JSONObject jsonObject = jsonArray.getJSONObject(0);
-                docNumber = jsonObject.getString(CommonConstant.ROUTREMARK);
-            }
-
-            if (StringUtils.isEmpty(docNumber)) {
-                throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
-            }
-
-            log.info("docNumber:{}", docNumber);
-            CaoeDocInfoDTO caoeDocInfoDTO = caoeTableMapper.queryDocInfo(docNumber);
-            if (caoeDocInfoDTO == null) {
-                throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
-            }
-            log.info("caoeDocInfoDTO:{}", caoeDocInfoDTO);
-            if (!CommonConstant.PUBLISHED.equals(caoeDocInfoDTO.getDocState())) {
-                throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
-            }
-            if (StringUtils.isBlank(caoeDocInfoDTO.getOid())) {
-                throw exception(new ErrorCode(500, "临时工艺查看地址缺失"));
-            }
-
-            List<ProcessCardDetailsRespVO> details = temporaryProcessTreeAssembler
-                    .assemble(jsonArray, caoeDocInfoDTO.getOid());
-            ProcessCardRespVO card = ProcessCardRespVO.builder()
-                    .accno(reqVO.getAccno())
-                    .version(null)
-                    .isFormal(YesOrNo.NO.getType())
-                    .isFix(isFix)
-                    .details(details)
-                    .build();
-            return Collections.singletonList(card);
+        if (accno.startsWith(CommonConstant.PDM_FORMAL_ACCNO_PREFIX)) {
+            return Collections.singletonList(buildFormalCard(accno));
         }
+        if (StringUtils.isNotBlank(accno)) {
+            if (StringUtils.isBlank(prtno)) {
+                throw exception(new ErrorCode(500, "必须输入物料号或者工艺规程号"));
+            }
+            return Collections.singletonList(queryExplicitTemporaryCard(prtno, accno));
+        }
+        return queryCardsByMaterial(prtno);
+    }
+
+    private ProcessCardRespVO queryExplicitTemporaryCard(String prtno, String accno) {
+        int isFix = accno.length() > 4
+                ? YesOrNo.YES.getType() : YesOrNo.NO.getType();
+        TemporaryProcessReqVO temporaryProcessReqVO = TemporaryProcessReqVO.builder()
+                .prtno(prtno)
+                .accno(accno)
+                .plndept(accno.substring(0, Math.min(4, accno.length())))
+                .fxtype(String.valueOf(isFix))
+                .build();
+        String reqParam = JSON.toJSONString(temporaryProcessReqVO);
+
+        JSONObject responseBodyJsonObject = queryTemporaryProcessInfo(reqParam);
+        log.info("临时工艺响应信息:{}", responseBodyJsonObject);
+
+        if (responseBodyJsonObject == null) {
+            throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+        }
+        String oid = responseBodyJsonObject.getString(CommonConstant.OID);
+        if (StringUtils.isEmpty(oid)) {
+            throw exception(new ErrorCode(500, "临时工艺信息缺少oid"));
+        }
+
+        JSONArray jsonArray = requireTemporaryDetails(responseBodyJsonObject);
+
+        String docNumber;
+        if (accno.length() > 4) {
+            docNumber = responseBodyJsonObject.getString(CommonConstant.ROUTNUMBER);
+        } else {
+            JSONObject jsonObject = jsonArray.getJSONObject(0);
+            docNumber = jsonObject.getString(CommonConstant.ROUTREMARK);
+        }
+
+        if (StringUtils.isEmpty(docNumber)) {
+            throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+        }
+
+        return buildTemporaryCard(accno, docNumber, jsonArray, isFix);
+    }
+
+    private List<ProcessCardRespVO> queryCardsByMaterial(String prtno) {
+        TemporaryProcessReqVO request = TemporaryProcessReqVO.builder()
+                .prtno(prtno).plndept("").accno("").fxtype("0").build();
+        JSONArray details = requireTemporaryDetails(queryTemporaryProcessInfo(JSON.toJSONString(request)));
+
+        Map<String, JSONArray> groups = new HashMap<>();
+        for (int index = 0; index < details.size(); index++) {
+            JSONObject detail = details.getJSONObject(index);
+            String routRemark = StringUtils.trimToEmpty(detail.getString(CommonConstant.ROUTREMARK));
+            if (StringUtils.isBlank(routRemark)) {
+                continue;
+            }
+            groups.computeIfAbsent(routRemark, ignored -> new JSONArray()).add(detail);
+        }
+
+        List<String> groupNumbers = new ArrayList<>(groups.keySet());
+        groupNumbers.sort(Comparator
+                .comparing((String number) -> !number.startsWith(CommonConstant.PDM_FORMAL_ACCNO_PREFIX))
+                .thenComparing(Comparator.naturalOrder()));
+
+        List<ProcessCardRespVO> cards = new ArrayList<>();
+        for (String groupNumber : groupNumbers) {
+            try {
+                cards.add(groupNumber.startsWith(CommonConstant.PDM_FORMAL_ACCNO_PREFIX)
+                        ? buildFormalCard(groupNumber)
+                        : buildTemporaryCard(groupNumber, groupNumber, groups.get(groupNumber), YesOrNo.NO.getType()));
+            } catch (ServiceException groupException) {
+                log.warn("跳过无效工艺分组, routRemark: {}, reason: {}",
+                        groupNumber, groupException.getMessage());
+            }
+        }
+        if (cards.isEmpty()) {
+            throw exception(new ErrorCode(500, "未查询到有效工艺信息"));
+        }
+        return cards;
+    }
+
+    private ProcessCardRespVO buildTemporaryCard(String accno, String docNumber, JSONArray details, int isFix) {
+        log.info("docNumber:{}", docNumber);
+        CaoeDocInfoDTO document = caoeTableMapper.queryDocInfo(docNumber);
+        if (document == null) {
+            throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
+        }
+        log.info("caoeDocInfoDTO:{}", document);
+        if (!CommonConstant.PUBLISHED.equals(document.getDocState())) {
+            throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
+        }
+        if (StringUtils.isBlank(document.getOid())) {
+            throw exception(new ErrorCode(500, "临时工艺查看地址缺失"));
+        }
+        List<ProcessCardDetailsRespVO> cardDetails = temporaryProcessTreeAssembler
+                .assemble(details, document.getOid());
+        return ProcessCardRespVO.builder()
+                .accno(accno)
+                .version(null)
+                .isFormal(YesOrNo.NO.getType())
+                .isFix(isFix)
+                .details(cardDetails)
+                .build();
+    }
+
+    private JSONArray requireTemporaryDetails(JSONObject responseBodyJsonObject) {
+        if (responseBodyJsonObject == null) {
+            throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+        }
+        Object detailsPayload = responseBodyJsonObject.get(CommonConstant.DETAILS);
+        if (!(detailsPayload instanceof JSONArray) || ((JSONArray) detailsPayload).isEmpty()) {
+            throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+        }
+        JSONArray details = (JSONArray) detailsPayload;
+        for (Object detail : details) {
+            if (!(detail instanceof JSONObject)) {
+                throw exception(new ErrorCode(500, "临时工艺信息查询失败"));
+            }
+        }
+        return details;
     }
 
     /**
@@ -208,7 +263,7 @@ public class ProcessServiceImpl implements ProcessService{
         return jsonObject.getJSONObject(CommonConstant.RESPONSEBODY);
     }
 
-    private List<ProcessCardRespVO> queryFormalCard(String accno) {
+    private ProcessCardRespVO buildFormalCard(String accno) {
         FormalProcessReqVO request = FormalProcessReqVO.builder()
                 .objType(CommonConstant.OBJTYPE)
                 .objNumbers(Collections.singletonList(accno))
@@ -224,14 +279,13 @@ public class ProcessServiceImpl implements ProcessService{
 
         boolean mpm = accno.startsWith(CommonConstant.MPM_FORMAL_ACCNO_PREFIX);
         List<ProcessCardDetailsRespVO> details = formalProcessTreeAssembler.assemble(accno, version, mpm);
-        ProcessCardRespVO card = ProcessCardRespVO.builder()
+        return ProcessCardRespVO.builder()
                 .accno(accno)
                 .version(version)
                 .isFormal(YesOrNo.YES.getType())
                 .isFix(YesOrNo.NO.getType())
                 .details(details)
                 .build();
-        return Collections.singletonList(card);
     }
 
     /**
