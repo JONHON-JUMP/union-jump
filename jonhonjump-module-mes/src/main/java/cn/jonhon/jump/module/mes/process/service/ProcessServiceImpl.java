@@ -27,6 +27,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 
 import javax.annotation.Resource;
 import java.nio.charset.StandardCharsets;
@@ -352,6 +354,7 @@ public class ProcessServiceImpl implements ProcessService{
     }
 
     private String parseFormalVersionResponse(String body) {
+        log.info(body);
         if (StringUtils.isBlank(body)) {
             throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
         }
@@ -392,19 +395,21 @@ public class ProcessServiceImpl implements ProcessService{
         if (reqVO == null || StringUtils.isBlank(reqVO.getOid())) {
             throw exception(new ErrorCode(500, "工序oid不能为空"));
         }
-        JSONObject request = new JSONObject();
-        request.put("oid", "OperationEntity:" + reqVO.getOid());
-        return queryProcessFileUrl(request.toJSONString());
+        MultiValueMap<String, Object> request = new LinkedMultiValueMap<>();
+        request.add("oid", "OperationEntity:" + reqVO.getOid());
+        return queryProcessFileUrl(request);
     }
 
     /**
      * 直连 MPM 平台接口查询工艺文件地址
      */
-    private ProcessFileUrlRespVO queryProcessFileUrl(String reqParam) {
+    private ProcessFileUrlRespVO queryProcessFileUrl(MultiValueMap<String, Object> reqParam) {
+        HttpHeaders headers = buildMpmHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         ResponseEntity<String> response;
         try {
             response = restTemplate.postForEntity(processFileUrl,
-                    new HttpEntity<>(reqParam, buildMpmHeaders()), String.class);
+                    new HttpEntity<>(reqParam, headers), String.class);
         } catch (RestClientException requestException) {
             log.error("调用工艺文件地址接口失败, url: {}", processFileUrl, requestException);
             throw exception(new ErrorCode(500, "工艺文件地址获取失败"));
