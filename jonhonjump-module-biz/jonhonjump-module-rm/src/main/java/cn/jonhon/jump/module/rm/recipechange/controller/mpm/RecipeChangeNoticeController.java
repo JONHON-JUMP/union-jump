@@ -5,6 +5,7 @@ import cn.jonhon.jump.module.rm.recipechange.controller.mpm.vo.RecipeChangeNotic
 import cn.jonhon.jump.module.rm.recipechange.service.RecipeChangeNoticeReceiveService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -23,6 +24,7 @@ import javax.annotation.security.PermitAll;
 @RestController
 @RequestMapping("/api/mpm-recipe-change")
 @Validated
+@Slf4j
 public class RecipeChangeNoticeController {
 
     /**
@@ -35,7 +37,8 @@ public class RecipeChangeNoticeController {
      * 接收一条 MPM 工艺变更通知
      * <p>
      * 首先校验 {@code notifyId} 和 {@code workshopCode}；任一为空时直接返回失败响应，
-     * 不调用接收服务。成功时严格按接口约定返回 HTTP 200，且响应体中的 {@code code} 固定为 200
+     * 不调用接收服务。无论校验失败、接收异常或成功，均返回 {@link RecipeChangeNoticeRespVO}，
+     * 以保证 MPM 侧可按响应体 {@code code} 稳定判断结果。
      *
      * @param reqVO MPM 推送的工艺变更通知内容
      * @return 本次接收结果，{@code data} 为已接收的通知唯一标识
@@ -49,9 +52,14 @@ public class RecipeChangeNoticeController {
         if (validationFailureMessage != null) {
             return new RecipeChangeNoticeRespVO(400, validationFailureMessage, null);
         }
-        // 接收通知
-        String notifyId = recipeChangeNoticeReceiveService.receiveRecipeChangeNotice(reqVO);
-        return new RecipeChangeNoticeRespVO(200, "接收成功", notifyId);
+        try {
+            String notifyId = recipeChangeNoticeReceiveService.receiveRecipeChangeNotice(reqVO);
+            return new RecipeChangeNoticeRespVO(200, "接收成功", notifyId);
+        } catch (Exception exception) {
+            // 接收服务的事务会随异常回滚；此处保留完整堆栈，并向 MPM 返回固定响应结构。
+            log.error("接收 MPM 工艺变更通知失败，notifyId={}, workshopCode={}", reqVO.getNotifyId(), reqVO.getWorkshopCode(), exception);
+            return new RecipeChangeNoticeRespVO(500, "工艺变更通知接收失败", null);
+        }
     }
 
 }

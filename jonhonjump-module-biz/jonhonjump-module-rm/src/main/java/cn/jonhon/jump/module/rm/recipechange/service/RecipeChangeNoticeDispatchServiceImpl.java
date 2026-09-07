@@ -24,7 +24,6 @@ import org.springframework.amqp.rabbit.connection.CorrelationData;
 import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
@@ -93,10 +92,15 @@ public class RecipeChangeNoticeDispatchServiceImpl implements RecipeChangeNotice
      */
     @Resource
     private ObjectMapper objectMapper;
+    /**
+     * 分发权领取服务；该服务使用 REQUIRES_NEW 提交状态 8，返回后才允许当前服务发送 RabbitMQ。
+     */
+    @Resource
+    private RecipeChangeDispatchClaimService recipeChangeDispatchClaimService;
 
     /**
      * 将工艺变更通知发送到目标车间的 RabbitMQ 队列
-     * 仅在 Broker 发布确认成功后标记为已发送 MQ，异常、未确认和无法路由均标记为发送失败
+     * 先持久化并提交 MQ 分发中状态，再发送消息；Broker 确认后再补写最终发送结果。
      *
      * @param noticeId 工艺变更通知主键
      */
@@ -109,14 +113,16 @@ public class RecipeChangeNoticeDispatchServiceImpl implements RecipeChangeNotice
      * 按调用场景发送通知并记录对应的状态和操作日志
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void dispatchRecipeChangeNotice(Long noticeId, Integer operationType, Integer triggerType, String operator, boolean increaseRetryCount) {
-        // 从通知主表读取需要发送的原始内容、目标车间和当前状态
-        RecipeChangeNoticeDO notice = recipeChangeNoticeMapper.selectById(noticeId);
-        // 通知可能被人工删除或不存在，此时没有可分发的数据，直接结束
+    public void dispatchRecipeChangeNotice(Long noticeId, Integer operationType, Integer triggerType, String operator, boolean recordScheduledRetryAttempt) {
+        // 先在独立 REQUIRES_NEW 事务中领取并提交状态 8；只有领取成功的调用方可以实际发送 MQ。
+        RecipeChangeNoticeDO notice = recipeChangeDispatchClaimService.claimNoticeForDispatch(noticeId, operationType, triggerType, operator,
+                recordScheduledRetryAttempt);
         if (notice == null) {
             return;
         }
+        // 领取服务正常返回时，状态 8 与状态流水已作为独立事务提交，对 MES 的领取请求已可见。
+        log.info("[claimNoticeForDispatch][独立事务已提交] noticeId={}, notifyId={}, workshopCode={}, status={}, operationType={}, triggerType={}, operator={}",
+                notice.getId(), notice.getNotifyId(), notice.getWorkshopCode(), notice.getStatus(), operationType, triggerType, operator);
         // 将数据库记录转换为 MES 约定的 MQ 消息体，不直接暴露数据库字段
         RecipeChangeMessage message = buildRecipeChangeMessage(notice);
         try {
@@ -141,7 +147,7 @@ public class RecipeChangeNoticeDispatchServiceImpl implements RecipeChangeNotice
                     notice.getId(), notice.getNotifyId(), notice.getWorkshopCode(), operationType, triggerType,
                     notice.getRetryCount(), exception);
             // 发送异常、超时、未确认和无法路由都会在此统一落为发送失败
-            recordSendFailure(notice, message, exception, operationType, triggerType, operator, increaseRetryCount);
+            recordSendFailure(notice, message, exception, operationType, triggerType, operator);
         }
     }
 
@@ -216,16 +222,17 @@ public class RecipeChangeNoticeDispatchServiceImpl implements RecipeChangeNotice
      * @param routingKey 本次发送使用的路由键
      */
     private void recordSendSuccess(RecipeChangeNoticeDO notice, RecipeChangeMessage message, String routingKey, Integer operationType, Integer triggerType, String operator) {
-        // 用原状态作为更新条件，避免并发分发或人工操作覆盖已经变化的状态
+        // 用状态 8 作为更新条件；若 MES 已抢先领取为状态 18，则只补齐发送时间和操作流水。
         int updatedRows = recipeChangeNoticeMapper.updateSendSuccess(notice.getId(), notice.getStatus(), RecipeChangeNoticeStatusEnum.SENT_MQ.getStatus(), operator);
-        // 未更新说明状态已被其他流程改变，本次不重复写入成功流水
-        if (updatedRows == 0) {
-            return;
-        }
         // 统一使用同一个时间点，确保状态流水和操作流水的时间可对应
         LocalDateTime now = LocalDateTime.now();
-        // 记录从发送前状态到已发送 MQ 状态的系统自动流转
-        recipeChangeStatusLogMapper.insertStatusLog(buildStatusLog(notice, RecipeChangeNoticeStatusEnum.SENT_MQ, now, triggerType, operator));
+        if (updatedRows == 1) {
+            // 记录从分发中到已发送 MQ 的系统自动流转。
+            recipeChangeStatusLogMapper.insertStatusLog(buildStatusLog(notice, RecipeChangeNoticeStatusEnum.SENT_MQ, now, triggerType, operator));
+        } else {
+            // 消息可能已被 Starter 消费并领取，不能将状态 18 覆盖回 10。
+            recipeChangeNoticeMapper.updateMqSendTime(notice.getId(), operator);
+        }
         // 记录发送的消息体、路由键和成功结果，便于排查消息投递过程
         recipeChangeOperationLogMapper.insertOperationLog(buildOperationLog(notice, message, routingKey, RecipeChangeOperationResultEnum.SUCCESS, null, now, operationType, operator));
     }
@@ -237,21 +244,18 @@ public class RecipeChangeNoticeDispatchServiceImpl implements RecipeChangeNotice
      * @param message   未成功发送的工艺变更消息
      * @param exception 发送过程中抛出的异常
      */
-    private void recordSendFailure(RecipeChangeNoticeDO notice, RecipeChangeMessage message, Exception exception, Integer operationType, Integer triggerType, String operator, boolean increaseRetryCount) {
+    private void recordSendFailure(RecipeChangeNoticeDO notice, RecipeChangeMessage message, Exception exception, Integer operationType, Integer triggerType, String operator) {
         // 将异常转换为可保存、可查询的失败原因
         String errorMsg = getErrorMessage(exception);
         // 用原状态作为更新条件，避免覆盖其他流程已经处理完成的通知
         int updatedRows = recipeChangeNoticeMapper.updateSendFailure(notice.getId(), notice.getStatus(),
-                RecipeChangeNoticeStatusEnum.SEND_FAILED.getStatus(), errorMsg, increaseRetryCount, operator);
-        // 未更新说明状态已被其他流程改变，本次不重复写入失败流水
-        if (updatedRows == 0) {
-            return;
-        }
-
+                RecipeChangeNoticeStatusEnum.SEND_FAILED.getStatus(), errorMsg, operator);
         // 统一使用同一个时间点，确保失败状态和失败操作记录可关联
         LocalDateTime now = LocalDateTime.now();
-        // 记录从发送前状态到发送失败状态的系统自动流转
-        recipeChangeStatusLogMapper.insertStatusLog(buildStatusLog(notice, RecipeChangeNoticeStatusEnum.SEND_FAILED, now, triggerType, operator));
+        if (updatedRows == 1) {
+            // 记录从分发中到发送失败状态的系统自动流转。
+            recipeChangeStatusLogMapper.insertStatusLog(buildStatusLog(notice, RecipeChangeNoticeStatusEnum.SEND_FAILED, now, triggerType, operator));
+        }
         // 失败操作日志仍保存原始消息和目标路由键，供后续重试和问题排查使用
         recipeChangeOperationLogMapper.insertOperationLog(buildOperationLog(notice, message, buildRoutingKey(notice.getWorkshopCode()), RecipeChangeOperationResultEnum.FAILURE, errorMsg, now, operationType, operator));
     }

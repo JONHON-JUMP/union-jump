@@ -200,6 +200,7 @@ jonhonjump:
     transfer-notify-url: https://yunai.natapp1.cc/admin-api/pay/notify/transfer # 支付渠道的【转账】回调地址
   demo: false # 开启演示模式
   recipe-change: # 工艺变更通知功能配置
+    processing-lease-millis: 1200000 # MES 领取工艺变更处理令牌后的有效期，当前为20分钟，到期后重复消息可接管处理权
     mq: # 工艺变更专用 RabbitMQ 配置，不影响系统其他业务的 spring.rabbitmq
       host: 192.168.240.160 # 工艺变更专用 RabbitMQ 服务地址
       port: 5672 # 工艺变更专用 RabbitMQ 服务端口
@@ -217,10 +218,12 @@ jonhonjump:
       retry-routing-key-prefix: RECIPE_CHANGE_RETRY_ROUTE_ # 延迟重试交换机按车间路由的键前缀
       retry-queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_ # 车间延迟重试队列名称前缀
       retry-delay-millis: 180000 # 延迟重试队列消息存活时长,当前为3分钟
+
   #      retry-queue-overrides: # 指定车间使用独立版本重试队列，JUMP 自动声明、绑定，无需在管理页面手建 V2
   #        "3500":
   #          queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_V1_
   #          delay-millis: 60000
+
   tencent-lbs-key: TVDBZ-TDILD-4ON4B-PFDZA-RNLKH-VVF6E # QQ 地图的密钥 https://lbs.qq.com/service/staticV2/staticGuide/staticDoc
 
 justauth:

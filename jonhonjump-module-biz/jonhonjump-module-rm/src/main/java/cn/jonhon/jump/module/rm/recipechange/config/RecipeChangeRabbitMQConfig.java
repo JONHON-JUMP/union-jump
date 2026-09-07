@@ -16,7 +16,7 @@ import org.springframework.context.annotation.Configuration;
  * 工艺变更 RabbitMQ 基础设施配置
  */
 @Configuration
-@EnableConfigurationProperties(RecipeChangeRabbitMQProperties.class)
+@EnableConfigurationProperties({RecipeChangeRabbitMQProperties.class, RecipeChangeProcessingProperties.class})
 public class RecipeChangeRabbitMQConfig {
 
     /**

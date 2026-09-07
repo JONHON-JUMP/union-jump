@@ -21,8 +21,8 @@ public interface RecipeChangeNoticeDispatchService {
      * @param operationType      操作日志类型
      * @param triggerType        状态流转触发类型
      * @param operator           操作人或系统标识
-     * @param increaseRetryCount 发送失败时是否增加自动重试次数
+     * @param recordScheduledRetryAttempt 是否在成功领取分发权后记录一次定时重试尝试
      */
-    void dispatchRecipeChangeNotice(Long noticeId, Integer operationType, Integer triggerType, String operator, boolean increaseRetryCount);
+    void dispatchRecipeChangeNotice(Long noticeId, Integer operationType, Integer triggerType, String operator, boolean recordScheduledRetryAttempt);
 
 }

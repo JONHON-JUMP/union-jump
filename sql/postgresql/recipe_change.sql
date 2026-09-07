@@ -23,18 +23,33 @@ CREATE TABLE IF NOT EXISTS recipe_change_notice (
     updater VARCHAR(64) DEFAULT '',
     remark VARCHAR(500) DEFAULT '',
     deleted SMALLINT NOT NULL DEFAULT 0,
-    CONSTRAINT uk_recipe_change_notice_notify_id UNIQUE (notify_id)
+    CONSTRAINT uk_recipe_change_notice_notify_workshop UNIQUE (notify_id, workshop_code)
 );
 
 -- 兼容已存在的通知主表；先补列，再执行下方字段注释和索引创建。
 ALTER TABLE recipe_change_notice ADD COLUMN IF NOT EXISTS processing_token VARCHAR(64);
 ALTER TABLE recipe_change_notice ADD COLUMN IF NOT EXISTS processing_lease_until TIMESTAMP;
 
+-- 同一 MPM 通知可下发多个车间：已部署环境由 notify_id 单列唯一约束迁移为组合唯一约束。
+ALTER TABLE recipe_change_notice DROP CONSTRAINT IF EXISTS uk_recipe_change_notice_notify_id;
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'recipe_change_notice'::regclass
+          AND conname = 'uk_recipe_change_notice_notify_workshop'
+    ) THEN
+        ALTER TABLE recipe_change_notice
+            ADD CONSTRAINT uk_recipe_change_notice_notify_workshop UNIQUE (notify_id, workshop_code);
+    END IF;
+END $$;
+
 COMMENT ON TABLE recipe_change_notice IS '工艺变更通知记录表';
-COMMENT ON COLUMN recipe_change_notice.notify_id IS 'MPM 通知唯一标识，幂等键';
+COMMENT ON COLUMN recipe_change_notice.notify_id IS 'MPM 通知唯一标识，与目标车间共同构成幂等键';
 COMMENT ON COLUMN recipe_change_notice.workshop_code IS '目标车间编码';
 COMMENT ON COLUMN recipe_change_notice.change_content IS '工艺变更内容';
-COMMENT ON COLUMN recipe_change_notice.status IS '通知状态：5接收成功、10已发送MQ、15发送失败、18MES处理中、20MES处理成功、25MES处理失败、30待人工处理、35已标记完成';
+COMMENT ON COLUMN recipe_change_notice.status IS '通知状态：5接收成功、8MQ分发中、10已发送MQ、15发送失败、18MES处理中、20MES处理成功、25MES处理失败、30待人工处理、35已标记完成';
 COMMENT ON COLUMN recipe_change_notice.retry_count IS '当前自动重试次数';
 COMMENT ON COLUMN recipe_change_notice.max_retry IS '最大自动重试次数';
 COMMENT ON COLUMN recipe_change_notice.error_msg IS '最后一次错误信息';

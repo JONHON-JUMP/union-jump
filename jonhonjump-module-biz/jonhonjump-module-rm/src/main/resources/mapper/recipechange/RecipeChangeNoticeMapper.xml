@@ -18,16 +18,25 @@
     </resultMap>
 
     <!--
-        按 notify_id 新增工艺变更通知主记录
-        PostgreSQL 唯一约束冲突时不抛出异常，用受影响行数为 0 表示该通知已被其他请求接收
+        按 notify_id 和 workshop_code 新增工艺变更通知主记录
+        PostgreSQL 组合唯一约束冲突时不抛出异常，用受影响行数为 0 表示该车间已被其他请求接收
     -->
     <insert id="insertIgnoreDuplicate">
         INSERT INTO recipe_change_notice
         (notify_id, workshop_code, creator, change_content, status, retry_count, max_retry)
         VALUES (#{notifyId}, #{workshopCode}, #{creator},
                 CAST(#{changeContent,typeHandler=com.baomidou.mybatisplus.extension.handlers.JacksonTypeHandler} AS JSONB),
-                #{status}, #{retryCount}, #{maxRetry}) ON CONFLICT (notify_id) DO NOTHING
+                #{status}, #{retryCount}, #{maxRetry}) ON CONFLICT (notify_id, workshop_code) DO NOTHING
     </insert>
+
+    <!-- 同一 MPM 通知可面向多个车间，领取、回调和告警均必须按通知标识与车间共同定位。 -->
+    <select id="selectByNotifyIdAndWorkshopCode" resultType="cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeNoticeDO">
+        SELECT *
+        FROM recipe_change_notice
+        WHERE notify_id = #{notifyId}
+          AND workshop_code = #{workshopCode}
+          AND deleted = 0
+    </select>
 
     <!--
         Broker 对本次发布返回 ack=true 后执行此语句
@@ -45,6 +54,14 @@
           AND status = #{fromStatus}
     </update>
 
+    <!-- MQ 已确认而 MES 已抢先领取时，不能回写状态，仅补齐发送确认时间。 -->
+    <update id="updateMqSendTime">
+        UPDATE recipe_change_notice
+        SET mq_send_time = CURRENT_TIMESTAMP,
+            updater      = #{updater}
+        WHERE id = #{id}
+    </update>
+
     <!--
         发送异常、确认超时、ack=false 或 mandatory 返回无法路由时执行此语句
         status 更新为发送失败，error_msg 保存失败原因供定时重试和人工排查使用
@@ -56,17 +73,60 @@
         error_msg = #{errorMsg},
         update_time = CURRENT_TIMESTAMP,
         updater = #{updater}
-        <if test="increaseRetryCount">, retry_count = retry_count + 1</if>
         WHERE id = #{id}
         AND status = #{fromStatus}
     </update>
 
-    <!-- 查询定时任务需要处理的发送失败通知 -->
-    <select id="selectSendFailedNotices" resultType="cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeNoticeDO">
+    <!--
+        轻量 Outbox 的分发领取：必须先提交状态 8，再向 RabbitMQ 发布消息。
+        条件更新保证提交后事件、定时任务和人工重发并发到达时只有一个发送者可领取。
+    -->
+    <update id="tryStartMqDispatch">
+        UPDATE recipe_change_notice
+        SET status      = #{dispatchingStatus},
+            error_msg   = NULL,
+            update_time = CURRENT_TIMESTAMP,
+            updater     = #{updater}
+        WHERE id = #{id}
+          AND status = #{fromStatus}
+    </update>
+
+    <!--
+        状态 8 超过一分钟仍未结束，说明发送进程可能在发布或确认前异常退出。
+        本次条件更新只续期领取时间，随后由调用方重发；重复消息由 MES 处理令牌幂等控制。
+    -->
+    <update id="tryReclaimStaleMqDispatch">
+        UPDATE recipe_change_notice
+        SET update_time = CURRENT_TIMESTAMP,
+            updater     = #{updater}
+        WHERE id = #{id}
+          AND status = #{dispatchingStatus}
+          AND update_time &lt;= CURRENT_TIMESTAMP - INTERVAL '1 minute'
+    </update>
+
+    <!--
+        仅在定时任务已成功领取状态 8 后记录一次重试尝试；无论后续 MQ confirm 成功或失败都不再重复计数。
+        与领取条件使用同一状态，保证扫描到但因并发未领取成功的记录不会增加 retry_count。
+    -->
+    <update id="increaseRetryCount">
+        UPDATE recipe_change_notice
+        SET retry_count = retry_count + 1
+        WHERE id = #{id}
+          AND status = #{dispatchingStatus}
+    </update>
+
+    <!--
+        定时任务一次查询全部需要再次分发的记录：
+        状态 5：提交后事件未执行；状态 8：发送进程异常且超过一分钟分发租约；状态 15：RabbitMQ 发送失败。
+        状态 10 已收到 RabbitMQ 发布确认，消息由 RabbitMQ 主队列保存并等待 MES 消费，不能再次投递。
+    -->
+    <select id="selectScheduledRetryNotices" resultType="cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeNoticeDO">
         SELECT id, notify_id, workshop_code, change_content, status, retry_count, max_retry
         FROM recipe_change_notice
-        WHERE status = 15
-          AND deleted = 0
+        WHERE deleted = 0
+          AND (status = 5
+               OR status = 15
+               OR (status = 8 AND update_time &lt;= CURRENT_TIMESTAMP - INTERVAL '1 minute'))
         ORDER BY create_time ASC, id ASC
     </select>
 
@@ -102,14 +162,16 @@
         UPDATE recipe_change_notice
         SET status                 = #{processingStatus},
             processing_token       = #{processingToken},
-            processing_lease_until = CURRENT_TIMESTAMP + INTERVAL '20 minutes',
+            processing_lease_until = CURRENT_TIMESTAMP + (#{processingLeaseMillis} * INTERVAL '1 millisecond'),
             error_msg              = NULL,
             update_time            = CURRENT_TIMESTAMP,
             updater                = #{updater}
         WHERE id = #{id}
           AND (
+              <!-- 发布已开始但确认尚未落库时，消息已可能到达 MES，允许首次领取 -->
+              status = #{dispatchingStatus}
               <!-- 首次到达 MES 主队列的消息可以领取 -->
-              status = #{sentStatus}
+              OR status = #{sentStatus}
               <!-- MES 失败后经 20 分钟延迟队列回流的消息可以再次领取 -->
               OR status = #{mesProcessFailedStatus}
               <!-- 仅当原消费者的处理租约到期，才允许新消费者接管处理中消息 -->

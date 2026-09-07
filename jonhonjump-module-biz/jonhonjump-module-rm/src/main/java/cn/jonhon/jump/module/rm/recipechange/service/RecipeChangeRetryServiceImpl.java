@@ -49,7 +49,9 @@ public class RecipeChangeRetryServiceImpl implements RecipeChangeRetryService {
      */
     @Override
     public void executeScheduledRetry() {
-        for (RecipeChangeNoticeDO recipeChangeNotice : recipeChangeNoticeMapper.selectSendFailedNotices()) {
+        // 一次取回状态 5、超时状态 8 和状态 15 的记录，避免两次查询之间发生状态变化造成重复处理或漏处理。
+        for (RecipeChangeNoticeDO recipeChangeNotice : recipeChangeNoticeMapper.selectScheduledRetryNotices()) {
+            // 三类扫描状态只要被本次定时任务成功领取并实际开始分发，就统一记录一次重试尝试；MQ 成功或失败均不影响计数。
             recipeChangeNoticeDispatchService.dispatchRecipeChangeNotice(recipeChangeNotice.getId(), RecipeChangeOperationTypeEnum.SCHEDULED_RETRY.getType(), RecipeChangeTriggerTypeEnum.SYSTEM.getType(), JUMP, true);
         }
     }
@@ -95,7 +97,7 @@ public class RecipeChangeRetryServiceImpl implements RecipeChangeRetryService {
             recipeChangeNoticeDispatchService.dispatchRecipeChangeNotice(noticeId, RecipeChangeOperationTypeEnum.MANUAL_RETRY.getType(), RecipeChangeTriggerTypeEnum.MANUAL.getType(), operator, false);
             // 分发服务会同步等待 RabbitMQ 发布确认，再查询最终状态即可取得实际投递结果
             RecipeChangeNoticeDO latestRecipeChangeNotice = recipeChangeNoticeMapper.selectById(noticeId);
-            if (latestRecipeChangeNotice != null && RecipeChangeNoticeStatusEnum.SENT_MQ.getStatus().equals(latestRecipeChangeNotice.getStatus())) {
+            if (latestRecipeChangeNotice != null && isMqDispatchCompleted(latestRecipeChangeNotice.getStatus())) {
                 retryRespVO.setSuccessCount(retryRespVO.getSuccessCount() + 1);
                 successfulRetryResults.add(buildRetryResultItem(latestRecipeChangeNotice.getNotifyId(), true, null));
                 continue;
@@ -274,6 +276,17 @@ public class RecipeChangeRetryServiceImpl implements RecipeChangeRetryService {
         return RecipeChangeNoticeStatusEnum.SEND_FAILED.getStatus().equals(status)
                 || RecipeChangeNoticeStatusEnum.MES_PROCESS_FAILED.getStatus().equals(status)
                 || RecipeChangeNoticeStatusEnum.PENDING_MANUAL.getStatus().equals(status);
+    }
+
+    /**
+     * 人工重发完成 RabbitMQ 发布后，MES 可能已在接口返回前抢先进入处理中或完成态；
+     * 这些状态同样表示本次 MQ 投递成功，不能在前端误报为人工重发失败。
+     */
+    private boolean isMqDispatchCompleted(Integer status) {
+        return RecipeChangeNoticeStatusEnum.SENT_MQ.getStatus().equals(status)
+                || RecipeChangeNoticeStatusEnum.MES_PROCESSING.getStatus().equals(status)
+                || RecipeChangeNoticeStatusEnum.MES_PROCESS_SUCCESS.getStatus().equals(status)
+                || RecipeChangeNoticeStatusEnum.MES_PROCESS_FAILED.getStatus().equals(status);
     }
 
 }

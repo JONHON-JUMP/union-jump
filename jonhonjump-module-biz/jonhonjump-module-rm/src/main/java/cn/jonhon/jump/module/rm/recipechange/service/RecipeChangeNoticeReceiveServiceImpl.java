@@ -21,6 +21,10 @@ import org.springframework.util.StringUtils;
 
 import javax.annotation.Resource;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * 工艺变更通知接收服务实现
@@ -68,14 +72,19 @@ public class RecipeChangeNoticeReceiveServiceImpl implements RecipeChangeNoticeR
         if (!StringUtils.hasText(reqVO.getWorkshopCode())) {
             return "workshopCode不能为空";
         }
+        try {
+            parseWorkshopCodes(reqVO.getWorkshopCode());
+        } catch (IllegalArgumentException exception) {
+            return exception.getMessage();
+        }
         return null;
     }
 
     /**
      * 接收 MPM 通知并创建初始数据
      *
-     * 先按 {@code notifyId} 查询以避免重复处理；并发重复请求则由数据库唯一约束兜底
-     * 只有首次成功插入后才会创建日志和发布分发事件
+     * 将逗号分隔的目标车间拆分为独立通知；每个 {@code notifyId + workshopCode} 组合独立幂等。
+     * 只有首次成功插入的车间记录才会创建日志和发布分发事件。
      *
      * @param reqVO MPM 推送的工艺变更通知内容
      * @return 已接收通知的唯一标识
@@ -83,36 +92,56 @@ public class RecipeChangeNoticeReceiveServiceImpl implements RecipeChangeNoticeR
     @Override
     @Transactional(rollbackFor = Exception.class)
     public String receiveRecipeChangeNotice(RecipeChangeNoticeReqVO reqVO) {
-        // 第一层幂等控制：已有记录代表该通知已经被接收，直接返回且不再触发分发
-        RecipeChangeNoticeDO existedNotice = recipeChangeNoticeMapper.selectByNotifyId(reqVO.getNotifyId());
-        if (existedNotice != null) {
-            return existedNotice.getNotifyId();
+        JsonNode changeContent = getChangeContent(reqVO);
+        for (String workshopCode : parseWorkshopCodes(reqVO.getWorkshopCode())) {
+            RecipeChangeNoticeDO notice = buildNotice(reqVO.getNotifyId(), workshopCode, changeContent);
+            // 数据库组合唯一约束保障并发请求不会为同一通知和车间重复创建记录。
+            if (recipeChangeNoticeMapper.insertIgnoreDuplicate(notice) == 0) {
+                continue;
+            }
+            // 获取数据库生成的主键，供两类初始流水和后续分发事件关联使用。
+            RecipeChangeNoticeDO createdNotice = recipeChangeNoticeMapper.selectByNotifyIdAndWorkshopCode(reqVO.getNotifyId(), workshopCode);
+            if (createdNotice == null) {
+                throw new IllegalStateException("工艺变更通知创建后未找到对应车间记录");
+            }
+            LocalDateTime now = LocalDateTime.now();
+            // 每个车间独立记录接收状态和 MPM 调用流水，后续状态、重试和人工处理也彼此隔离。
+            recipeChangeStatusLogMapper.insertStatusLog(buildStatusLog(createdNotice, now));
+            recipeChangeOperationLogMapper.insertOperationLog(buildOperationLog(createdNotice, reqVO, now));
+            // 在事务提交后由后续监听器按车间发送 RabbitMQ 消息，避免 MES 收到未提交数据。
+            applicationEventPublisher.publishEvent(new RecipeChangeNoticeReceivedEvent(createdNotice.getId()));
         }
+        return reqVO.getNotifyId();
+    }
 
-        // 构造通知主记录，并设置接收阶段的初始状态和重试计数
+    /**
+     * 将 MPM 传入的逗号分隔车间编码规范化为有序且不重复的单车间集合。
+     */
+    private List<String> parseWorkshopCodes(String workshopCode) {
+        Set<String> workshopCodes = new LinkedHashSet<>();
+        for (String value : workshopCode.split(",", -1)) {
+            String normalizedWorkshopCode = value.trim();
+            if (!StringUtils.hasText(normalizedWorkshopCode)) {
+                throw new IllegalArgumentException("workshopCode中不能包含空车间编码");
+            }
+            workshopCodes.add(normalizedWorkshopCode);
+        }
+        return new ArrayList<>(workshopCodes);
+    }
+
+    /**
+     * 构造单个目标车间的通知主记录。
+     */
+    private RecipeChangeNoticeDO buildNotice(String notifyId, String workshopCode, JsonNode changeContent) {
         RecipeChangeNoticeDO notice = new RecipeChangeNoticeDO();
-        notice.setNotifyId(reqVO.getNotifyId());
-        notice.setWorkshopCode(reqVO.getWorkshopCode());
+        notice.setNotifyId(notifyId);
+        notice.setWorkshopCode(workshopCode);
         notice.setCreator(MPM);
-        notice.setChangeContent(getChangeContent(reqVO));
+        notice.setChangeContent(changeContent);
         notice.setStatus(RecipeChangeNoticeStatusEnum.RECEIVED_SUCCESS.getStatus());
         notice.setRetryCount(0);
         notice.setMaxRetry(3);
-        // 第二层幂等控制：依赖数据库 notify_id 唯一约束处理并发重复请求
-        if (recipeChangeNoticeMapper.insertIgnoreDuplicate(notice) == 0) {
-            return reqVO.getNotifyId();
-        }
-
-        // 获取数据库生成的主键，供两类初始流水和后续分发事件关联使用
-        RecipeChangeNoticeDO createdNotice = recipeChangeNoticeMapper.selectByNotifyId(reqVO.getNotifyId());
-        LocalDateTime now = LocalDateTime.now();
-        // 记录从无状态到“接收成功”的首次状态流转，保证通知状态可追溯
-        recipeChangeStatusLogMapper.insertStatusLog(buildStatusLog(createdNotice, now));
-        // 保存 MPM 调用请求及成功响应快照，便于排查接口交互问题
-        recipeChangeOperationLogMapper.insertOperationLog(buildOperationLog(createdNotice, reqVO, now));
-        // 在事务提交后由后续监听器执行 RabbitMQ 分发，避免未提交数据被分发流程读取
-        applicationEventPublisher.publishEvent(new RecipeChangeNoticeReceivedEvent(createdNotice.getId()));
-        return createdNotice.getNotifyId();
+        return notice;
     }
 
     /**

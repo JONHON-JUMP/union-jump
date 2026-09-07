@@ -30,7 +30,7 @@ public class RecipeChangeNoticeExportRespVO {
     @ExcelProperty("自动重试次数")
     private Integer retryCount;
     /** 最大允许自动重试次数 */
-    @ExcelProperty("最大重试次数")
+//    @ExcelProperty("最大重试次数")
     private Integer maxRetry;
     /** 通知记录创建时间 */
     @ExcelProperty("创建时间")

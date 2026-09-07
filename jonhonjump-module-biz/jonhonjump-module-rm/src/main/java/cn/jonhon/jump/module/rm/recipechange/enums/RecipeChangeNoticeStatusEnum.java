@@ -15,6 +15,10 @@ public enum RecipeChangeNoticeStatusEnum {
      */
     RECEIVED_SUCCESS(5, "接收成功"),
     /**
+     * JUMP 已持久化领取 MQ 分发权，消息可能已到达 MES，等待 RabbitMQ 发布确认。
+     */
+    MQ_DISPATCHING(8, "MQ分发中"),
+    /**
      * RabbitMQ 已确认接收消息，等待 MES 消费
      */
     SENT_MQ(10, "已发送MQ"),

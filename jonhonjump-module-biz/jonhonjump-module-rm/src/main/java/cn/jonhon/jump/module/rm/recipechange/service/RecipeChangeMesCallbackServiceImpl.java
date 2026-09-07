@@ -4,6 +4,7 @@ import cn.jonhon.jump.module.rm.recipechange.controller.mes.vo.RecipeChangeMesCa
 import cn.jonhon.jump.module.rm.recipechange.controller.mes.vo.RecipeChangeProcessingAcquireRespVO;
 import cn.jonhon.jump.module.rm.recipechange.controller.mes.vo.RecipeChangeDingTalkAlarmLogReqVO;
 import cn.jonhon.jump.module.rm.recipechange.controller.mes.vo.RecipeChangeDingTalkAlarmLogRespVO;
+import cn.jonhon.jump.module.rm.recipechange.config.RecipeChangeProcessingProperties;
 import cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeNoticeDO;
 import cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeOperationLogDO;
 import cn.jonhon.jump.module.rm.recipechange.dal.dataobject.RecipeChangeStatusLogDO;
@@ -15,6 +16,8 @@ import cn.jonhon.jump.module.rm.recipechange.enums.RecipeChangeOperationResultEn
 import cn.jonhon.jump.module.rm.recipechange.enums.RecipeChangeOperationTypeEnum;
 import cn.jonhon.jump.module.rm.recipechange.enums.RecipeChangeTriggerTypeEnum;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -27,6 +30,8 @@ import java.util.UUID;
 @Service
 public class RecipeChangeMesCallbackServiceImpl implements RecipeChangeMesCallbackService {
 
+    private static final Logger log = LoggerFactory.getLogger(RecipeChangeMesCallbackServiceImpl.class);
+
     /** MES 系统标识，用于主表更新人与回调流水创建人 */
     private static final String MES = "MES";
 
@@ -38,6 +43,9 @@ public class RecipeChangeMesCallbackServiceImpl implements RecipeChangeMesCallba
     private RecipeChangeStatusLogMapper recipeChangeStatusLogMapper;
     @Resource
     private ObjectMapper objectMapper;
+    /** MES 处理令牌租约配置。 */
+    @Resource
+    private RecipeChangeProcessingProperties recipeChangeProcessingProperties;
 
     /**
      * 通过条件更新原子领取处理权；同一时刻只有一个 MES 消费者能够进入本地业务。
@@ -47,8 +55,8 @@ public class RecipeChangeMesCallbackServiceImpl implements RecipeChangeMesCallba
         if (isBlank(notifyId) || isBlank(workshopCode)) {
             throw new IllegalArgumentException("notifyId和workshopCode不能为空");
         }
-        RecipeChangeNoticeDO recipeChangeNotice = recipeChangeNoticeMapper.selectByNotifyId(notifyId);
-        if (recipeChangeNotice == null || !workshopCode.equals(recipeChangeNotice.getWorkshopCode())) {
+        RecipeChangeNoticeDO recipeChangeNotice = recipeChangeNoticeMapper.selectByNotifyIdAndWorkshopCode(notifyId, workshopCode);
+        if (recipeChangeNotice == null) {
             throw new IllegalArgumentException("工艺变更通知不存在或车间编码不匹配");
         }
         RecipeChangeProcessingAcquireRespVO response = new RecipeChangeProcessingAcquireRespVO();
@@ -60,11 +68,14 @@ public class RecipeChangeMesCallbackServiceImpl implements RecipeChangeMesCallba
         }
         // 每次领取生成新令牌；租约过期后重新领取会替换旧令牌，旧回调因此失效。
         String processingToken = UUID.randomUUID().toString();
+        // 在提交领取 SQL 前校验配置，防止零或负租约导致消息刚领取就被并发消费者接管。
+        recipeChangeProcessingProperties.validateProcessingLeaseMillis();
         /*
          * 条件更新覆盖且仅覆盖以下可处理场景：
-         * 1. SENT_MQ(10)：JUMP 已投递 MQ，当前消息首次被 MES 消费；
-         * 2. MES_PROCESS_FAILED(25)：前一次 MES 业务失败后经延迟队列回流，需要再次尝试；
-         * 3. MES_PROCESSING(18) 且租约到期：原消费者可能宕机或未确认，允许重投消息接管。
+         * 1. MQ_DISPATCHING(8)：JUMP 已提交分发领取状态，消息可能先于 Broker confirm 到达 MES；
+         * 2. SENT_MQ(10)：JUMP 已投递 MQ，当前消息首次被 MES 消费；
+         * 3. MES_PROCESS_FAILED(25)：前一次 MES 业务失败后经延迟队列回流，需要再次尝试；
+         * 4. MES_PROCESSING(18) 且租约到期：原消费者可能宕机或未确认，允许重投消息接管。
          *
          * MES_PROCESS_SUCCESS(20) 和 MARKED_COMPLETED(35) 是终态，前面已直接返回无需处理；
          * RECEIVED_SUCCESS(5)、SEND_FAILED(15)、PENDING_MANUAL(30) 不存在可安全处理的 MQ 消费场景，
@@ -72,11 +83,20 @@ public class RecipeChangeMesCallbackServiceImpl implements RecipeChangeMesCallba
          * 或状态已变化，Starter 将按重新读取后的状态 ACK 或转入延迟队列。
          */
         int updatedRows = recipeChangeNoticeMapper.tryAcquireProcessing(recipeChangeNotice.getId(),
-                RecipeChangeNoticeStatusEnum.SENT_MQ.getStatus(), RecipeChangeNoticeStatusEnum.MES_PROCESS_FAILED.getStatus(),
-                RecipeChangeNoticeStatusEnum.MES_PROCESSING.getStatus(), processingToken, MES);
+                RecipeChangeNoticeStatusEnum.MQ_DISPATCHING.getStatus(), RecipeChangeNoticeStatusEnum.SENT_MQ.getStatus(),
+                RecipeChangeNoticeStatusEnum.MES_PROCESS_FAILED.getStatus(),
+                RecipeChangeNoticeStatusEnum.MES_PROCESSING.getStatus(), recipeChangeProcessingProperties.getProcessingLeaseMillis(), processingToken, MES);
         if (updatedRows == 0) {
             // 条件更新失败说明有并发消费者已领取，或状态刚刚进入终态；重新读取后准确返回给 Starter。
-            RecipeChangeNoticeDO latestNotice = recipeChangeNoticeMapper.selectByNotifyId(notifyId);
+            RecipeChangeNoticeDO latestNotice = recipeChangeNoticeMapper.selectByNotifyIdAndWorkshopCode(notifyId, workshopCode);
+            log.warn("[acquireProcessing][领取失败] notifyId={}, workshopCode={}, noticeId={}, initialStatus={}, "
+                            + "initialProcessingToken={}, initialLeaseUntil={}, updatedRows={}, latestStatus={}, "
+                            + "latestProcessingToken={}, latestLeaseUntil={}",
+                    notifyId, workshopCode, recipeChangeNotice.getId(), recipeChangeNotice.getStatus(),
+                    recipeChangeNotice.getProcessingToken(), recipeChangeNotice.getProcessingLeaseUntil(), updatedRows,
+                    latestNotice == null ? null : latestNotice.getStatus(),
+                    latestNotice == null ? null : latestNotice.getProcessingToken(),
+                    latestNotice == null ? null : latestNotice.getProcessingLeaseUntil());
             response.setProcessingNotRequired(latestNotice != null && isProcessingNotRequired(latestNotice.getStatus()));
             response.setAcquired(false);
             return response;
@@ -87,6 +107,8 @@ public class RecipeChangeMesCallbackServiceImpl implements RecipeChangeMesCallba
         response.setAcquired(true);
         response.setProcessingNotRequired(false);
         response.setProcessingToken(processingToken);
+        log.info("[acquireProcessing][领取成功] notifyId={}, workshopCode={}, noticeId={}, previousStatus={}, processingToken={}",
+                notifyId, workshopCode, recipeChangeNotice.getId(), recipeChangeNotice.getStatus(), processingToken);
         return response;
     }
 
@@ -98,8 +120,8 @@ public class RecipeChangeMesCallbackServiceImpl implements RecipeChangeMesCallba
     public void callbackProcessResult(RecipeChangeMesCallbackReqVO callbackReqVO) {
         // 显式校验 MES 回调关键字段，便于从接口日志和异常信息中快速定位调用问题
         validateRequiredFields(callbackReqVO);
-        RecipeChangeNoticeDO recipeChangeNotice = recipeChangeNoticeMapper.selectByNotifyId(callbackReqVO.getNotifyId());
-        if (recipeChangeNotice == null || !callbackReqVO.getWorkshopCode().equals(recipeChangeNotice.getWorkshopCode())) {
+        RecipeChangeNoticeDO recipeChangeNotice = recipeChangeNoticeMapper.selectByNotifyIdAndWorkshopCode(callbackReqVO.getNotifyId(), callbackReqVO.getWorkshopCode());
+        if (recipeChangeNotice == null) {
             throw new IllegalArgumentException("工艺变更通知不存在或车间编码不匹配");
         }
         RecipeChangeNoticeStatusEnum targetStatus = Boolean.TRUE.equals(callbackReqVO.getSuccess()) ? RecipeChangeNoticeStatusEnum.MES_PROCESS_SUCCESS : RecipeChangeNoticeStatusEnum.MES_PROCESS_FAILED;
@@ -124,9 +146,9 @@ public class RecipeChangeMesCallbackServiceImpl implements RecipeChangeMesCallba
     public RecipeChangeDingTalkAlarmLogRespVO recordDingTalkAlarmLog(RecipeChangeDingTalkAlarmLogReqVO dingTalkAlarmLogReqVO) {
         // 显式校验关联通知和发送结果，避免无法定位通知或无法判断钉钉发送结果的无效审计记录
         validateDingTalkAlarmLogRequiredFields(dingTalkAlarmLogReqVO);
-        RecipeChangeNoticeDO recipeChangeNotice = recipeChangeNoticeMapper.selectByNotifyId(dingTalkAlarmLogReqVO.getNotifyId());
+        RecipeChangeNoticeDO recipeChangeNotice = recipeChangeNoticeMapper.selectByNotifyIdAndWorkshopCode(dingTalkAlarmLogReqVO.getNotifyId(), dingTalkAlarmLogReqVO.getWorkshopCode());
         // 通知不存在或车间不匹配时拒绝记录，防止 MES 跨车间写入不属于自身的告警流水
-        if (recipeChangeNotice == null || !dingTalkAlarmLogReqVO.getWorkshopCode().equals(recipeChangeNotice.getWorkshopCode())) {
+        if (recipeChangeNotice == null) {
             throw new IllegalArgumentException("工艺变更通知不存在或车间编码不匹配");
         }
         LocalDateTime processedTime = LocalDateTime.now();

@@ -137,6 +137,7 @@ export default {
       // 页面状态筛选项，与后端已支持的状态保持一致
       statusOptions: [
         { label: '接收成功', value: 5 },
+        { label: 'MQ分发中', value: 8 },
         { label: '已发送MQ', value: 10 },
         { label: '发送失败', value: 15 },
         { label: 'MES处理中', value: 18 },

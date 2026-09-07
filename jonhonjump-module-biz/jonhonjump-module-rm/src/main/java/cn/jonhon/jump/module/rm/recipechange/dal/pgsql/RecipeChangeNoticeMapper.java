@@ -14,17 +14,17 @@ import org.apache.ibatis.annotations.Param;
 public interface RecipeChangeNoticeMapper extends BaseMapperX<RecipeChangeNoticeDO> {
 
     /**
-     * 根据 MPM 通知唯一标识查询通知主记录
+     * 根据 MPM 通知唯一标识和目标车间查询通知主记录。
+     * 同一通知可分发给多个车间，二者共同构成幂等键。
      *
      * @param notifyId MPM 通知唯一标识
+     * @param workshopCode 目标车间编码
      * @return 对应通知记录；不存在时返回 {@code null}
      */
-    default RecipeChangeNoticeDO selectByNotifyId(String notifyId) {
-        return selectOne(RecipeChangeNoticeDO::getNotifyId, notifyId);
-    }
+    RecipeChangeNoticeDO selectByNotifyIdAndWorkshopCode(@Param("notifyId") String notifyId, @Param("workshopCode") String workshopCode);
 
     /**
-     * 新增通知主记录；当 {@code notifyId} 已存在时忽略本次插入
+     * 新增通知主记录；当 {@code notifyId} 与 {@code workshopCode} 组合已存在时忽略本次插入
      * 具体 PostgreSQL 幂等语句定义在同名 MyBatis XML 中
      *
      * @param notice 待新增的通知主记录
@@ -44,6 +44,9 @@ public interface RecipeChangeNoticeMapper extends BaseMapperX<RecipeChangeNotice
     int updateSendSuccess(@Param("id") Long id, @Param("fromStatus") Integer fromStatus, @Param("toStatus") Integer toStatus,
                           @Param("updater") String updater);
 
+    /** MQ 已确认但 MES 已抢先领取时，仅补记发送确认时间，不覆盖 MES 处理状态。 */
+    int updateMqSendTime(@Param("id") Long id, @Param("updater") String updater);
+
     /**
      * 更新 RabbitMQ 发送失败后的通知状态和错误信息
      *
@@ -55,11 +58,23 @@ public interface RecipeChangeNoticeMapper extends BaseMapperX<RecipeChangeNotice
      * @return 成功更新的记录数
      */
     int updateSendFailure(@Param("id") Long id, @Param("fromStatus") Integer fromStatus, @Param("toStatus") Integer toStatus,
-                          @Param("errorMsg") String errorMsg, @Param("increaseRetryCount") boolean increaseRetryCount,
-                          @Param("updater") String updater);
+                          @Param("errorMsg") String errorMsg, @Param("updater") String updater);
 
-    /** 查询所有等待自动重试的发送失败通知 */
-    java.util.List<RecipeChangeNoticeDO> selectSendFailedNotices();
+    /** 原子领取 MQ 分发权，成功后状态进入 MQ 分发中。 */
+    int tryStartMqDispatch(@Param("id") Long id, @Param("fromStatus") Integer fromStatus, @Param("dispatchingStatus") Integer dispatchingStatus, @Param("updater") String updater);
+
+    /** 原子领取超时未完成的 MQ 分发任务，避免进程宕机后状态 8 永久滞留。 */
+    int tryReclaimStaleMqDispatch(@Param("id") Long id, @Param("dispatchingStatus") Integer dispatchingStatus, @Param("updater") String updater);
+
+    /** 定时任务已领取分发权后递增重试尝试次数，状态 8 条件保证未领取的扫描记录不会被计数。 */
+    int increaseRetryCount(@Param("id") Long id, @Param("dispatchingStatus") Integer dispatchingStatus);
+
+    /**
+     * 一次查询定时任务需要处理的全部通知：
+     * 状态 5 为提交后事件丢失的待分发记录，状态 8 为超过分发租约的遗留记录，状态 15 为 MQ 发送失败记录。
+     * 状态 10 已收到 RabbitMQ 发布确认，消息应由队列正常等待 MES 消费，不能在此重复投递。
+     */
+    java.util.List<RecipeChangeNoticeDO> selectScheduledRetryNotices();
 
     /** 将自动重试次数已耗尽的通知标记为待人工处理 */
     int updatePendingManual(@Param("id") Long id, @Param("fromStatus") Integer fromStatus, @Param("toStatus") Integer toStatus);
@@ -83,13 +98,16 @@ public interface RecipeChangeNoticeMapper extends BaseMapperX<RecipeChangeNotice
      * @param sentStatus 已发送 MQ 状态
      * @param mesProcessFailedStatus MES 处理失败状态，允许延迟回流后再次领取
      * @param processingStatus MES 处理中状态
+     * @param processingLeaseMillis MES 处理令牌有效期，单位毫秒
      * @param processingToken 当前消费者生成的唯一令牌
      * @param updater 执行领取动作的系统标识
      * @return 成功领取时为 1，否则为 0
      */
-    int tryAcquireProcessing(@Param("id") Long id, @Param("sentStatus") Integer sentStatus,
+    int tryAcquireProcessing(@Param("id") Long id, @Param("dispatchingStatus") Integer dispatchingStatus,
+                             @Param("sentStatus") Integer sentStatus,
                              @Param("mesProcessFailedStatus") Integer mesProcessFailedStatus,
                              @Param("processingStatus") Integer processingStatus,
+                             @Param("processingLeaseMillis") Long processingLeaseMillis,
                              @Param("processingToken") String processingToken, @Param("updater") String updater);
 
     /**

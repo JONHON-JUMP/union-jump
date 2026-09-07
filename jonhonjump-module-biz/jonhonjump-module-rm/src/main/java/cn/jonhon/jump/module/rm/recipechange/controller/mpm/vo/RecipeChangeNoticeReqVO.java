@@ -15,8 +15,8 @@ public class RecipeChangeNoticeReqVO {
     @Schema(description = "MPM 通知唯一标识", requiredMode = Schema.RequiredMode.REQUIRED)
     private String notifyId;
 
-    /** 需要接收该工艺变更通知的目标车间编码 */
-    @Schema(description = "目标车间编码", requiredMode = Schema.RequiredMode.REQUIRED)
+    /** 需要接收该工艺变更通知的目标车间编码；多个车间使用英文逗号分隔 */
+    @Schema(description = "目标车间编码；多个车间使用英文逗号分隔", requiredMode = Schema.RequiredMode.REQUIRED, example = "5600,3500")
     private String workshopCode;
 
     /** 工艺变更的业务内容，按原始 JSON 结构保存，不限制是否为空 */
