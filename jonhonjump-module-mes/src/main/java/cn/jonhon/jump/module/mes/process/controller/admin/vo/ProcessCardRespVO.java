@@ -15,6 +15,9 @@ import java.util.List;
 @Builder
 public class ProcessCardRespVO {
 
+    /** 工艺卡片直接查看地址，无需工序节点。 */
+    private String url;
+
     /**
      * 工艺号
      */

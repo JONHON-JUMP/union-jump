@@ -198,7 +198,7 @@ export default {
         validator: (rule, value, callback) => {
           const material = String(value || '').trim()
           const accno = String(this.queryParams.accno || '').trim()
-          if (!material && !this.isFormalProcess(accno)) {
+          if (!material && !this.isFormalProcess(accno) && !this.isDocumentProcess(accno)) {
             callback(new Error(accno ? '临时工艺必须输入物料号' : '请输入物料号或工艺规程号'))
             return
           }
@@ -277,7 +277,7 @@ export default {
         version: card.version || '—',
         isFormal: card.isFormal,
         isFix: card.isFix,
-        externalUrl: '',
+        externalUrl: card.url || '',
         parentName: '',
         nodeType: 'card',
         children: mapDetails(card.details, card.accno, cardIndex, card.accno || `card-${cardIndex}`)
@@ -291,10 +291,13 @@ export default {
     isFormalProcess(accno) {
       return String(accno || '').trim().startsWith('C')
     },
+    isDocumentProcess(accno) {
+      return String(accno || '').trim().startsWith('010')
+    },
     buildQueryRequest(params) {
       const accno = String(params.accno || '').trim()
       const prtno = String(params.prtno || '').trim()
-      if (this.isFormalProcess(accno)) return { accno }
+      if (this.isFormalProcess(accno) || this.isDocumentProcess(accno)) return { accno }
       return { prtno, accno }
     },
     revalidateRelatedField(property) {

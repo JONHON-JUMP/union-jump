@@ -94,6 +94,9 @@ public class ProcessServiceImpl implements ProcessService{
             throw exception(new ErrorCode(500, "物料号和工艺规程号不能同时为空"));
         }
 
+        if (accno.startsWith("010")) {
+            return Collections.singletonList(queryDocumentCard(accno));
+        }
         if (accno.startsWith(CommonConstant.PDM_FORMAL_ACCNO_PREFIX)) {
             return Collections.singletonList(buildFormalCard(accno));
         }
@@ -104,6 +107,40 @@ public class ProcessServiceImpl implements ProcessService{
             return Collections.singletonList(queryExplicitTemporaryCard(prtno, accno));
         }
         return queryCardsByMaterial(prtno);
+    }
+
+    private ProcessCardRespVO queryDocumentCard(String accno) {
+        CaoeDocInfoDTO document = caoeTableMapper.queryDocInfo(accno);
+        if (document == null) {
+            throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
+        }
+        if (!CommonConstant.PUBLISHED.equals(document.getDocState())) {
+            throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
+        }
+        String link = StringUtils.trimToEmpty(document.getDocLink());
+        int queryIndex = link.indexOf('?');
+        String query = queryIndex < 0 ? "" : link.substring(queryIndex + 1);
+        int fragmentIndex = query.indexOf('#');
+        if (fragmentIndex >= 0) {
+            query = query.substring(0, fragmentIndex);
+        }
+        String oid = null;
+        for (String parameter : query.split("&")) {
+            if (parameter.startsWith("oid=")) {
+                oid = parameter.substring(4);
+                break;
+            }
+        }
+        if (StringUtils.isBlank(oid)) {
+            throw exception(new ErrorCode(500, "工艺文档链接缺少oid，无法查看"));
+        }
+        return ProcessCardRespVO.builder()
+                .accno(accno)
+                .isFormal(YesOrNo.NO.getType())
+                .isFix(YesOrNo.NO.getType())
+                .url(CommonConstant.VIEW_URL_PREFIX + oid)
+                .details(Collections.emptyList())
+                .build();
     }
 
     private ProcessCardRespVO queryExplicitTemporaryCard(String prtno, String accno) {
