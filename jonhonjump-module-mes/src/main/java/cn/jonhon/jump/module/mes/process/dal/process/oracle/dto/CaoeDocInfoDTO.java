@@ -5,6 +5,9 @@ import lombok.Data;
 @Data
 public class CaoeDocInfoDTO {
 
+    /** 文档原始链接。 */
+    private String docLink;
+
     /**
      * 状态
      */

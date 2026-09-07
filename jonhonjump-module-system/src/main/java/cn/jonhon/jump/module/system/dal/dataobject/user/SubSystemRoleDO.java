@@ -35,5 +35,9 @@ public class SubSystemRoleDO extends BaseDO {
     private Integer deptCheckStrictly;
     private Integer status;
     private Integer type;
+    /**
+     * 角色接口注册状态（0未注册 1已注册；调「角色新增」接口成功自动置1，页面可改）
+     */
+    private String roleRegistered;
 
 }

@@ -55,6 +55,23 @@ export function updateSubSystemRoleStatus(id, status) {
   })
 }
 
+/** 修改角色接口注册状态（0未注册 1已注册） */
+export function updateSubSystemRoleRegisterStatus(id, roleRegistered) {
+  return request({
+    url: '/system/sub-system-role/update-register-status?id=' + id + '&roleRegistered=' + roleRegistered,
+    method: 'put'
+  })
+}
+
+/** 未注册角色调对方「角色新增」接口补注册 */
+export function registerSubSystemRole(id, data) {
+  return request({
+    url: '/system/sub-system-role/register?id=' + id,
+    method: 'post',
+    data: data || {}
+  })
+}
+
 export function getSubSystemMenuSimpleList(subSystemId) {
   return request({
     url: '/system/sub-system-role/menu-simple-list',

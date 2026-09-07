@@ -4,6 +4,8 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiConfigSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemExternalRoleCreateReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemRegisterableApiRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
 
 import java.util.List;
@@ -42,5 +44,21 @@ public interface SubSystemApiConfigService {
      * 本页调试：按已保存配置用 HTTP 调用指定接口，返回完整地址与响应
      */
     SubSystemApiTestRespVO testInvoke(SubSystemApiTestReqVO reqVO);
+
+    /**
+     * 新增外部系统角色：调对方系统「角色新增」接口（role_create），
+     * 角色名自动拼接为 车间编号_角色名称；返回最终角色名
+     */
+    String createExternalRole(SubSystemExternalRoleCreateReqVO reqVO);
+
+    /**
+     * 调对方「角色新增」接口推送裸角色（roleName 为最终全名，如 4200_操作员）
+     */
+    void pushExternalRoleCreate(Long subSystemId, String workshopCode, String externalRoleName);
+
+    /**
+     * 已启用「角色新增」接口的接入系统列表（与门户角色所属系统解耦，如 Camstar人员管理）
+     */
+    List<SubSystemRegisterableApiRespVO> listRoleCreateApis();
 
 }

@@ -14,7 +14,7 @@ public class SubSystemApiTestReqVO {
     @NotNull(message = "请先保存配置")
     private Long id;
 
-    @Schema(description = "接口：query / create / update / delete", requiredMode = Schema.RequiredMode.REQUIRED)
+    @Schema(description = "接口：query / create / update / delete / auth / role_query / role_create / role_delete", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotBlank(message = "请选择接口")
     private String apiKey;
 

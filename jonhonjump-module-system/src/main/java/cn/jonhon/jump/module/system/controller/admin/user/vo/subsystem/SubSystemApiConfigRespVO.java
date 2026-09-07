@@ -45,6 +45,15 @@ public class SubSystemApiConfigRespVO {
     @Schema(description = "班组下拉接口 JSON")
     private String apiTeamCombo;
 
+    @Schema(description = "角色查询接口 JSON")
+    private String apiRoleQuery;
+
+    @Schema(description = "角色新增接口 JSON")
+    private String apiRoleCreate;
+
+    @Schema(description = "角色删除接口 JSON")
+    private String apiRoleDelete;
+
     @Schema(description = "接口目录树 JSON")
     private String apiCatalog;
 

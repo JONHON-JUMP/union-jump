@@ -27,6 +27,9 @@ public class SubSystemRolePageReqVO extends PageParam {
     @Schema(description = "状态", example = "0")
     private Integer status;
 
+    @Schema(description = "角色接口注册状态：0未注册 / 1已注册", example = "0")
+    private String roleRegistered;
+
     @Schema(description = "创建时间")
     @DateTimeFormat(pattern = FORMAT_YEAR_MONTH_DAY_HOUR_MINUTE_SECOND)
     private LocalDateTime[] createTime;

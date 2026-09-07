@@ -56,6 +56,18 @@ public class SubSystemApiConfigSaveReqVO {
     @Size(max = 512, message = "班组下拉接口长度不能超过 512 个字符")
     private String apiTeamCombo;
 
+    @Schema(description = "角色查询接口 JSON", example = "{\"path\":\"/BasicData/Role/getRoleInfo\",\"method\":\"POST\"}")
+    @Size(max = 512, message = "角色查询接口长度不能超过 512 个字符")
+    private String apiRoleQuery;
+
+    @Schema(description = "角色新增接口 JSON（只建裸角色，不挂页面）")
+    @Size(max = 512, message = "角色新增接口长度不能超过 512 个字符")
+    private String apiRoleCreate;
+
+    @Schema(description = "角色删除接口 JSON")
+    @Size(max = 512, message = "角色删除接口长度不能超过 512 个字符")
+    private String apiRoleDelete;
+
     @Schema(description = "接口目录树 JSON（目录+叶子；叶子 purpose=create 供用户同步「新增人员」）")
     private String apiCatalog;
 

@@ -46,9 +46,16 @@ public class SubSystemApiConfigDO extends BaseDO {
     private String apiDelete;
     /** 班组下拉接口 */
     private String apiTeamCombo;
+    /** 角色查询接口 */
+    private String apiRoleQuery;
+    /** 角色新增接口 */
+    private String apiRoleCreate;
+    /** 角色删除接口 */
+    private String apiRoleDelete;
     /**
      * 接口目录树 JSON（菜单式：目录 + 叶子）。
-     * 叶子含 purpose：auth/query/create/update/delete；用户同步业务系统时调 purpose=create 的叶子。
+     * 叶子含 purpose：auth/query/create/update/delete/role_query/role_create/role_delete；
+     * 用户同步业务系统时调 purpose=create 的叶子；role_* 仅在线测试调用（角色裸增删查，不挂页面）。
      */
     private String apiCatalog;
     /** 参数映射 JSON：JUMP标准参数名→对方参数名 */

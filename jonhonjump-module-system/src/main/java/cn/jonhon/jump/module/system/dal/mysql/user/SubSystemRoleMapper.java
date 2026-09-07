@@ -19,6 +19,7 @@ public interface SubSystemRoleMapper extends BaseMapperX<SubSystemRoleDO> {
                 .likeIfPresent(SubSystemRoleDO::getName, reqVO.getName())
                 .likeIfPresent(SubSystemRoleDO::getCode, reqVO.getCode())
                 .eqIfPresent(SubSystemRoleDO::getStatus, reqVO.getStatus())
+                .eqIfPresent(SubSystemRoleDO::getRoleRegistered, reqVO.getRoleRegistered())
                 .betweenIfPresent(SubSystemRoleDO::getCreateTime, reqVO.getCreateTime())
                 .orderByAsc(SubSystemRoleDO::getSort)
                 .orderByDesc(SubSystemRoleDO::getId));

@@ -5,6 +5,8 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiConfigSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemApiTestRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemExternalRoleCreateReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemRegisterableApiRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemRenameReqVO;
 import cn.jonhon.jump.module.system.service.user.SubSystemApiConfigService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -28,6 +30,13 @@ public class SubSystemApiConfigController {
 
     @Resource
     private SubSystemApiConfigService subSystemApiConfigService;
+
+    @GetMapping("/role-create-apis")
+    @Operation(summary = "获得已启用「角色新增」接口的接入系统列表（与门户角色系统解耦）")
+    @PreAuthorize("@ss.hasPermission('sub-system:role:list')")
+    public CommonResult<List<SubSystemRegisterableApiRespVO>> listRoleCreateApis() {
+        return success(subSystemApiConfigService.listRoleCreateApis());
+    }
 
     @GetMapping("/list")
     @Operation(summary = "获得子系统人员接口配置列表")
@@ -100,6 +109,13 @@ public class SubSystemApiConfigController {
     @PreAuthorize("@ss.hasPermission('sub-system:apiconfig:list')")
     public CommonResult<SubSystemApiTestRespVO> testInvoke(@Valid @RequestBody SubSystemApiTestReqVO reqVO) {
         return success(subSystemApiConfigService.testInvoke(reqVO));
+    }
+
+    @PostMapping("/create-role")
+    @Operation(summary = "新增外部系统角色（调对方「角色新增」接口；角色名自动拼 车间编号_角色名称）")
+    @PreAuthorize("@ss.hasPermission('sub-system:apiconfig:update')")
+    public CommonResult<String> createExternalRole(@Valid @RequestBody SubSystemExternalRoleCreateReqVO reqVO) {
+        return success(subSystemApiConfigService.createExternalRole(reqVO));
     }
 
 }

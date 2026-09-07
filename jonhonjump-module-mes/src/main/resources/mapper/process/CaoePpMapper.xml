@@ -7,9 +7,9 @@
 
     <select id="queryDocInfo"
             resultType="cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.CaoeDocInfoDTO">
-        SELECT oid, doc_state AS docState
+        SELECT oid, doc_state AS docState, doc_link AS docLink
         FROM (
-            SELECT oid, doc_state, doc_version, doc_iteration
+            SELECT oid, doc_state, doc_link, doc_version, doc_iteration
             FROM caoe_doc
             WHERE doc_number = #{docNumber}
             ORDER BY doc_version DESC, TO_NUMBER(doc_iteration) DESC NULLS LAST
