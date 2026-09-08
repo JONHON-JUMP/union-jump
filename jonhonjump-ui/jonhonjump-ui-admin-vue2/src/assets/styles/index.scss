@@ -190,22 +190,63 @@ aside {
   z-index: 1000 !important;
 }
 
-/* 旧 Chromium（<90，现场 82 内核）开合动画禁用：
-   82 对非合成层过渡每帧主线程重绘，全屏抽屉/遮罩/弹层动画严重掉帧（90 同机流畅）。
-   legacy-anim 由 main.js 按 UA 挂载；禁用后开合瞬时完成，杜绝动画卡顿。 */
-html.legacy-anim {
-  .el-drawer,
-  .el-drawer__wrapper,
-  .el-overlay,
-  .v-modal,
-  .el-dialog__wrapper,
-  .el-fade-in-linear-enter-active,
-  .el-fade-in-linear-leave-active,
-  .el-fade-in-enter-active,
-  .el-fade-in-leave-active,
-  .el-message-box,
-  .el-message {
-    transition: none !important;
-    animation: none !important;
-  }
+/* 旧 Chromium（<90，现场 82 内核）动画一刀切：
+   82 的渲染管线对非合成层动画每帧主线程重绘，任何过渡（含弹层/抽屉/菜单/进度条/弹窗）
+   都可能掉帧卡顿。体验优先：全部瞬时完成，不再按类名逐一禁（永远会有漏网）。
+   90+ 浏览器不受任何影响。 */
+html.legacy-anim *,
+html.legacy-anim *::before,
+html.legacy-anim *::after {
+  transition: none !important;
+  animation: none !important;
+  animation-iteration-count: 1 !important;
+  scroll-behavior: auto !important;
+}
+
+/* Element 遮罩：关闭弹层时若先卸内容再卸 .v-modal，深色半透明会「黑屏一闪」；
+   旧核上直接关掉淡入淡出，并压低遮罩对比（全屏抽屉已 modal=false，其它弹窗仍保留轻遮罩） */
+html.legacy-anim .v-modal {
+  background: rgba(15, 34, 56, .18) !important;
+  opacity: 1 !important;
+  transition: none !important;
+}
+
+/* Element 下拉/气泡：transition 被禁后 enter/leave-to 的 opacity:0 仍会「空一帧」，
+   感知成闪一下；强制可见态，开合改瞬切 */
+html.legacy-anim .el-zoom-in-top-enter,
+html.legacy-anim .el-zoom-in-top-leave-active,
+html.legacy-anim .el-zoom-in-top-leave-to,
+html.legacy-anim .el-zoom-in-bottom-enter,
+html.legacy-anim .el-zoom-in-bottom-leave-active,
+html.legacy-anim .el-zoom-in-bottom-leave-to,
+html.legacy-anim .el-zoom-in-center-enter,
+html.legacy-anim .el-zoom-in-center-leave-active,
+html.legacy-anim .el-zoom-in-center-leave-to,
+html.legacy-anim .el-zoom-in-left-enter,
+html.legacy-anim .el-zoom-in-left-leave-active,
+html.legacy-anim .el-zoom-in-left-leave-to,
+html.legacy-anim .el-fade-in-enter,
+html.legacy-anim .el-fade-in-leave-active,
+html.legacy-anim .el-fade-in-leave-to,
+html.legacy-anim .el-fade-in-linear-enter,
+html.legacy-anim .el-fade-in-linear-leave-active,
+html.legacy-anim .el-fade-in-linear-leave-to,
+html.legacy-anim .drawer-fade-enter,
+html.legacy-anim .drawer-fade-enter-active,
+html.legacy-anim .drawer-fade-leave-active,
+html.legacy-anim .drawer-fade-leave-to {
+  opacity: 1 !important;
+  transform: none !important;
+  animation: none !important;
+}
+
+/* 唯一例外：loading 转圈是 transform 型动画（GPU 合成，82 跑得动），
+   保留加载反馈避免用户误以为页面死机 */
+html.legacy-anim .el-loading-spinner {
+  -webkit-animation: loading-rotate 2s linear infinite !important;
+  animation: loading-rotate 2s linear infinite !important;
+}
+html.legacy-anim .el-loading-spinner .path {
+  -webkit-animation: loading-dash 1.5s ease-in-out infinite !important;
+  animation: loading-dash 1.5s ease-in-out infinite !important;
 }

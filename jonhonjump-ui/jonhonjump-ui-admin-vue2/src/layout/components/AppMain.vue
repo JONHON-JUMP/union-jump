@@ -28,7 +28,11 @@ export default {
   components: { iframeToggle },
   computed: {
     cachedViews() {
-      return this.$store.state.tagsView.cachedViews
+      const list = this.$store.state.tagsView.cachedViews
+      // 门户布局没有 TagsView，cachedViews 恒为空 → keep-alive 实际什么都没缓存，
+      // 每次回首页都全量重建快捷导航（低配 82 上数百毫秒，正撞抽屉关闭的黑影淡出）。
+      // 恒定缓存门户首页；其他页面维持现状不缓存，避免多标签内存累积
+      return list.includes('JumpPortalHome') ? list : [...list, 'JumpPortalHome']
     },
     key() {
       return this.$route.path

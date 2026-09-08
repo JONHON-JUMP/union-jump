@@ -441,7 +441,10 @@ export default {
   display: block;
   background: #f5f7fb;
   &.is-hidden-doc {
-    visibility: hidden;
+    /* 勿用 visibility:hidden：82 上会露出 iframe 空白文档（黑/白闪一下）；
+       用透明叠在浅底上，等 onload 再显示，底下始终是 #f5f7fb */
+    opacity: 0;
+    pointer-events: none;
   }
 }
 .inner-link__overlay {
@@ -491,5 +494,18 @@ export default {
 .inner-link-fade-enter,
 .inner-link-fade-leave-to {
   opacity: 0;
+}
+</style>
+
+<style lang="scss">
+/* Chrome <90：iframe 占位淡入淡出会在切换瞬间露出底层空白，感知成闪一下 */
+html.legacy-anim {
+  .inner-link-fade-enter-active,
+  .inner-link-fade-leave-active,
+  .inner-link-fade-enter,
+  .inner-link-fade-leave-to {
+    transition: none !important;
+    opacity: 1 !important;
+  }
 }
 </style>

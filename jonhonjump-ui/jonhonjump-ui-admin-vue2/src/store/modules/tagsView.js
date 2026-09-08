@@ -3,6 +3,14 @@ import { isPortalSubSystemHomePath, isGenericPortalTitle, resolvePortalMenuTitle
 /** Camstar 关页保温上限（只缓存页面壳，不缓存业务数据） */
 const MAX_WARM_CAMSTAR_IFRAMES = 8
 
+function maxWarmCamstarIframes() {
+  // Chrome <90：隐藏保温帧越多，切系统/收 dock 时主线程卸 DOM 越卡
+  if (typeof document !== 'undefined' && document.documentElement.classList.contains('legacy-anim')) {
+    return 2
+  }
+  return MAX_WARM_CAMSTAR_IFRAMES
+}
+
 const state = {
   visitedViews: [],
   cachedViews: [],
@@ -59,7 +67,7 @@ function parkOrRemoveIframe(state, path) {
     v => portalPathAliasKey(v.path) !== keepKey
   )
   state.warmIframeViews.push(item)
-  while (state.warmIframeViews.length > MAX_WARM_CAMSTAR_IFRAMES) {
+  while (state.warmIframeViews.length > maxWarmCamstarIframes()) {
     state.warmIframeViews.shift()
   }
 }
@@ -439,6 +447,38 @@ const actions = {
   },
   /** 门户回首页 / 切换系统：dock 仅保留首页，并清掉全部业务 iframe（含 Camstar 保温） */
   clearDockBusinessTabs({ commit, state }) {
+    const legacy = typeof document !== 'undefined'
+      && document.documentElement.classList.contains('legacy-anim')
+
+    if (legacy) {
+      // Chrome <90：PRUNE 会先 park Camstar→warm 再 CLEAR 全删，等于两次卸 DOM。
+      // 切系统本来就要清空，单次 prune 页签 + 直接 CLEAR，避免中间态重绘。
+      // 不可把 CLEAR 拖到 rAF 之后：skipNavigate 紧接着 push 新页时会误删新 iframe。
+      const removed = []
+      state.visitedViews = state.visitedViews.filter(view => {
+        if (view.path === '/index' || view.path === '/') {
+          return true
+        }
+        if (view.meta && view.meta.affix) {
+          return true
+        }
+        removed.push(view)
+        return false
+      })
+      removed.forEach(view => {
+        if (!view || !view.name) {
+          return
+        }
+        const index = state.cachedViews.indexOf(view.name)
+        if (index > -1) {
+          state.cachedViews.splice(index, 1)
+        }
+      })
+      commit('CLEAR_ALL_IFRAME_FRAMES')
+      state.recentViewPaths = []
+      return Promise.resolve([...state.visitedViews])
+    }
+
     commit('PRUNE_VIEWS', view => {
       if (view.path === '/index' || view.path === '/') {
         return true

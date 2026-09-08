@@ -4,7 +4,10 @@
     direction="btt"
     size="100%"
     :append-to-body="true"
+    :modal="false"
     :with-header="false"
+    :wrapper-closable="false"
+    :destroy-on-close="false"
     :close-on-press-escape="!activeFolder"
     custom-class="all-apps-drawer"
     @update:visible="handleDrawerVisibleUpdate"
@@ -145,7 +148,7 @@
                   <span class="icon-highlight" />
                   <span class="folder-preview">
                     <span
-                      v-for="child in item.children"
+                      v-for="child in folderPreviewChildren(item)"
                       :key="'preview-' + child.key"
                       class="folder-preview__item"
                       :style="iconStyle(child)"
@@ -376,12 +379,13 @@ export default {
       // 本地副本：保证星标随 props / 操作即时刷新（勿直接读 session 缓存，无响应式）
       localQuickNavMenuIds: [],
       localQuickNavLockedMenuIds: [],
-      localQuickNavConfigured: false
+      localQuickNavConfigured: false,
+      cachedMenuGroups: []
     }
   },
   computed: {
     menuGroups() {
-      return normalizeMenuTree(this.routes)
+      return this.cachedMenuGroups
     },
     activeGroup() {
       return this.menuGroups.find(group => group.key === this.activeGroupKey) || this.menuGroups[0] || null
@@ -437,6 +441,12 @@ export default {
         this.localQuickNavConfigured = !!val
       }
     },
+    routes: {
+      immediate: true,
+      handler(routes) {
+        this.cachedMenuGroups = normalizeMenuTree(routes || [])
+      }
+    },
     systemKey() {
       this.keyword = ''
       this.closeFolder(false)
@@ -484,6 +494,11 @@ export default {
     document.removeEventListener('keydown', this.handleDocumentKeydown)
   },
   methods: {
+    /** 82 上每个文件夹预览整棵子树 SVG 会拖垮网格切换；最多 9 个角标 */
+    folderPreviewChildren(item) {
+      const children = (item && item.children) || []
+      return children.length > 9 ? children.slice(0, 9) : children
+    },
     openWithKeyword(keyword) {
       this.keyword = keyword || ''
       this.closeFolder(false)
@@ -1372,11 +1387,18 @@ button {
   -webkit-backdrop-filter: blur(12px) saturate(115%);
 }
 
-/* 低配机（≤4核/≤4G，见 main.js markLowPerfDevice）：全屏毛玻璃在老集显上会让面板开合动画掉帧，降级为深色遮罩 */
+/* 低配机（≤4核/≤4G，见 main.js markLowPerfDevice）：全屏毛玻璃在老集显上会让面板开合动画掉帧，降级为浅色实底 */
 :root.low-perf .folder-overlay {
-  background: rgba(21, 49, 76, .5);
+  background: rgba(234, 244, 252, .96);
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+/* Chrome <90：深色遮罩关闭时像「黑屏一闪」；毛玻璃在 82 上主线程重绘极卡 */
+html.legacy-anim .folder-overlay {
+  background: rgba(234, 244, 252, .98);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 .folder-panel {
@@ -1812,6 +1834,39 @@ html.legacy-anim {
   .folder-panel-enter-active .folder-panel,
   .folder-panel-leave-active .folder-panel {
     transition: none !important;
+  }
+
+  .folder-panel-enter,
+  .folder-panel-leave-to,
+  .folder-panel-enter .folder-panel,
+  .folder-panel-leave-to .folder-panel {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .app-tile:hover .app-icon,
+  .app-tile:focus .app-icon,
+  .app-tile:active .app-icon {
+    transform: none !important;
+    filter: none !important;
+  }
+
+  /* 全屏抽屉本身：Element 默认还有滑入，禁掉避免主线程掉帧 */
+  .all-apps-drawer.el-drawer,
+  .el-drawer__wrapper {
+    transition: none !important;
+    animation: none !important;
+  }
+
+  /* append-to-body：与 scoped 规则双保险，避免 82 上深色毛玻璃遮罩闪黑 */
+  .folder-overlay {
+    background: rgba(234, 244, 252, .98) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  .folder-panel {
+    box-shadow: 0 4px 12px rgba(22, 56, 87, .12) !important;
   }
 }
 

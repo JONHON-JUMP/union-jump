@@ -131,13 +131,6 @@ export default {
   -webkit-backdrop-filter: blur(10px);
 }
 
-/* 低配机降级：去毛玻璃换深色遮罩（见 main.js markLowPerfDevice） */
-:root.low-perf .quick-nav-context-backdrop {
-  background: rgba(16, 35, 62, .45);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-
 .quick-nav-context-menu {
   position: fixed;
   z-index: 3201;
@@ -203,5 +196,29 @@ export default {
 .quick-nav-menu-fade-enter,
 .quick-nav-menu-fade-leave-to {
   opacity: 0;
+}
+</style>
+
+<style lang="scss">
+/* 低配/Chrome<90：去毛玻璃，浅色实底（勿加深，否则右键菜单开合像黑屏闪） */
+:root.low-perf .quick-nav-context-backdrop,
+html.legacy-anim .quick-nav-context-backdrop {
+  background: rgba(234, 244, 252, .92) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.legacy-anim {
+  .quick-nav-menu-fade-enter-active,
+  .quick-nav-menu-fade-leave-active,
+  .quick-nav-menu-fade-enter,
+  .quick-nav-menu-fade-leave-to {
+    transition: none !important;
+    opacity: 1 !important;
+  }
+
+  .quick-nav-context-menu {
+    box-shadow: 0 4px 12px rgba(16, 35, 62, .12) !important;
+  }
 }
 </style>

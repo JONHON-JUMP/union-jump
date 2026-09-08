@@ -41,10 +41,13 @@ import { DICT_TYPE, getDictDataLabel, getDictDatas, getDictDatas2 } from "@/util
 // 旧 Chromium 标记（<90，现场 82 内核）：82 的渲染管线对非合成层过渡动画
 // （尤其 width/height/padding 布局动画和全屏 transform 过渡）每帧主线程重绘，
 // 抽屉/dock/菜单开合严重掉帧（90 同机流畅）。legacy-anim 类下开合动画全部瞬开瞬关。
+// UA 匹配不到 Chromium 版本号的（部分壳浏览器/内嵌 webview）保守按旧内核处理。
+// 同时打上 low-perf：Chrome 82 即便核多内存大，backdrop-filter 仍会拖垮开合帧率。
 ;(function markLegacyChromium() {
   const m = navigator.userAgent.match(/Chrom(?:e|ium)\/(\d+)/)
-  if (m && Number(m[1]) < 90) {
+  if (!m || Number(m[1]) < 90) {
     document.documentElement.classList.add('legacy-anim')
+    document.documentElement.classList.add('low-perf')
   }
 })()
 

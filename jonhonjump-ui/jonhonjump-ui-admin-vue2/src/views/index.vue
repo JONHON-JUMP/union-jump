@@ -281,6 +281,15 @@ export default {
   },
   activated() {
     this.applyWorkbenchFromQuery(this.$route.query.workbench)
+    // 首页已进 keep-alive（AppMain 恒缓存 JumpPortalHome），mounted 只跑一次；
+    // 切回首页时刷一次待办保持新鲜。82：推迟到快捷导航露出后再请求，避免同帧卡顿
+    const refresh = () => this.loadTodoCount()
+    if (typeof document !== 'undefined'
+      && document.documentElement.classList.contains('legacy-anim')) {
+      window.setTimeout(refresh, 360)
+      return
+    }
+    refresh()
   },
   beforeDestroy() {
     if (this._onOpenWorkbench) {
@@ -886,6 +895,7 @@ button { color: inherit; }
   font-size: inherit;
   line-height: normal;
 }
+/* 低配机默认毛玻璃；降级规则见文件末尾非 scoped 块（保证 html.legacy-anim 命中） */
 .info-panel {
   padding: 22px;
   box-sizing: border-box;
@@ -899,12 +909,6 @@ button { color: inherit; }
   -webkit-backdrop-filter: blur(18px) saturate(130%);
 }
 
-/* 低配机（≤4核/≤4G，见 main.js markLowPerfDevice）：毛玻璃降级为实底色，消除首页持续合成开销 */
-:root.low-perf .info-panel {
-  background: rgba(238, 249, 255, .96);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
 .panel-heading { display: flex; align-items: center; justify-content: space-between; }
 .panel-heading h2 { margin: 0; font-size: 20px; }
 .panel-heading p { margin: 5px 0 0; color: #607895; font-size: 12px; }
@@ -1069,5 +1073,15 @@ button { color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+</style>
+
+<style lang="scss">
+/* 低配 / Chrome<90：毛玻璃降级为实底色，消除首页持续合成开销 */
+:root.low-perf .info-panel,
+html.legacy-anim .info-panel {
+  background: rgba(238, 249, 255, .96) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 </style>

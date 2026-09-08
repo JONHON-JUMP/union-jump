@@ -210,7 +210,12 @@ export default {
       if (!scroller) return
       const activeTab = scroller.querySelector('.business-tab.active')
       if (activeTab && typeof activeTab.scrollIntoView === 'function') {
-        activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+        const legacy = document.documentElement.classList.contains('legacy-anim')
+        activeTab.scrollIntoView({
+          behavior: legacy ? 'auto' : 'smooth',
+          block: 'nearest',
+          inline: 'nearest'
+        })
       }
     }
   }

@@ -117,6 +117,10 @@ export default {
       if (!visible) {
         return
       }
+      // Chrome <90：打开下拉时强刷会整表重绘（星标 SVG），顿挫明显；只用缓存
+      if (document.documentElement.classList.contains('legacy-anim')) {
+        return
+      }
       const now = Date.now()
       if (this._lastDefaultFetchAt && now - this._lastDefaultFetchAt < 60000) {
         return
@@ -235,6 +239,10 @@ export default {
   border: 0;
   border-radius: 14px;
   box-shadow: 0 12px 28px rgba(41, 81, 117, .16);
+}
+
+html.legacy-anim .system-dropdown {
+  box-shadow: 0 4px 12px rgba(41, 81, 117, .12);
 }
 
 .system-dropdown .el-dropdown-menu__item {

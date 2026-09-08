@@ -233,6 +233,11 @@ export default {
       this.searchKeyword = ''
       this.searchFocused = false
       this.restoreQuickNavFromCache()
+      // switchSystem 已预拉快捷导航；有 apps 缓存则不再打接口，避免切换下拉「卡第二下」
+      const cached = getQuickNavCache(this.quickNavScopeKey)
+      if (cached && Array.isArray(cached.apps)) {
+        return
+      }
       this.loadQuickNav()
     },
     currentSubSystemId(newId, oldId) {
@@ -263,7 +268,9 @@ export default {
       immediate: true,
       handler(inBusiness) {
         this.headerCollapsed = inBusiness
-        this.scheduleInitialIframeNudge()
+        if (inBusiness) {
+          this.scheduleInitialIframeNudge()
+        }
       }
     },
     // 折叠/展开、dock 展开收起都会改变 iframe 可视高度；跨域子系统不监听 resize，
@@ -271,10 +278,10 @@ export default {
     // 变化后对可见 iframe 做 1px 宽度抖动，强制其触发内部 resize 重算。
     headerCollapsed() {
       this.$nextTick(() => this.nudgeVisibleIframes())
-    },
-    dockExpanded() {
-      this.$nextTick(() => this.nudgeVisibleIframes())
     }
+    // dockExpanded 不再立即抖 iframe：dock 尺寸变化必然触发 setupDockSpaceSync 的
+    // ResizeObserver（--dock-space 写回 + 320ms 防抖补抖）。此前 watch + 防抖各抖一次，
+    // 折叠/展开连做两次全页 iframe 重排（Camstar 类重页面单次数百毫秒，82 上是折叠展开卡顿主因）
   },
   mounted() {
     this._onPortalOpenAllApps = (keyword) => {
@@ -449,7 +456,20 @@ export default {
     },
     openApp(app) {
       this.searchFocused = false
+      const legacy = document.documentElement.classList.contains('legacy-anim')
+      // 82：先关抽屉再导航，避免同帧「卸抽屉 + 收顶栏 + 挂 iframe」主线程堵死、闪黑
+      const runNavigate = () => this.navigateOpenApp(app)
+      if (this.drawerVisible && legacy) {
+        this.drawerVisible = false
+        this.$nextTick(() => {
+          window.requestAnimationFrame(() => runNavigate())
+        })
+        return
+      }
       this.drawerVisible = false
+      runNavigate()
+    },
+    navigateOpenApp(app) {
       if (!app || !app.path) return
       if (this.currentSystem !== 'main' && isMainBusinessPath(app.path)) {
         // 禁止 lock 全屏：会挡住 dock/菜单，用户以为「卡死不能点」
@@ -603,6 +623,13 @@ export default {
      * 靠抖动触发其内部 window.resize 重算布局，修复底部内容滞留旧视口
      */
     nudgeVisibleIframes() {
+      // 旧 Chromium（legacy-anim）：1px 抖动=强制可见 iframe 全量重排，低配 82 上单次数百毫秒，
+      // 是折叠 dock/顶栏、进业务页卡顿的最大单一来源。iframe 容器尺寸变化时浏览器本就会
+      // 自动重排其内容，nudge 只服务少数自算固定高度的子页面——体验优先，82 上全部跳过；
+      // 若个别子系统页面出现底部留白，再针对该页面单独处理
+      if (document.documentElement.classList.contains('legacy-anim')) {
+        return
+      }
       window.requestAnimationFrame(() => {
         document.querySelectorAll('iframe.inner-link__frame').forEach(frame => {
           // 隐藏的保温帧跳过，等它再次可见时高度自然按新容器渲染
@@ -633,10 +660,13 @@ export default {
       if (this._dockSpaceNudgeTimer) {
         clearTimeout(this._dockSpaceNudgeTimer)
       }
+      // 新浏览器 320ms 等 padding 过渡结束；旧 Chromium（legacy-anim）过渡已禁、dock 瞬时到位，
+      // 短延迟等 layout 落定即可，避免 320ms 后突然补抖造成"又一顿"
+      const delay = document.documentElement.classList.contains('legacy-anim') ? 60 : 320
       this._dockSpaceNudgeTimer = window.setTimeout(() => {
         this._dockSpaceNudgeTimer = null
         this.nudgeVisibleIframes()
-      }, 320)
+      }, delay)
     },
     /**
      * 实测 dock 占位，替代 CSS 里 100/116/44 的估算值：
@@ -660,6 +690,12 @@ export default {
         }
         // dock 顶边到视口底 + 安全缝（含阴影/亚像素）；不低于 24px 兜底
         const space = Math.max(24, Math.ceil(window.innerHeight - rect.top) + 10)
+        // 同值短路：写 --dock-space 会改 padding 触发 layout，若再次触发 observer 回调
+        // 会形成回环；值未变时直接跳过，也免去一次全页重排
+        if (this._lastDockSpace === space) {
+          return
+        }
+        this._lastDockSpace = space
         shellEl.style.setProperty('--dock-space', space + 'px')
         // 跨域 iframe（Camstar 等）收不到 resize：占位变化后必须补抖，否则仍按旧高度渲染、底栏文字被裁
         this.scheduleDockSpaceIframeNudge()
@@ -695,6 +731,7 @@ export default {
         clearTimeout(this._dockSpaceNudgeTimer)
         this._dockSpaceNudgeTimer = null
       }
+      this._lastDockSpace = null
       if (this.$el) {
         this.$el.style.removeProperty('--dock-space')
       }
@@ -717,6 +754,18 @@ export default {
       try { reopen = sessionStorage.getItem('JUMP_ALLAPPS_RETURN') === '1' } catch (e) { /* ignore */ }
       if (reopen) {
         try { sessionStorage.removeItem('JUMP_ALLAPPS_RETURN') } catch (e) { /* ignore */ }
+        // 82：等首页快捷导航露出后再重开抽屉，避免与回首页叠层抢同一帧
+        if (typeof document !== 'undefined'
+          && document.documentElement.classList.contains('legacy-anim')) {
+          this.$nextTick(() => {
+            window.requestAnimationFrame(() => {
+              window.requestAnimationFrame(() => {
+                this.drawerVisible = true
+              })
+            })
+          })
+          return
+        }
         this.drawerVisible = true
       }
     },
@@ -1068,5 +1117,7 @@ button { color: inherit; }
    82 上卡顿明显（90 同机流畅）；降级为瞬时到位 */
 :root.legacy-anim .jump-portal-shell {
   transition: none !important;
+  /* 三层 radial-gradient 大背景在 82 上任何重绘都贵，降级为纯色（同底色） */
+  background: $canvas;
 }
 </style>

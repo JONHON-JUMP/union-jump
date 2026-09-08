@@ -53,12 +53,7 @@ export default {
   justify-content: center;
   background: rgba(16, 35, 62, 0.72);
   backdrop-filter: blur(6px);
-}
-
-/* 低配机降级：遮罩底色已深，去 blur 视觉无损（见 main.js markLowPerfDevice） */
-:root.low-perf .session-lock {
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  -webkit-backdrop-filter: blur(6px);
 }
 
 .session-lock__panel {
@@ -116,5 +111,24 @@ export default {
 .session-lock-fade-enter,
 .session-lock-fade-leave-to {
   opacity: 0;
+}
+</style>
+
+<style lang="scss">
+/* 低配 / Chrome<90：去 blur（锁屏本身是深色实底，毛玻璃只增加合成开销） */
+:root.low-perf .session-lock,
+html.legacy-anim .session-lock {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+html.legacy-anim {
+  .session-lock-fade-enter-active,
+  .session-lock-fade-leave-active,
+  .session-lock-fade-enter,
+  .session-lock-fade-leave-to {
+    transition: none !important;
+    opacity: 1 !important;
+  }
 }
 </style>
