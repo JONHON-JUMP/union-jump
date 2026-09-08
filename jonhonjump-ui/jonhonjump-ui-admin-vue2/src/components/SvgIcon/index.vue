@@ -55,6 +55,7 @@ export default {
 
 .svg-external-icon {
   background-color: currentColor;
+  -webkit-mask-size: cover !important;
   mask-size: cover!important;
   display: inline-block;
 }

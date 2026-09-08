@@ -139,8 +139,7 @@ import {
   getQuickNavCache,
   setQuickNavCache
 } from '@/utils/portalQuickNavCache'
-import { startQuickNavWatch, stopQuickNavWatch, rememberQuickNavSignature } from '@/utils/portalQuickNavWatch'
-import { startPortalPermWatch, stopPortalPermWatch } from '@/utils/portalPermWatch'
+import { rememberQuickNavSignature } from '@/utils/portalQuickNavWatch'
 import { getTodoTaskPage } from '@/api/bpm/task'
 import { checkPermi } from '@/utils/permission'
 
@@ -171,8 +170,7 @@ export default {
       quickNavMenuIds: [],
       quickNavLockedMenuIds: [],
       quickNavConfigured: false,
-      todoCount: 0,
-      todoRefreshTimer: null
+      todoCount: 0
     }
   },
   computed: {
@@ -301,18 +299,21 @@ export default {
     this.$root.$on('portal-quick-nav-changed', this._onPortalQuickNavChanged)
     this.restoreQuickNavFromCache()
     this.loadQuickNav()
-    startQuickNavWatch(this.$router)
-    startPortalPermWatch(this.$router)
+    // 在线变更探测已移除（quickNavWatch/permWatch）：后端 cache-aside（改数据删 Redis），
+    // 刷新页面/重新登录自然从库重建；在线探测的版本比对请求是低配机上的无谓负担
     this.loadTodoCount()
-    this.todoRefreshTimer = window.setInterval(() => {
-      this.loadTodoCount()
-    }, 60000)
+    // 待办不再定时轮询（无实时性要求）：切回标签页时刷新，路由切换由 $route watch 刷新，
+    // 其余场景靠用户手动刷新页面——低配 Chrome 82 上定时器是纯负担
+    this._onTodoVisibility = () => {
+      if (!document.hidden) {
+        this.loadTodoCount()
+      }
+    }
+    document.addEventListener('visibilitychange', this._onTodoVisibility)
     this.setupDockSpaceSync()
   },
   beforeDestroy() {
     this.teardownDockSpaceSync()
-    stopQuickNavWatch()
-    stopPortalPermWatch()
     if (this._onPortalOpenAllApps) {
       this.$root.$off('portal-open-all-apps', this._onPortalOpenAllApps)
       this._onPortalOpenAllApps = null
@@ -321,9 +322,9 @@ export default {
       this.$root.$off('portal-quick-nav-changed', this._onPortalQuickNavChanged)
       this._onPortalQuickNavChanged = null
     }
-    if (this.todoRefreshTimer) {
-      window.clearInterval(this.todoRefreshTimer)
-      this.todoRefreshTimer = null
+    if (this._onTodoVisibility) {
+      document.removeEventListener('visibilitychange', this._onTodoVisibility)
+      this._onTodoVisibility = null
     }
   },
   methods: {
@@ -837,11 +838,15 @@ button { color: inherit; }
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 10px;
   border: 0;
   padding: 2px 6px;
   background: transparent;
   cursor: pointer;
+}
+
+/* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+.header-collapsed-bar > :not(:last-child) {
+  margin-right: 10px;
 }
 
 .header-collapsed-bar .collapsed-mark {
@@ -1057,5 +1062,11 @@ button { color: inherit; }
   *,
   *::before,
   *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* 旧 Chromium（<90）：dock 展开时 padding-bottom 布局动画每帧触发全页 layout（含 iframe 重排），
+   82 上卡顿明显（90 同机流畅）；降级为瞬时到位 */
+:root.legacy-anim .jump-portal-shell {
+  transition: none !important;
 }
 </style>

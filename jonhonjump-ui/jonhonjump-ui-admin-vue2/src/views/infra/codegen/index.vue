@@ -278,8 +278,8 @@ export default {
         for (let i = 0; i < paths.length; i++) {
           // 已经添加到 files 中，则跳过
           let oldFullPath = fullPath;
-          // 下面的 replaceAll 的原因，是因为上面包处理了，导致和 tabs 不匹配，所以 replaceAll 下
-          fullPath = fullPath.length === 0 ? paths[i] : fullPath.replaceAll('.', '/') + '/' + paths[i];
+          // 下面的 split+join 的原因，是因为上面包处理了，导致和 tabs 不匹配，所以替换下（兼容 Chrome 82：无 replaceAll）
+          fullPath = fullPath.length === 0 ? paths[i] : fullPath.split('.').join('/') + '/' + paths[i];
           if (exists[fullPath]) {
             continue;
           }

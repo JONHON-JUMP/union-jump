@@ -189,3 +189,23 @@ aside {
 .multiselect--active {
   z-index: 1000 !important;
 }
+
+/* 旧 Chromium（<90，现场 82 内核）开合动画禁用：
+   82 对非合成层过渡每帧主线程重绘，全屏抽屉/遮罩/弹层动画严重掉帧（90 同机流畅）。
+   legacy-anim 由 main.js 按 UA 挂载；禁用后开合瞬时完成，杜绝动画卡顿。 */
+html.legacy-anim {
+  .el-drawer,
+  .el-drawer__wrapper,
+  .el-overlay,
+  .v-modal,
+  .el-dialog__wrapper,
+  .el-fade-in-linear-enter-active,
+  .el-fade-in-linear-leave-active,
+  .el-fade-in-enter-active,
+  .el-fade-in-leave-active,
+  .el-message-box,
+  .el-message {
+    transition: none !important;
+    animation: none !important;
+  }
+}

@@ -14,7 +14,7 @@ import plugins from './plugins' // plugins
 import './assets/icons' // icon
 import './permission' // permission control
 import './tongji' // 百度统计
-import { installChunkLoadGuard, startAppVersionPoll } from '@/utils/appVersion'
+import { installChunkLoadGuard } from '@/utils/appVersion'
 import { installPortalLogoutBroadcast } from '@/utils/portalLogoutBroadcast'
 import { getDicts } from "@/api/system/dict/data";
 import { getConfigKey } from "@/api/infra/config";
@@ -27,6 +27,26 @@ import RightToolbar from "@/components/RightToolbar"
 // import hljs from 'highlight.js'
 // import 'highlight.js/styles/github-gist.css'
 import { DICT_TYPE, getDictDataLabel, getDictDatas, getDictDatas2 } from "@/utils/dict";
+
+// 低配机标记（≤4 核 或 ≤4GB 内存）：用于降级大面积毛玻璃等合成开销大的效果，
+// 现场 Chrome 82 老机上 backdrop-filter 会拖垮抽屉/菜单开合动画帧率
+;(function markLowPerfDevice() {
+  const cores = navigator.hardwareConcurrency || 8
+  const memory = navigator.deviceMemory || 8
+  if (cores <= 4 || memory <= 4) {
+    document.documentElement.classList.add('low-perf')
+  }
+})()
+
+// 旧 Chromium 标记（<90，现场 82 内核）：82 的渲染管线对非合成层过渡动画
+// （尤其 width/height/padding 布局动画和全屏 transform 过渡）每帧主线程重绘，
+// 抽屉/dock/菜单开合严重掉帧（90 同机流畅）。legacy-anim 类下开合动画全部瞬开瞬关。
+;(function markLegacyChromium() {
+  const m = navigator.userAgent.match(/Chrom(?:e|ium)\/(\d+)/)
+  if (m && Number(m[1]) < 90) {
+    document.documentElement.classList.add('legacy-anim')
+  }
+})()
 
 // 全局方法挂载
 Vue.prototype.getDicts = getDicts
@@ -99,7 +119,9 @@ Vue.use(Element, {
 Vue.config.productionTip = false
 
 installChunkLoadGuard(router)
-startAppVersionPoll()
+// 版本轮询停用（现场反馈：自动弹"系统已更新"打断使用且低配机有感知）。
+// 保留 chunk 加载失败守卫：发版后旧页面点新路由 chunk 404 时仍会提示刷新，闭环不受影响。
+// startAppVersionPoll()
 installPortalLogoutBroadcast()
 
 new Vue({

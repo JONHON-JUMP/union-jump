@@ -273,12 +273,11 @@ export default {
       this.openWorkbenchTab(tabKey)
     }
     this.$root.$on('portal-open-workbench', this._onOpenWorkbench)
-    this.timer = window.setInterval(() => { this.now = new Date() }, 30000)
+    // 时钟纯本地更新（无请求），后台标签页跳过以免无谓重渲染
+    this.timer = window.setInterval(() => { if (!document.hidden) { this.now = new Date() } }, 30000)
     this.setupWorkbenchObserver()
+    // 待办刷新交给常驻的 PortalShell 60s 轮询，首页不再重复拉（此前两份轮询每分钟打两次接口）
     this.loadTodoCount()
-    this.todoRefreshTimer = window.setInterval(() => {
-      this.loadTodoCount()
-    }, 60000)
   },
   activated() {
     this.applyWorkbenchFromQuery(this.$route.query.workbench)
@@ -289,10 +288,6 @@ export default {
       this._onOpenWorkbench = null
     }
     window.clearInterval(this.timer)
-    if (this.todoRefreshTimer) {
-      window.clearInterval(this.todoRefreshTimer)
-      this.todoRefreshTimer = null
-    }
     if (this.workbenchObserver) {
       this.workbenchObserver.disconnect()
       this.workbenchObserver = null
@@ -902,6 +897,13 @@ button { color: inherit; }
   box-shadow: 0 8px 22px rgba(34, 112, 166, .08);
   backdrop-filter: blur(18px) saturate(130%);
   -webkit-backdrop-filter: blur(18px) saturate(130%);
+}
+
+/* 低配机（≤4核/≤4G，见 main.js markLowPerfDevice）：毛玻璃降级为实底色，消除首页持续合成开销 */
+:root.low-perf .info-panel {
+  background: rgba(238, 249, 255, .96);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 .panel-heading { display: flex; align-items: center; justify-content: space-between; }
 .panel-heading h2 { margin: 0; font-size: 20px; }

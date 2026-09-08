@@ -519,4 +519,10 @@ $primary: #087ce5;
     transition-duration: .01ms !important;
   }
 }
+
+/* 旧 Chromium（<90）：dock 展开是 width/height/padding 布局动画，每帧全页 layout，
+   82 上卡顿明显；降级为瞬时展开。子元素 hover 之类的着色过渡不受影响 */
+:root.legacy-anim .portal-taskbar {
+  transition: none !important;
+}
 </style>

@@ -1372,6 +1372,13 @@ button {
   -webkit-backdrop-filter: blur(12px) saturate(115%);
 }
 
+/* 低配机（≤4核/≤4G，见 main.js markLowPerfDevice）：全屏毛玻璃在老集显上会让面板开合动画掉帧，降级为深色遮罩 */
+:root.low-perf .folder-overlay {
+  background: rgba(21, 49, 76, .5);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 .folder-panel {
   display: flex;
   width: min(840px, 78vw);
@@ -1797,6 +1804,17 @@ button {
 </style>
 
 <style lang="scss">
+/* 旧 Chromium（<90）：文件夹面板（打开/关闭菜单）的 transform+opacity 过渡在 82 上
+   每帧主线程重绘全屏面板，关闭时尤卡；降级为瞬时开合 */
+html.legacy-anim {
+  .folder-panel-enter-active,
+  .folder-panel-leave-active,
+  .folder-panel-enter-active .folder-panel,
+  .folder-panel-leave-active .folder-panel {
+    transition: none !important;
+  }
+}
+
 .all-apps-drawer {
   top: 0 !important;
   height: 100% !important;

@@ -55,6 +55,12 @@ export default {
   backdrop-filter: blur(6px);
 }
 
+/* 低配机降级：遮罩底色已深，去 blur 视觉无损（见 main.js markLowPerfDevice） */
+:root.low-perf .session-lock {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 .session-lock__panel {
   width: 360px;
   max-width: calc(100vw - 48px);

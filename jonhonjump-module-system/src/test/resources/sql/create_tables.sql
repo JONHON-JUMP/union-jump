@@ -234,6 +234,7 @@ CREATE TABLE IF NOT EXISTS "sub_system_role" (
     "dept_check_strictly" tinyint NOT NULL DEFAULT 1,
     "status" tinyint NOT NULL DEFAULT 0,
     "type" tinyint NOT NULL DEFAULT 0,
+    "role_registered" varchar(2) NOT NULL DEFAULT '0',
     "creator" varchar(64) DEFAULT '',
     "create_time" timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updater" varchar(64) DEFAULT '',

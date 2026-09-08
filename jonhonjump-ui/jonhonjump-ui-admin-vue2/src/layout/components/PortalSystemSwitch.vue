@@ -91,30 +91,43 @@ export default {
     }
   },
   methods: {
+    applyPortalDefaultConfig(config) {
+      const data = config || {}
+      this.portalDefaultConfigured = !!data.configured
+      this.portalDefaultSubSystemId = data.subSystemId != null ? data.subSystemId : null
+      this.portalDefaultSystem = data.defaultSystem || resolveRuleBasedPortalDefault(this.portalSystemList)
+    },
     loadPortalDefault() {
       return this.$store.dispatch('portal/fetchPortalDefault').then(config => {
-        const data = config || {}
-        this.portalDefaultConfigured = !!data.configured
-        this.portalDefaultSubSystemId = data.subSystemId != null ? data.subSystemId : null
-        this.portalDefaultSystem = data.defaultSystem || resolveRuleBasedPortalDefault(this.portalSystemList)
+        this.applyPortalDefaultConfig(config)
+        // 缓存数据同样视为新鲜：登录/切系统已拉过，60s 内打开下拉零请求
+        this._lastDefaultFetchAt = Date.now()
       }).catch(() => {
         this.portalDefaultConfigured = false
         this.portalDefaultSubSystemId = null
         this.portalDefaultSystem = resolveRuleBasedPortalDefault(this.portalSystemList)
       })
     },
+    /**
+     * 打开下拉不再每次强制请求（低配机上响应回来会触发下拉整体重渲染，顿挫明显）。
+     * 登录/切系统时已拉过并写入 store 缓存，本地点星标也即时更新缓存；
+     * 这里只在缓存超过 60 秒才后台强刷一次，兜底另一端改默认系统的场景。
+     */
     handleDropdownVisible(visible) {
-      if (visible) {
-        this.loadPortalDefaultForce()
+      if (!visible) {
+        return
       }
-    },
-    loadPortalDefaultForce() {
-      return this.$store.dispatch('portal/fetchPortalDefault', { force: true }).then(config => {
-        const data = config || {}
-        this.portalDefaultConfigured = !!data.configured
-        this.portalDefaultSubSystemId = data.subSystemId != null ? data.subSystemId : null
-        this.portalDefaultSystem = data.defaultSystem || resolveRuleBasedPortalDefault(this.portalSystemList)
-      }).catch(() => {})
+      const now = Date.now()
+      if (this._lastDefaultFetchAt && now - this._lastDefaultFetchAt < 60000) {
+        return
+      }
+      this._lastDefaultFetchAt = now
+      this.$store.dispatch('portal/fetchPortalDefault', { force: true }).then(config => {
+        this._lastDefaultFetchAt = Date.now()
+        this.applyPortalDefaultConfig(config)
+      }).catch(() => {
+        this._lastDefaultFetchAt = 0
+      })
     },
     isDefaultPortalSystem(systemValue) {
       return this.portalDefaultSystem === systemValue

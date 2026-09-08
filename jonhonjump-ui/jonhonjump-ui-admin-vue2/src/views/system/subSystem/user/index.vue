@@ -981,7 +981,8 @@ export default {
 .register-user-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+  > :not(:last-child) { margin-right: 8px; }
   min-height: 28px;
   font-size: 13px;
   color: #303133;

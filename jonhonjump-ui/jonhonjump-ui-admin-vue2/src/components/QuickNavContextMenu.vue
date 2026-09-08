@@ -131,6 +131,13 @@ export default {
   -webkit-backdrop-filter: blur(10px);
 }
 
+/* 低配机降级：去毛玻璃换深色遮罩（见 main.js markLowPerfDevice） */
+:root.low-perf .quick-nav-context-backdrop {
+  background: rgba(16, 35, 62, .45);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
 .quick-nav-context-menu {
   position: fixed;
   z-index: 3201;

@@ -48,10 +48,19 @@ export default {
   created() {
     // 首次加载小红点
     this.getUnreadCount()
-    // 轮询刷新小红点
-    setInterval(() => {
-      this.getUnreadCount()
-    },1000 * 60 * 2)
+    // 红点无实时性要求，不再定时轮询：切回标签页时刷新，其余靠刷新页面/重开组件
+    this._onUnreadVisibility = () => {
+      if (!document.hidden) {
+        this.getUnreadCount()
+      }
+    }
+    document.addEventListener('visibilitychange', this._onUnreadVisibility)
+  },
+  beforeDestroy() {
+    if (this._onUnreadVisibility) {
+      document.removeEventListener('visibilitychange', this._onUnreadVisibility)
+      this._onUnreadVisibility = null
+    }
   },
   methods: {
     getList: function() {

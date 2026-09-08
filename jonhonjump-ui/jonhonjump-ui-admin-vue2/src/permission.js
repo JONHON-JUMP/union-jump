@@ -25,7 +25,6 @@ import 'nprogress/nprogress.css'
 import { getAccessToken } from '@/utils/auth'
 import { isRelogin } from '@/utils/request'
 import { redirectToLogin, getTopWindow } from '@/utils/switchUser'
-import { startPortalPermWatch } from '@/utils/portalPermWatch'
 
 NProgress.configure({ showSpinner: false })
 
@@ -385,7 +384,7 @@ router.beforeEach((to, from, next) => {
         store.dispatch('GetInfo', { includeMenus: false }).then(() => {
           loadMenuStyleDefault()
           isRelogin.show = false
-          startPortalPermWatch(router)
+          // permWatch 已停用：菜单/权限变更靠后端 cache-aside（改数据删 Redis）+ 用户刷新页面获取
 
           const finishNavigation = () => {
             enforceSystemScope(to, next).then(scopeHandled => {

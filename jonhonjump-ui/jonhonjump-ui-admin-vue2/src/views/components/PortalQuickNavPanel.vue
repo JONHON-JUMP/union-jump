@@ -156,7 +156,7 @@ import {
   getQuickNavCache,
   setQuickNavCache
 } from '@/utils/portalQuickNavCache'
-import { checkQuickNavUpdateIfNeeded, rememberQuickNavSignature } from '@/utils/portalQuickNavWatch'
+import { rememberQuickNavSignature } from '@/utils/portalQuickNavWatch'
 import { buildPortalHomeApps } from '@/utils/portalQuickNavApps'
 import { buildIconStyle } from '@/utils/menuIconStyle'
 import QuickNavContextMenu from '@/components/QuickNavContextMenu.vue'
@@ -283,7 +283,6 @@ export default {
     this.loadQuickNav()
     this.$nextTick(this.initAppPagination)
     document.addEventListener('keydown', this.handleQuickNavEditKeydown)
-    document.addEventListener('visibilitychange', this.handleVisibilityChange)
     window.addEventListener('resize', this.handleEditGridResize)
     this._onPortalQuickNavChanged = (payload) => {
       if (!payload || payload.scopeKey !== this.quickNavScopeKey || payload.source === 'panel') {
@@ -300,7 +299,6 @@ export default {
   },
   beforeDestroy() {
     document.removeEventListener('keydown', this.handleQuickNavEditKeydown)
-    document.removeEventListener('visibilitychange', this.handleVisibilityChange)
     window.removeEventListener('resize', this.handleEditGridResize)
     window.removeEventListener('mousemove', this.trackEditPointer)
     if (this._onPortalQuickNavChanged) {
@@ -763,12 +761,8 @@ export default {
         this.quickNavSaving = false
       }
     },
-    handleVisibilityChange() {
-      if (document.visibilityState !== 'visible' || this.quickNavEditMode || this.quickNavSaving) {
-        return
-      }
-      checkQuickNavUpdateIfNeeded(this.currentSubSystemId)
-    },
+    // handleVisibilityChange 已移除：切回标签页不再探测快捷导航变更（后端 cache-aside，
+    // 改动删 Redis 后刷新页面/重新登录即拿到新数据，在线探测是低配机上的无谓请求）
     initAppPagination() {
       if (this.variant !== 'home') {
         return

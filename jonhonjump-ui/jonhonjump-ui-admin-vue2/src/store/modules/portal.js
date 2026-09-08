@@ -489,7 +489,6 @@ const actions = {
    * 打开前比对 rbac 版本；Redis 已清则走库重建。
    */
   ensureAllAppsMenusReady({ dispatch, state, rootState, commit }) {
-    const { syncPortalMenusBeforeAllApps } = require('@/utils/portalPermWatch')
     const afterPermSync = () => {
       const current = state.currentSystem || 'main'
       if (current === 'main') {
@@ -531,9 +530,9 @@ const actions = {
     if (!hasMainMenuRoutes(state, rootState) && (state.currentSystem || 'main') === 'main') {
       commit('SET_ALL_APPS_MENUS_LOADING', true)
     }
-    return Promise.resolve(syncPortalMenusBeforeAllApps())
-      .catch(() => false)
-      .then(() => afterPermSync())
+    // 打开抽屉不再做 rbac 版本比对（后端 cache-aside：改数据删 Redis，刷新/重登自动从库重建；
+    // 抽屉有树直接展示，无树走 LoadMainMenus 的 Redis→库 兜底）
+    return afterPermSync()
   },
 
   /** 菜单管理 CRUD 后强制重建门户菜单树 + 快捷导航（绕过内存短路；不重复 addRoutes） */

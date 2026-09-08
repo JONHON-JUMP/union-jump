@@ -1097,7 +1097,8 @@ export default {
 .api-layout {
   display: flex;
   height: 100%;
-  gap: 12px;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+  > :not(:last-child) { margin-right: 12px; }
 }
 .api-side {
   width: 280px;
@@ -1168,12 +1169,14 @@ export default {
   padding-bottom: 12px;
   border-bottom: 1px solid #ebeef5;
   flex-wrap: wrap;
-  gap: 8px;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+  > :not(:last-child) { margin-right: 8px; }
 }
 .panel-head__title {
   display: flex;
   align-items: baseline;
-  gap: 8px;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+  > :not(:last-child) { margin-right: 8px; }
 }
 .panel-head__title .meta {
   color: #909399;
@@ -1183,7 +1186,8 @@ export default {
 .panel-head__actions {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+  > :not(:last-child) { margin-right: 8px; }
 }
 .empty-hint {
   color: #909399;
