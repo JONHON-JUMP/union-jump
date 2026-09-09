@@ -235,13 +235,14 @@ public class ProcessServiceImpl implements ProcessService{
             throw exception(new ErrorCode(500, "临时工艺查看地址缺失"));
         }
         List<ProcessCardDetailsRespVO> cardDetails = temporaryProcessTreeAssembler
-                .assemble(details, document.getOid());
+                .assemble(details);
         return ProcessCardRespVO.builder()
                 .accno(accno)
                 .version(null)
                 .isFormal(YesOrNo.NO.getType())
                 .isFix(isFix)
                 .details(cardDetails)
+                .url(CommonConstant.VIEW_URL_PREFIX + document.getOid())
                 .build();
     }
 
@@ -321,10 +322,28 @@ public class ProcessServiceImpl implements ProcessService{
         return ProcessCardRespVO.builder()
                 .accno(accno)
                 .version(version)
+                .url(queryFormalCardUrl(accno, version))
                 .isFormal(YesOrNo.YES.getType())
                 .isFix(YesOrNo.NO.getType())
                 .details(details)
                 .build();
+    }
+
+    private String queryFormalCardUrl(String accno, String version) {
+        String link = StringUtils.trimToEmpty(caoeTableMapper.queryProcessLink(accno, version));
+        int queryIndex = link.indexOf('?');
+        String query = queryIndex < 0 ? "" : link.substring(queryIndex + 1);
+        int fragmentIndex = query.indexOf('#');
+        if (fragmentIndex >= 0) {
+            query = query.substring(0, fragmentIndex);
+        }
+        for (String parameter : query.split("&")) {
+            if (parameter.startsWith("oid=") && StringUtils.isNotBlank(parameter.substring(4))) {
+                return CommonConstant.PDM_VIEW_URL_PREFIX + query;
+            }
+        }
+        log.warn("正式工艺整本链接缺少oid, accno: {}, version: {}", accno, version);
+        return null;
     }
 
     /**

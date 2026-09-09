@@ -29,6 +29,11 @@
         ORDER BY label ASC
     </select>
 
+    <select id="queryProcessLink" resultType="java.lang.String">
+        SELECT pp_link FROM DBA_MGR.CAOE_PP
+        WHERE PP_NUMBER = #{accno} AND PP_VERSION = #{version} AND ROWNUM = 1
+    </select>
+
     <select id="queryPdmOperationLink" resultType="java.lang.String">
         SELECT op_link FROM DBA_MGR.CAOE_OP
         WHERE OP_NUMBER = #{number} AND OP_VERSION = #{version}
