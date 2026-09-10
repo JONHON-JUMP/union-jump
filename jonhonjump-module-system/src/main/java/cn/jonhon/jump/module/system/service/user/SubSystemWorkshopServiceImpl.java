@@ -2,6 +2,7 @@ package cn.jonhon.jump.module.system.service.user;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopPageReqVO;
@@ -9,9 +10,11 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopSimpleRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.dept.DeptDO;
+import cn.jonhon.jump.module.system.dal.dataobject.oauth2.OAuth2ClientDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemWorkshopDO;
 import cn.jonhon.jump.module.system.dal.mysql.dept.DeptMapper;
+import cn.jonhon.jump.module.system.dal.mysql.oauth2.OAuth2ClientMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUsersMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemWorkshopMapper;
@@ -45,6 +48,8 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
     private SubSystemUsersMapper subSystemUsersMapper;
     @Resource
     private DeptMapper deptMapper;
+    @Resource
+    private OAuth2ClientMapper oauth2ClientMapper;
 
     @Override
     public PageResult<SubSystemWorkshopRespVO> getSubSystemWorkshopPage(SubSystemWorkshopPageReqVO pageReqVO) {
@@ -161,6 +166,60 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
         }
         List<SubSystemWorkshopDO> byDept = subSystemWorkshopMapper.selectListByDeptId(deptId);
         return CollUtil.isEmpty(byDept) ? null : buildSimple(byDept.get(0));
+    }
+
+    @Override
+    public String inferWorkshopCode(Long subSystemId) {
+        if (subSystemId == null) {
+            return null;
+        }
+        List<String> codes = subSystemWorkshopMapper.selectListBySubSystemId(subSystemId).stream()
+                .map(SubSystemWorkshopDO::getWorkshopCode)
+                .filter(StrUtil::isNotBlank)
+                .map(String::trim)
+                .distinct()
+                .collect(Collectors.toList());
+        if (codes.size() == 1) {
+            return codes.get(0);
+        }
+        SubSystemDO sys = subSystemMapper.selectById(subSystemId);
+        String hint = extractWorkshopHint(sys);
+        if (StrUtil.isBlank(hint)) {
+            return null;
+        }
+        if (codes.contains(hint)) {
+            return hint;
+        }
+        // 无对照或对照未包含该编号时，仍用系统名里的编号：MES4200 → 4200
+        return hint;
+    }
+
+    /** MES4200 / mes4200 / 4200车间 → 4200 */
+    private String extractWorkshopHint(SubSystemDO sys) {
+        if (sys == null) {
+            return null;
+        }
+        String fromName = lastDigitGroup(sys.getSystemName());
+        if (StrUtil.isNotBlank(fromName)) {
+            return fromName;
+        }
+        if (sys.getOauth2ClientId() == null) {
+            return null;
+        }
+        OAuth2ClientDO client = oauth2ClientMapper.selectById(sys.getOauth2ClientId());
+        return client == null ? null : lastDigitGroup(client.getClientId());
+    }
+
+    private static String lastDigitGroup(String text) {
+        if (StrUtil.isBlank(text)) {
+            return null;
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d{3,})").matcher(text);
+        String last = null;
+        while (matcher.find()) {
+            last = matcher.group(1);
+        }
+        return last;
     }
 
     // ===================== 私有方法 =====================

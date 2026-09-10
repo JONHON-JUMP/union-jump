@@ -401,10 +401,31 @@
           </div>
           <div v-else class="form-tip">接口来自【接口管理】中「新增」用途已启用的系统，可与左侧花名册系统不同</div>
         </el-form-item>
+        <el-form-item label="车间">
+          <el-select
+            v-model="registerForm.workshopCode"
+            placeholder="按花名册系统自动带出，如 MES4200 → 4200"
+            filterable
+            allow-create
+            style="width: 100%"
+            :disabled="registerSubmitting || registerResults.length > 0"
+          >
+            <el-option
+              v-for="item in workshopOptions"
+              :key="item.workshopCode"
+              :label="workshopOptionLabel(item)"
+              :value="item.workshopCode"
+            />
+          </el-select>
+          <div class="form-tip">花名册系统 MES4200 会自动带出车间 4200；用户已填车间时优先用用户自己的</div>
+        </el-form-item>
         <el-form-item label="待注册用户">
           <div class="register-users">
             <div v-for="u in registerForm.users" :key="u.id" class="register-user-row">
               <span>{{ u.username }}（{{ u.nickname || '-' }}）</span>
+              <el-tag v-if="u.workshopId" size="mini">车间 {{ u.workshopId }}</el-tag>
+              <el-tag v-else-if="registerForm.workshopCode" size="mini" type="success">将用车间 {{ registerForm.workshopCode }}</el-tag>
+              <el-tag v-else size="mini" type="warning">未填车间</el-tag>
               <el-tag v-if="u.employeeRegistered === '1'" size="mini" type="info">已注册，将跳过</el-tag>
             </div>
           </div>
@@ -517,6 +538,7 @@ export default {
       registerResults: [],
       registerForm: {
         apiSubSystemId: undefined,
+        workshopCode: undefined,
         users: []
       },
       rules: {
@@ -529,6 +551,20 @@ export default {
             }
             if ((this.registerApis || []).length && !value) {
               callback(new Error('请选择接口目标'))
+              return
+            }
+            callback()
+          },
+          trigger: 'change'
+        }],
+        workshopId: [{
+          validator: (rule, value, callback) => {
+            if (this.form.id || this.form.employeeRegistered !== '0' || !this.form.apiSubSystemId) {
+              callback()
+              return
+            }
+            if (!value) {
+              callback(new Error('注册到对方系统必须选择车间'))
               return
             }
             callback()
@@ -774,6 +810,9 @@ export default {
         this.resetFormData()
         this.loadSubOptions().then(() => {
           this.menuPageOptions = []
+          if (!this.form.workshopId) {
+            this.form.workshopId = this.defaultRegisterWorkshop([])
+          }
           this.open = true
           this.title = '添加业务系统用户'
           this.loadRegisterableApis().then(() => {
@@ -881,6 +920,7 @@ export default {
           }
           return registerSubSystemEmployee({
             apiSubSystemId,
+            workshopCode: payload.workshopId,
             ids: [res.data]
           }).then(regRes => {
             const results = regRes.data || []
@@ -1022,16 +1062,51 @@ export default {
       }
       this.registerResults = []
       this.registerForm.users = rows
+      this.registerForm.workshopCode = this.defaultRegisterWorkshop(rows)
       this.registerOpen = true
+      const sid = (this.selectedClient && this.selectedClient.id) || (rows[0] && rows[0].subSystemId)
+      this.loadSubOptions(sid).then(() => {
+        if (!this.registerForm.workshopCode) {
+          this.registerForm.workshopCode = this.defaultRegisterWorkshop(rows)
+        }
+      })
+    },
+    defaultRegisterWorkshop(rows) {
+      const codes = (rows || []).map(u => u.workshopId).filter(c => !!c)
+      const unique = Array.from(new Set(codes))
+      if (unique.length === 1) {
+        return unique[0]
+      }
+      if ((this.workshopOptions || []).length === 1) {
+        return this.workshopOptions[0].workshopCode
+      }
+      const inferred = this.inferWorkshopFromClient()
+      if (!inferred) {
+        return undefined
+      }
+      const hit = (this.workshopOptions || []).find(w => String(w.workshopCode) === String(inferred))
+      return hit ? hit.workshopCode : inferred
+    },
+    /** MES4200 / mes4200 → 4200 */
+    inferWorkshopFromClient() {
+      const c = this.selectedClient
+      if (!c) {
+        return undefined
+      }
+      const text = [c.name, c.clientId].filter(Boolean).join(' ')
+      const m = String(text).match(/(\d{3,})/g)
+      return m && m.length ? m[m.length - 1] : undefined
     },
     submitRegister() {
       if (!this.registerForm.apiSubSystemId) {
         this.$modal.msgWarning('请选择「新增人员」接口目标')
         return
       }
+      const workshopCode = this.registerForm.workshopCode || this.inferWorkshopFromClient()
       this.registerSubmitting = true
       registerSubSystemEmployee({
         apiSubSystemId: this.registerForm.apiSubSystemId,
+        workshopCode,
         ids: this.registerForm.users.map(u => u.id)
       }).then(res => {
         this.registerResults = res.data || []

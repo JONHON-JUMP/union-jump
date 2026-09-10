@@ -61,6 +61,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     private SubSystemUserQuickNavService subSystemUserQuickNavService;
     @Resource
     private SubSystemApiConfigService subSystemApiConfigService;
+    @Resource
+    private SubSystemWorkshopService subSystemWorkshopService;
 
     @Override
     public PageResult<SubSystemRoleRespVO> getSubSystemRolePage(SubSystemRolePageReqVO pageReqVO) {
@@ -82,7 +84,7 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         validateSubSystemExists(createReqVO.getSubSystemId());
         boolean syncToExternal = Boolean.TRUE.equals(createReqVO.getSyncToExternal());
         String roleName = StrUtil.trim(createReqVO.getName());
-        String workshopCode = StrUtil.trim(createReqVO.getWorkshopCode());
+        String workshopCode = resolveWorkshopCode(createReqVO.getSubSystemId(), createReqVO.getWorkshopCode(), roleName);
         if (syncToExternal) {
             if (StrUtil.isBlank(workshopCode)) {
                 throw exception(SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED);
@@ -191,11 +193,9 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         if ("1".equals(role.getRoleRegistered())) {
             throw exception(SUB_SYSTEM_ROLE_ALREADY_REGISTERED);
         }
-        String workshopCode = StrUtil.trim(reqVO != null ? reqVO.getWorkshopCode() : null);
+        String workshopCode = resolveWorkshopCode(role.getSubSystemId(),
+                reqVO != null ? reqVO.getWorkshopCode() : null, role.getName());
         String roleName = StrUtil.trim(role.getName());
-        if (StrUtil.isBlank(workshopCode)) {
-            workshopCode = parseWorkshopPrefix(roleName);
-        }
         if (StrUtil.isBlank(workshopCode)) {
             throw exception(SUB_SYSTEM_ROLE_NAME_WORKSHOP_INVALID);
         }
@@ -222,6 +222,18 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         updateObj.setId(id);
         updateObj.setRoleRegistered(roleRegistered);
         subSystemRoleMapper.updateById(updateObj);
+    }
+
+    /** 车间优先：入参 > 角色名前缀 > 花名册系统推断（MES4200 → 4200） */
+    private String resolveWorkshopCode(Long subSystemId, String explicit, String roleName) {
+        if (StrUtil.isNotBlank(explicit)) {
+            return explicit.trim();
+        }
+        String fromName = parseWorkshopPrefix(roleName);
+        if (StrUtil.isNotBlank(fromName)) {
+            return fromName;
+        }
+        return subSystemWorkshopService.inferWorkshopCode(subSystemId);
     }
 
     /** 车间编号_短名；若已带此前缀则原样返回 */

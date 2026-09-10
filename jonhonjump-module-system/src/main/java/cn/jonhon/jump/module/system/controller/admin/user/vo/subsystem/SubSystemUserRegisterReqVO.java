@@ -19,4 +19,7 @@ public class SubSystemUserRegisterReqVO {
     @NotEmpty(message = "请选择要注册的用户")
     private List<Long> ids;
 
+    @Schema(description = "车间编码（花名册用户未维护车间时必填；Camstar 新增人员不允许为空）", example = "4200")
+    private String workshopCode;
+
 }

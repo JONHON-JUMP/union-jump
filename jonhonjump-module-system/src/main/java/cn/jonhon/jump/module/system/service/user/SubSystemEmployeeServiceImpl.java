@@ -200,8 +200,13 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                 continue;
             }
             try {
-                getApi(reqVO.getApiSubSystemId()).create(buildEmployeeDTO(roster, reqVO.getApiSubSystemId()));
-                markRegistered(roster.getId());
+                SubSystemEmployeeDTO dto = buildEmployeeDTO(roster, reqVO.getApiSubSystemId(), reqVO.getWorkshopCode());
+                if (StrUtil.isBlank(dto.getWorkshopCode())) {
+                    result.setSuccess(false).setMessage("车间编码为空：请在注册时选择车间，或先在花名册维护该用户的车间（选业务系统不等于选车间）");
+                    continue;
+                }
+                getApi(reqVO.getApiSubSystemId()).create(dto);
+                markRegistered(roster.getId(), dto.getWorkshopCode());
                 result.setSuccess(true);
             } catch (ExternalApiException e) {
                 log.warn("[registerEmployees] rosterId={} apiSubSystemId={} 调用新增人员接口失败",
@@ -216,15 +221,15 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         return results;
     }
 
-    /** 按接口目标的车间对照（JUMP 部门 → 接口目标车间）解析；解析不到退回花名册现值 */
-    private SubSystemEmployeeDTO buildEmployeeDTO(SubSystemUsersDO roster, Long apiSubSystemId) {
+    /** 车间优先：花名册已填 > 注册弹窗指定 > 花名册系统车间对照 > 接口目标车间对照 */
+    private SubSystemEmployeeDTO buildEmployeeDTO(SubSystemUsersDO roster, Long apiSubSystemId, String overrideWorkshopCode) {
         AdminUserDO mainUser = roster.getMainUserId() == null
                 ? null : adminUserMapper.selectById(roster.getMainUserId());
         SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
         dto.setUserCode(roster.getUsername());
         dto.setUserName(StrUtil.blankToDefault(roster.getNickname(),
                 mainUser != null ? mainUser.getNickname() : null));
-        dto.setWorkshopCode(resolveWorkshopCode(roster, apiSubSystemId, mainUser));
+        dto.setWorkshopCode(resolveWorkshopCode(roster, apiSubSystemId, mainUser, overrideWorkshopCode));
         dto.setTeamCode(roster.getTeamId());
         if (mainUser != null) {
             dto.setDomainName(mainUser.getDomainNo());
@@ -236,21 +241,36 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         return dto;
     }
 
-    private String resolveWorkshopCode(SubSystemUsersDO roster, Long apiSubSystemId, AdminUserDO mainUser) {
+    private String resolveWorkshopCode(SubSystemUsersDO roster, Long apiSubSystemId, AdminUserDO mainUser,
+                                       String overrideWorkshopCode) {
+        if (StrUtil.isNotBlank(roster.getWorkshopId())) {
+            return roster.getWorkshopId().trim();
+        }
+        if (StrUtil.isNotBlank(overrideWorkshopCode)) {
+            return overrideWorkshopCode.trim();
+        }
         if (mainUser != null && mainUser.getDeptId() != null) {
             SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService
-                    .getWorkshopByDept(apiSubSystemId, mainUser.getDeptId());
+                    .getWorkshopByDept(roster.getSubSystemId(), mainUser.getDeptId());
+            if (workshop != null && StrUtil.isNotBlank(workshop.getWorkshopCode())) {
+                return workshop.getWorkshopCode();
+            }
+            workshop = subSystemWorkshopService.getWorkshopByDept(apiSubSystemId, mainUser.getDeptId());
             if (workshop != null && StrUtil.isNotBlank(workshop.getWorkshopCode())) {
                 return workshop.getWorkshopCode();
             }
         }
-        return roster.getWorkshopId();
+        // 花名册系统本身带车间：MES4200 / mes4200 → 4200，或该系统只有一条车间对照
+        return subSystemWorkshopService.inferWorkshopCode(roster.getSubSystemId());
     }
 
-    private void markRegistered(Long rosterId) {
+    private void markRegistered(Long rosterId, String workshopCode) {
         SubSystemUsersDO updateObj = new SubSystemUsersDO();
         updateObj.setId(rosterId);
         updateObj.setEmployeeRegistered("1");
+        if (StrUtil.isNotBlank(workshopCode)) {
+            updateObj.setWorkshopId(workshopCode.trim());
+        }
         subSystemUsersMapper.updateById(updateObj);
     }
 

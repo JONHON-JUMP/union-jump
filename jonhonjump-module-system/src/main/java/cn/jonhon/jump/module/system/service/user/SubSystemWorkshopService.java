@@ -36,4 +36,10 @@ public interface SubSystemWorkshopService {
      */
     SubSystemWorkshopSimpleRespVO getWorkshopByDept(Long subSystemId, Long deptId);
 
+    /**
+     * 从花名册系统推断默认车间编码：该系统只有一个车间对照则用它；
+     * 否则从系统名/客户端编号提取数字（如 MES4200、mes4200 → 4200）。
+     */
+    String inferWorkshopCode(Long subSystemId);
+
 }

@@ -189,6 +189,7 @@
             <el-checkbox
               v-model="form.syncToExternal"
               :disabled="!roleCreateApiReady"
+              @change="handleSyncToExternalChange"
             >同步到业务系统（调「角色新增」接口）</el-checkbox>
             <div class="form-tip">
               <span v-if="roleCreateApiReady" style="color:#67c23a">可选接口目标：与花名册系统解耦（如 Camstar人员管理）</span>
@@ -206,7 +207,13 @@
             </el-select>
           </el-form-item>
           <el-form-item v-if="form.syncToExternal" label="车间" prop="workshopCode">
-            <el-select v-model="form.workshopCode" placeholder="请从车间对照中选择" filterable style="width: 100%">
+            <el-select
+              v-model="form.workshopCode"
+              placeholder="按花名册系统自动带出，如 MES4200 → 4200"
+              filterable
+              allow-create
+              style="width: 100%"
+            >
               <el-option
                 v-for="item in workshopOptions"
                 :key="item.workshopCode"
@@ -214,7 +221,7 @@
                 :value="item.workshopCode"
               />
             </el-select>
-            <div v-if="!workshopOptions.length" class="form-tip">暂无车间对照，请先在「车间对照」中维护</div>
+            <div class="form-tip">花名册系统 MES4200 会自动带出车间 4200</div>
             <div v-if="syncRoleNamePreview" class="form-tip">将同步角色名：<b>{{ syncRoleNamePreview }}</b></div>
           </el-form-item>
         </template>
@@ -242,7 +249,13 @@
           </el-select>
         </el-form-item>
         <el-form-item v-if="registerNeedWorkshop" label="车间" prop="workshopCode">
-          <el-select v-model="registerForm.workshopCode" placeholder="请选择车间" filterable style="width: 100%">
+          <el-select
+            v-model="registerForm.workshopCode"
+            placeholder="按花名册系统自动带出，如 MES4200 → 4200"
+            filterable
+            allow-create
+            style="width: 100%"
+          >
             <el-option
               v-for="item in workshopOptions"
               :key="item.workshopCode"
@@ -250,7 +263,7 @@
               :value="item.workshopCode"
             />
           </el-select>
-          <div class="form-tip">角色名无车间前缀，需选择车间后按 车间编号_角色名称 同步</div>
+          <div class="form-tip">角色名无车间前缀时，用花名册系统带出的车间（MES4200 → 4200），同步为 车间编号_角色名称</div>
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
@@ -507,6 +520,32 @@ export default {
       const name = item.workshopName || item.deptName || ''
       return name ? (item.workshopCode + ' / ' + name) : item.workshopCode
     },
+    /** MES4200 / mes4200 → 4200 */
+    inferWorkshopFromClient() {
+      const c = this.selectedClient
+      if (!c) {
+        return undefined
+      }
+      const text = [c.name, c.clientId].filter(Boolean).join(' ')
+      const m = String(text).match(/(\d{3,})/g)
+      return m && m.length ? m[m.length - 1] : undefined
+    },
+    defaultWorkshopCode() {
+      if ((this.workshopOptions || []).length === 1) {
+        return this.workshopOptions[0].workshopCode
+      }
+      const inferred = this.inferWorkshopFromClient()
+      if (!inferred) {
+        return undefined
+      }
+      const hit = (this.workshopOptions || []).find(w => String(w.workshopCode) === String(inferred))
+      return hit ? hit.workshopCode : inferred
+    },
+    handleSyncToExternalChange(val) {
+      if (val && !this.form.workshopCode) {
+        this.form.workshopCode = this.defaultWorkshopCode()
+      }
+    },
     loadRoleCreateApis() {
       return getSubSystemRoleCreateApis().then(res => {
         this.roleCreateApis = res.data || []
@@ -614,6 +653,9 @@ export default {
           if (!this.form.apiSubSystemId) {
             this.form.apiSubSystemId = this.defaultApiSubSystemId()
           }
+          if (!this.form.workshopCode) {
+            this.form.workshopCode = this.defaultWorkshopCode()
+          }
         })
       }).catch(() => {})
     },
@@ -694,7 +736,7 @@ export default {
         } else {
           payload.syncToExternal = !!this.form.syncToExternal
           if (payload.syncToExternal) {
-            payload.workshopCode = this.form.workshopCode
+            payload.workshopCode = this.form.workshopCode || this.defaultWorkshopCode()
             payload.apiSubSystemId = this.form.apiSubSystemId
           }
         }
@@ -737,7 +779,7 @@ export default {
           id: row.id,
           name,
           apiSubSystemId: this.defaultApiSubSystemId(),
-          workshopCode: parsedWorkshop || undefined
+          workshopCode: parsedWorkshop || this.defaultWorkshopCode()
         }
         this.registerOpen = true
         this.$nextTick(() => {
@@ -755,7 +797,7 @@ export default {
         this.registerSubmitting = true
         registerSubSystemRole(this.registerForm.id, {
           apiSubSystemId: this.registerForm.apiSubSystemId,
-          workshopCode: this.registerForm.workshopCode
+          workshopCode: this.registerForm.workshopCode || this.defaultWorkshopCode()
         }).then(() => {
           this.$modal.msgSuccess('注册成功')
           this.registerOpen = false
