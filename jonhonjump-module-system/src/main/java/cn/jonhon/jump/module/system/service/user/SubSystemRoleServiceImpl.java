@@ -135,8 +135,12 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
 
         SubSystemRoleDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemRoleDO.class);
         updateObj.setSubSystemId(role.getSubSystemId());
-        // 注册状态不走普通修改，避免误清
-        updateObj.setRoleRegistered(null);
+        if (StrUtil.isNotBlank(updateReqVO.getRoleRegistered())) {
+            updateObj.setRoleRegistered("1".equals(updateReqVO.getRoleRegistered()) ? "1" : "0");
+        } else {
+            // 导入等未传字段时不覆盖原注册状态
+            updateObj.setRoleRegistered(null);
+        }
         subSystemRoleMapper.updateById(updateObj);
         subSystemPermissionContextService.evictByRoleId(updateReqVO.getId());
     }

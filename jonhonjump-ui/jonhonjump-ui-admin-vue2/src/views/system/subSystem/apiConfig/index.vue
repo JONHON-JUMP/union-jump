@@ -278,6 +278,23 @@ function joinUrl(host, path) {
   return base + (p.startsWith('/') ? p : '/' + p)
 }
 
+function isAbsoluteUrl(url) {
+  return /^https?:\/\//i.test(String(url || '').trim())
+}
+
+function extractHost(url) {
+  const m = String(url || '').trim().match(/^(https?:\/\/[^/?#]+)/i)
+  return m ? m[1] : ''
+}
+
+/** 相对 path 拼上主机；已是 http(s) 则原样返回 */
+function resolveApiUrl(urlOrPath, host) {
+  const raw = String(urlOrPath || '').trim()
+  if (!raw) return ''
+  if (isAbsoluteUrl(raw)) return raw
+  return joinUrl(host, raw)
+}
+
 function parseJsonSafe(json, fallback) {
   if (!json) return fallback
   try {
@@ -290,8 +307,11 @@ function parseJsonSafe(json, fallback) {
 function endpointFromField(json, defaults) {
   const d = defaults || {}
   const obj = parseJsonSafe(json, {}) || {}
+  const stored = String(obj.url || obj.path || obj.loginPath || '').trim()
+  const fallback = String(d.url || '').trim()
+  const host = d.host || extractHost(fallback) || extractHost(stored)
   return {
-    url: String(obj.url || obj.path || obj.loginPath || d.url || '').trim(),
+    url: resolveApiUrl(stored || fallback, host),
     method: String(obj.method || d.method || 'POST').toUpperCase(),
     name: obj.name || d.name || '',
     enabled: obj.enabled === false ? false : true,
@@ -299,12 +319,38 @@ function endpointFromField(json, defaults) {
   }
 }
 
+/** 从配置/目录/会话里取主机（http://ip:port），用于把存量相对 path 补成完整地址 */
+function configHost(config, catalog) {
+  const fromBase = extractHost(config && config.baseUrl)
+  if (fromBase) return fromBase
+  const fromSession = extractHost(sessionFromConfig(config).url)
+  if (fromSession) return fromSession
+  let found = ''
+  walkCatalog((catalog && catalog.nodes) || [], n => {
+    if (!found && n && n.type === 'api') {
+      found = extractHost(n.url || n.path)
+    }
+  })
+  return found
+}
+
+/** 目录树里人员等存量接口常只存 /BasicData/...，展示和保存前补上主机 */
+function resolveCatalogUrls(catalog, host) {
+  if (!catalog || !host) return
+  walkCatalog(catalog.nodes, n => {
+    if (n && n.type === 'api') {
+      n.url = resolveApiUrl(n.url || n.path, host)
+    }
+  })
+}
+
 /** authConfig 列 → 系统级会话设置（树上不再有鉴权叶子，会话在系统节点维护） */
 function sessionFromConfig(config) {
   const obj = parseJsonSafe(config && config.authConfig, {}) || {}
+  const raw = String(obj.url || obj.path || obj.loginPath || '').trim()
   return {
     enabled: obj.enabled !== false && !!(obj.userCode || '').trim(),
-    url: String(obj.url || obj.path || obj.loginPath || '').trim(),
+    url: resolveApiUrl(raw, extractHost(config && config.baseUrl)),
     method: String(obj.method || 'GET').toUpperCase(),
     userCode: obj.userCode || '',
     cookieName: obj.cookieName || 'Nancal_Cam_SessionId'
@@ -609,6 +655,7 @@ export default {
           this.configMap[c.subSystemId] = c
           const catalog = normalizeCatalog(c.apiCatalog, c)
           ensureRoleDir(catalog, c)
+          resolveCatalogUrls(catalog, configHost(c, catalog))
           this.$set(this.catalogMap, c.subSystemId, catalog)
           this.$set(this.sessionMap, c.subSystemId, sessionFromConfig(c))
         })
@@ -681,13 +728,14 @@ export default {
       if (data.type === 'api') {
         const catalog = this.catalogMap[data.subSystemId]
         const node = findInCatalog(catalog.nodes, data.catalogId) || {}
+        const host = (this.formMeta && this.formMeta.baseUrl) || configHost(this.configMap[data.subSystemId], catalog)
         this.editApi = {
           id: node.id,
           name: node.name || '',
           // 旧版鉴权叶子已在树上隐藏；防御性不再允许编辑 auth 用途
           purpose: node.purpose === 'auth' ? '' : (node.purpose || ''),
           method: (node.method || 'POST').toUpperCase(),
-          url: node.url || '',
+          url: resolveApiUrl(node.url || node.path || '', host),
           enabled: node.enabled !== false,
           withSession: node.withSession !== false
         }

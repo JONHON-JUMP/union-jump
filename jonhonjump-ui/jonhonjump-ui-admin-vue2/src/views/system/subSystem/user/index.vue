@@ -263,20 +263,48 @@
           </div>
         </el-form-item>
         <el-form-item label="接口注册" prop="employeeRegistered">
-          <el-radio-group v-model="form.employeeRegistered">
+          <el-radio-group v-model="form.employeeRegistered" @change="handleEmployeeRegisteredChange">
             <el-radio label="0">未注册</el-radio>
             <el-radio label="1">已注册</el-radio>
           </el-radio-group>
           <div class="form-tip">
-            标记是否已在对方系统建人（正常由「注册」调接口成功后自动置已注册）；人工在对方系统建过人可标已注册，改回未注册后可在列表重新推送
+            <template v-if="!form.id">
+              选「未注册」时请选择接口目标，保存会调用「新增人员」接口；选「已注册」仅本地标记（对方已建人）
+            </template>
+            <template v-else>
+              标记是否已在对方系统建人（正常由「注册」调接口成功后自动置已注册）；人工在对方系统建过人可标已注册，改回未注册后可在列表重新推送
+            </template>
           </div>
+        </el-form-item>
+        <el-form-item
+          v-if="!form.id && form.employeeRegistered === '0'"
+          label="接口目标"
+          prop="apiSubSystemId"
+        >
+          <el-select
+            v-model="form.apiSubSystemId"
+            placeholder="请选择要调用的新增人员接口"
+            filterable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in registerApis"
+              :key="item.subSystemId"
+              :label="item.systemName"
+              :value="item.subSystemId"
+            />
+          </el-select>
+          <div v-if="!registerApis.length" class="form-tip" style="color:#f56c6c">
+            没有已启用「新增人员」的接口目标，请先在【接口管理】接入并启用；仍可先保存到本地花名册
+          </div>
+          <div v-else class="form-tip">接口来自【接口管理】中「新增」用途已启用的系统，可与左侧花名册系统不同</div>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input v-model="form.remark" type="textarea" placeholder="请输入备注" />
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
@@ -457,6 +485,7 @@ export default {
       workshopDeptId: undefined,
       title: '',
       open: false,
+      submitting: false,
       openRole: false,
       form: {},
       roleForm: {},
@@ -491,7 +520,21 @@ export default {
         users: []
       },
       rules: {
-        username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }]
+        username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }],
+        apiSubSystemId: [{
+          validator: (rule, value, callback) => {
+            if (this.form.id || this.form.employeeRegistered !== '0') {
+              callback()
+              return
+            }
+            if ((this.registerApis || []).length && !value) {
+              callback(new Error('请选择接口目标'))
+              return
+            }
+            callback()
+          },
+          trigger: 'change'
+        }]
       }
     }
   },
@@ -714,6 +757,7 @@ export default {
         homeMenuId: undefined,
         status: '0',
         employeeRegistered: '0',
+        apiSubSystemId: undefined,
         remark: undefined,
         roleIds: [],
         postIds: []
@@ -732,6 +776,9 @@ export default {
           this.menuPageOptions = []
           this.open = true
           this.title = '添加业务系统用户'
+          this.loadRegisterableApis().then(() => {
+            this.applyDefaultAddRegisterApi()
+          })
         })
       }).catch(() => {})
     },
@@ -817,12 +864,38 @@ export default {
         if (!valid) {
           return
         }
-        const request = this.form.id ? updateSubSystemUser : createSubSystemUser
-        request(this.form).then(() => {
-          this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
-          this.open = false
-          this.getList()
-          this.loadClientList()
+        const isAdd = !this.form.id
+        const payload = Object.assign({}, this.form)
+        const apiSubSystemId = payload.apiSubSystemId
+        delete payload.apiSubSystemId
+        const shouldRegister = isAdd && payload.employeeRegistered === '0' && !!apiSubSystemId
+        this.submitting = true
+        const request = isAdd ? createSubSystemUser : updateSubSystemUser
+        request(payload).then(res => {
+          if (!shouldRegister) {
+            this.$modal.msgSuccess(isAdd ? '新增成功' : '修改成功')
+            this.open = false
+            this.getList()
+            this.loadClientList()
+            return
+          }
+          return registerSubSystemEmployee({
+            apiSubSystemId,
+            ids: [res.data]
+          }).then(regRes => {
+            const results = regRes.data || []
+            const fail = results.filter(r => !r.success)
+            if (fail.length) {
+              this.$modal.msgError('用户已保存，但接口注册失败：' + (fail[0].message || '未知错误'))
+            } else {
+              this.$modal.msgSuccess('新增并注册成功')
+            }
+            this.open = false
+            this.getList()
+            this.loadClientList()
+          })
+        }).finally(() => {
+          this.submitting = false
         })
       })
     },
@@ -890,8 +963,29 @@ export default {
         if (!this.registerForm.apiSubSystemId && this.registerApis.length === 1) {
           this.registerForm.apiSubSystemId = this.registerApis[0].subSystemId
         }
+        this.applyDefaultAddRegisterApi()
       }).catch(() => {
         this.registerApis = []
+      })
+    },
+    applyDefaultAddRegisterApi() {
+      if (this.form.id || this.form.employeeRegistered !== '0' || this.form.apiSubSystemId) {
+        return
+      }
+      if (this.registerApis.length === 1) {
+        this.form.apiSubSystemId = this.registerApis[0].subSystemId
+      }
+    },
+    handleEmployeeRegisteredChange(val) {
+      if (val !== '0') {
+        this.form.apiSubSystemId = undefined
+        return
+      }
+      if (this.form.id) {
+        return
+      }
+      this.loadRegisterableApis().then(() => {
+        this.applyDefaultAddRegisterApi()
       })
     },
     /** 列表内点击切换 已注册/未注册（人工修正标记用） */

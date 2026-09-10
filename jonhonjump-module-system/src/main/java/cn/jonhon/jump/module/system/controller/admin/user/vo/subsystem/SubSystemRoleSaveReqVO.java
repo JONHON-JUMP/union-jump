@@ -49,4 +49,7 @@ public class SubSystemRoleSaveReqVO {
     @Size(max = 32, message = "车间编号长度不能超过 32 个字符")
     private String workshopCode;
 
+    @Schema(description = "接口注册状态（仅修改；0未注册 1已注册）", example = "0")
+    private String roleRegistered;
+
 }

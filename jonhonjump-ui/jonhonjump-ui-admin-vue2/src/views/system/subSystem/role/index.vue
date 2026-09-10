@@ -175,6 +175,15 @@
             <el-radio v-for="dict in statusDictDatas" :key="parseInt(dict.value)" :label="parseInt(dict.value)">{{ dict.label }}</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item v-if="form.id" label="接口注册" prop="roleRegistered">
+          <el-radio-group v-model="form.roleRegistered">
+            <el-radio label="0">未注册</el-radio>
+            <el-radio label="1">已注册</el-radio>
+          </el-radio-group>
+          <div class="form-tip">
+            仅修改本地标记。真正推送到对方系统请用列表「注册」；人工已在对方系统建过角色可标已注册，改回未注册后可重新推送
+          </div>
+        </el-form-item>
         <template v-if="!form.id">
           <el-form-item label="同步外部">
             <el-checkbox
@@ -581,6 +590,7 @@ export default {
         code: undefined,
         sort: 0,
         status: CommonStatusEnum.ENABLE,
+        roleRegistered: '0',
         syncToExternal: false,
         apiSubSystemId: undefined,
         workshopCode: undefined,
@@ -658,6 +668,7 @@ export default {
           code: res.data.code,
           sort: res.data.sort,
           status: res.data.status,
+          roleRegistered: res.data.roleRegistered || '0',
           syncToExternal: false,
           workshopCode: undefined
         }
@@ -678,7 +689,9 @@ export default {
           sort: this.form.sort,
           status: this.form.status
         }
-        if (!this.form.id) {
+        if (this.form.id) {
+          payload.roleRegistered = this.form.roleRegistered
+        } else {
           payload.syncToExternal = !!this.form.syncToExternal
           if (payload.syncToExternal) {
             payload.workshopCode = this.form.workshopCode
