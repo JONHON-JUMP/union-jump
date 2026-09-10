@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <el-row :gutter="20">
-      <!-- 外部系统列表 -->
+      <!-- 业务系统列表 -->
       <el-col :span="4" :xs="24">
         <div class="head-container">
           <el-input
@@ -27,7 +27,7 @@
               <el-tag size="mini" type="info">{{ item.menuCount || 0 }} 菜单</el-tag>
             </div>
           </div>
-          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无业务系统" :image-size="60" />
         </div>
       </el-col>
 
@@ -35,7 +35,7 @@
       <el-col :span="20" :xs="24" v-loading="clientsLoading">
         <el-alert
           v-if="showSubSystemBindHint"
-          title="请先在左侧选择已登记的外部系统；关联系统信息后，才可新增/维护该系统下的菜单"
+          title="请先在左侧选择已登记的业务系统；关联系统信息后，才可新增/维护该系统下的菜单"
           type="warning"
           :closable="false"
           show-icon
@@ -139,7 +139,7 @@
       <el-form ref="form" :model="form" :rules="rules" label-width="100px">
         <el-row>
           <el-col :span="24">
-            <el-form-item label="外部系统">
+            <el-form-item label="业务系统">
               <el-input :value="formSubSystemLabel" disabled />
             </el-form-item>
           </el-col>
@@ -535,20 +535,20 @@ export default {
             this.form.parentId = 0
           }
           this.open = true
-          this.title = '添加外部系统菜单'
+          this.title = '添加业务系统菜单'
         })
       }).catch(() => {})
     },
     handleImport() {
       this.ensureSubSystemBoundBeforeAction('导入').then(() => {
-        this.upload.title = '导入外部系统菜单 — ' + (this.selectedClient.name || '')
+        this.upload.title = '导入业务系统菜单 — ' + (this.selectedClient.name || '')
         this.upload.open = true
         this.upload.headers = getBaseHeader()
       }).catch(() => {})
     },
     importTemplate() {
       importSubSystemMenuTemplate().then(response => {
-        this.$download.excel(response, '外部系统菜单导入模板.xls')
+        this.$download.excel(response, '业务系统菜单导入模板.xls')
       })
     },
     handleFileUploadProgress() {
@@ -604,7 +604,7 @@ export default {
             styleId: res.data.styleId
           }
           this.open = true
-          this.title = '修改外部系统菜单'
+          this.title = '修改业务系统菜单'
         })
       })
     },
@@ -617,7 +617,7 @@ export default {
           let path = this.form.path
           // 子系统菜单路由由前端拼接为 /portal/{clientId}/...，path 应为相对段，不能以 / 开头
           if (path && !isExternal(path) && path.charAt(0) === '/') {
-            this.$modal.msgError('子系统菜单路由地址不能以 / 开头')
+            this.$modal.msgError('业务系统菜单路由地址不能以 / 开头')
             return
           }
           // Camstar 内链：点分 IP:端口 → IP9端口（如 192.168.240.12794200）；http(s) 完整 URL 不要改
@@ -697,7 +697,7 @@ export default {
     },
     handleClearPortalCache() {
       if (!this.selectedClient || !this.selectedClient.id) {
-        this.$modal.msgWarning('请先选择外部系统')
+        this.$modal.msgWarning('请先选择业务系统')
         return
       }
       this.$modal.confirm('将清除该系统门户菜单 Redis 缓存，用户下次进入会重新从数据库加载。是否继续？').then(() => {

@@ -774,7 +774,7 @@ const actions = {
     return ensureList.then(() => {
       const ref = resolveSystemRef(state, system)
       if (!ref) {
-        return Promise.reject(new Error('无效的外部系统'))
+        return Promise.reject(new Error('无效的业务系统'))
       }
       const targetSystem = ref.clientId
       const currentSystem = state.currentSystem
@@ -924,7 +924,7 @@ const actions = {
       const remaining = rootState.tagsView.visitedViews.filter(view => {
         if (view.path === '/index' || view.path === '/') return false
         if (!view.title || !view.name) return false
-        if (view.title === '外部系统') return false
+        if (view.title === '外部系统' || view.title === '业务系统') return false
         if (view.meta && view.meta.portalHome) return false
         if (isPortalSubSystemHomePath(view.path)) return false
         return true
@@ -944,7 +944,7 @@ const actions = {
   goPortal({ state, dispatch }, payload) {
     const clientId = resolvePortalClientId(state, payload)
     if (!clientId) {
-      return Promise.reject(new Error('无效的外部系统'))
+      return Promise.reject(new Error('无效的业务系统'))
     }
     const path = (typeof payload === 'object' && payload.path)
       || state.subSystemEntryPaths[clientId]
@@ -1020,13 +1020,13 @@ const actions = {
     return ensureList.then(() => {
       const target = findSystemByClientId(state, key)
       if (!target) {
-        return Promise.reject(new Error('无权访问该外部系统'))
+        return Promise.reject(new Error('无权访问该业务系统'))
       }
       const subSystemId = Number(target.subSystemId)
       return getMyPortalMenus(subSystemId).then(res => {
         const menus = res.data || []
         if (menus.length === 0) {
-          return Promise.reject(new Error('该外部系统暂无可用菜单'))
+          return Promise.reject(new Error('该业务系统暂无可用菜单'))
         }
         const portalHome = null
         const signature = buildMenuSignature(menus, portalHome)
@@ -1044,7 +1044,7 @@ const actions = {
           const sidebarRouters = sidebarRoutes || []
           const pathLinkMap = sanitizePathLinkMap(buildPortalPathLinkMap(sidebarRouters))
           if (Object.keys(pathLinkMap).length === 0) {
-            return Promise.reject(new Error('外部系统菜单未配置有效链接'))
+            return Promise.reject(new Error('业务系统菜单未配置有效链接'))
           }
           const entryPath = '/index'
           const rbacVersion = Number(versionRes && versionRes.data)
@@ -1133,7 +1133,7 @@ const actions = {
     return ensureList.then(() => {
       const ref = resolveSystemRef(state, parsed.clientId || parsed.subSystemId)
       if (!ref) {
-        return Promise.reject(new Error('无效的外部系统'))
+        return Promise.reject(new Error('无效的业务系统'))
       }
       const clientId = ref.clientId
       // 停在门户首页：只切壳，不拉 my-menus / OAuth

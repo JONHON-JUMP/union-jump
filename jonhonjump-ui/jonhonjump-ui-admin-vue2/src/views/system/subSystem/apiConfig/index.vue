@@ -211,11 +211,11 @@
             />
           </el-select>
           <div v-if="!availableClients.length" class="form-tip">暂无可接入的 JUMP 业务系统（均已接入或尚未登记）</div>
-          <div v-else class="form-tip">来自已登记且绑定门户的业务系统；同步用户时会写入外部用户管理</div>
+          <div v-else class="form-tip">来自已登记且绑定门户的业务系统；同步用户时会写入业务系统用户管理</div>
         </el-form-item>
         <el-form-item v-else label="系统名称" required>
           <el-input v-model="addSystemName" maxlength="100" placeholder="如：Camstar人员管理" />
-          <div class="form-tip">非 JUMP 业务系统，只做接口配置；不出现在外部用户管理，同步时也只调对方接口</div>
+          <div class="form-tip">非 JUMP 业务系统，只做接口配置；不出现在业务系统用户管理，同步时也只调对方接口</div>
         </el-form-item>
         <el-form-item label="适配器">
           <el-select v-model="addApiType" style="width: 100%">

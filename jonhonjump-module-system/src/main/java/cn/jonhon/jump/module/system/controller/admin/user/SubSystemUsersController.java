@@ -365,7 +365,7 @@ public class SubSystemUsersController {
                         .remark("示例：按用户名导入子系统花名册，可不关联主系统用户")
                         .build()
         );
-        ExcelUtils.write(response, "子系统用户导入模板.xls", "用户花名册", SubSystemUserImportExcelVO.class, list);
+        ExcelUtils.write(response, "业务系统用户导入模板.xls", "用户花名册", SubSystemUserImportExcelVO.class, list);
     }
 
     @PostMapping("/import")

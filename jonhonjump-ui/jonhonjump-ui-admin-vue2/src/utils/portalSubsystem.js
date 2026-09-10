@@ -34,7 +34,7 @@ export function buildSubsystemOptions(systemList, { includeMain = true } = {}) {
     options.push({
       value: sys.clientId,
       label: sys.clientName || sys.clientId,
-      description: sys.systemUrl || '外部系统',
+      description: sys.systemUrl || '业务系统',
       icon: 'el-icon-connection',
       logo: sys.logo,
       subSystemId: sys.subSystemId,

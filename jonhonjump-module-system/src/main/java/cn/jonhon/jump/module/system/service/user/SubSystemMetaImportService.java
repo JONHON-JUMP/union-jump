@@ -247,7 +247,7 @@ public class SubSystemMetaImportService {
         }
         SubSystemUsersDO subUser = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, main.getId());
         if (subUser == null) {
-            throw new IllegalArgumentException("班组长尚未绑定到该外部系统，请先导入/关联子系统用户");
+            throw new IllegalArgumentException("班组长尚未绑定到该业务系统，请先导入/关联业务系统用户");
         }
         return subUser.getId();
     }

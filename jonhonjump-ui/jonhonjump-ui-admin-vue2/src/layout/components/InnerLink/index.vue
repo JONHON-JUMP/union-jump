@@ -61,12 +61,12 @@
         <div v-if="showStageBOverlay" class="inner-link__overlay" :class="'is-' + overlayPhase">
           <template v-if="overlayPhase === 'loading'">
             <i class="el-icon-loading" />
-            <p>子系统加载中：正在打开业务页面…</p>
-            <small>仅等待页面文档到达；业务内容由子系统自行渲染</small>
+            <p>业务系统加载中：正在打开业务页面…</p>
+            <small>仅等待页面文档到达；业务内容由业务系统自行渲染</small>
           </template>
           <template v-else-if="overlayPhase === 'slow'">
             <i class="el-icon-warning-outline" />
-            <p>子系统响应较慢：页面文档尚未打开</p>
+            <p>业务系统响应较慢：页面文档尚未打开</p>
             <small>可继续等待，或重试打开</small>
             <div class="inner-link__actions">
               <el-button size="small" type="primary" @click="reloadIframe">重试</el-button>
@@ -75,8 +75,8 @@
           </template>
           <template v-else>
             <i class="el-icon-circle-close" />
-            <p>子系统不可用：未能加载页面文档</p>
-            <small>请检查子系统服务是否在线，或点击重试</small>
+            <p>业务系统不可用：未能加载页面文档</p>
+            <small>请检查业务系统服务是否在线，或点击重试</small>
             <div class="inner-link__actions">
               <el-button size="small" type="primary" @click="reloadIframe">重试</el-button>
               <el-button size="small" @click="goPortalHome">返回门户</el-button>

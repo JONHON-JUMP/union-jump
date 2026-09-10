@@ -15,7 +15,7 @@ public class SubSystemTeamSaveReqVO {
     private Long id;
 
     @Schema(description = "外部系统 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
-    @NotNull(message = "外部系统不能为空")
+    @NotNull(message = "业务系统不能为空")
     private Long subSystemId;
 
     @Schema(description = "JUMP 部门 ID（车间对照中的部门）", requiredMode = Schema.RequiredMode.REQUIRED, example = "100")

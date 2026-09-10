@@ -304,7 +304,7 @@
       </div>
     </el-dialog>
 
-    <!-- 子系统用户导入（须先选择并确认已关联的外部系统） -->
+    <!-- 业务系统用户导入（须先选择并确认已关联的业务系统） -->
     <el-dialog :title="upload.title" :visible.sync="upload.open" width="460px" append-to-body>
       <el-alert
         :title="'当前系统：' + (selectedClient ? (selectedClient.name + ' (' + selectedClient.clientId + ')') : '未选择')"
@@ -331,7 +331,7 @@
           <div class="el-upload__tip">
             <el-checkbox v-model="upload.updateSupport" /> 是否更新已存在的用户名数据
           </div>
-          <span>仅允许 xls/xlsx。按用户名写入子系统花名册，可不关联主系统用户。</span>
+          <span>仅允许 xls/xlsx。按用户名写入业务系统花名册，可不关联主系统用户。</span>
           <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
         </div>
       </el-upload>
@@ -737,14 +737,14 @@ export default {
     },
     handleImport() {
       this.ensureSubSystemBoundBeforeAction('导入').then(() => {
-        this.upload.title = '导入子系统用户 — ' + (this.selectedClient.name || '')
+        this.upload.title = '导入业务系统用户 — ' + (this.selectedClient.name || '')
         this.upload.open = true
         this.upload.headers = getBaseHeader()
       }).catch(() => {})
     },
     importTemplate() {
       importSubSystemUserTemplate().then(response => {
-        this.$download.excel(response, '子系统用户导入模板.xls')
+        this.$download.excel(response, '业务系统用户导入模板.xls')
       })
     },
     handleFileUploadProgress() {

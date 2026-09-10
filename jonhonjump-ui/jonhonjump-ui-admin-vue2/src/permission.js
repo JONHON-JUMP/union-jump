@@ -209,7 +209,7 @@ function ensurePortalAccess(to, next) {
     }
     if (portalState.currentSystem !== clientId) {
       return store.dispatch('portal/activateSubSystemShell', { clientId }).then(go).catch(err => {
-        Message.error(typeof err === 'string' ? err : (err.message || '无法进入外部系统'))
+        Message.error(typeof err === 'string' ? err : (err.message || '无法进入业务系统'))
         next('/index')
         return true
       })
@@ -234,7 +234,7 @@ function ensurePortalAccess(to, next) {
     if (err && err.message === 'RBAC_CHANGED_REQUIRE_RELOGIN') {
       return true
     }
-    Message.error(typeof err === 'string' ? err : (err.message || '无法进入外部系统'))
+    Message.error(typeof err === 'string' ? err : (err.message || '无法进入业务系统'))
     next('/index')
     return true
   })
@@ -254,7 +254,7 @@ function handlePortalHomeQuery(to, next) {
       next({ path: '/index', replace: true })
       return true
     }).catch(err => {
-      Message.error(typeof err === 'string' ? err : (err.message || '无法进入外部系统'))
+      Message.error(typeof err === 'string' ? err : (err.message || '无法进入业务系统'))
       next({ path: '/index', replace: true })
       return true
     })
@@ -329,7 +329,7 @@ function enforceSystemScope(to, next) {
       return Promise.resolve(true)
     })
   }
-      Message.warning('当前为子系统模式，请从门户首页选择应用进入')
+      Message.warning('当前为业务系统模式，请从门户首页选择应用进入')
   next({ path: '/index', replace: true })
   NProgress.done()
   return Promise.resolve(true)

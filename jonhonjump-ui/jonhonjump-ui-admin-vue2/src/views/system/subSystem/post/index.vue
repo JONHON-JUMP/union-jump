@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <el-row :gutter="20">
-      <!-- 外部系统列表 -->
+      <!-- 业务系统列表 -->
       <el-col :span="4" :xs="24">
         <div class="head-container">
           <el-input
@@ -27,7 +27,7 @@
               <el-tag size="mini" type="info">{{ item.postCount || 0 }} 岗位</el-tag>
             </div>
           </div>
-          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无业务系统" :image-size="60" />
         </div>
       </el-col>
 
@@ -35,7 +35,7 @@
       <el-col :span="20" :xs="24" v-loading="clientsLoading">
         <el-alert
           v-if="showSubSystemBindHint"
-          title="请先在左侧选择已登记的外部系统；关联系统信息后，才可新增/导入该系统下的岗位"
+          title="请先在左侧选择已登记的业务系统；关联系统信息后，才可新增/导入该系统下的岗位"
           type="warning"
           :closable="false"
           show-icon
@@ -118,7 +118,7 @@
     <!-- 新增/修改 -->
     <el-dialog :title="title" :visible.sync="open" width="500px" append-to-body>
       <el-form ref="form" :model="form" :rules="rules" label-width="80px">
-        <el-form-item label="外部系统">
+        <el-form-item label="业务系统">
           <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
         </el-form-item>
         <el-form-item label="岗位名称" prop="name">
@@ -170,7 +170,7 @@
           <div class="el-upload__tip">
             <el-checkbox v-model="upload.updateSupport" /> 是否更新已存在的岗位（按岗位编码）
           </div>
-          <span>仅允许 xls/xlsx。须先选择并确认关联外部系统。</span>
+          <span>仅允许 xls/xlsx。须先选择并确认关联业务系统。</span>
           <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
         </div>
       </el-upload>
@@ -326,19 +326,19 @@ export default {
       this.ensureSubSystemBoundBeforeAction('新增岗位', { requireConfirm: false }).then(() => {
         this.resetFormData()
         this.open = true
-        this.title = '添加外部系统岗位'
+        this.title = '添加业务系统岗位'
       }).catch(() => {})
     },
     handleImport() {
       this.ensureSubSystemBoundBeforeAction('导入').then(() => {
-        this.upload.title = '导入外部系统岗位 — ' + (this.selectedClient.name || '')
+        this.upload.title = '导入业务系统岗位 — ' + (this.selectedClient.name || '')
         this.upload.open = true
         this.upload.headers = getBaseHeader()
       }).catch(() => {})
     },
     importTemplate() {
       importSubSystemPostTemplate().then(response => {
-        this.$download.excel(response, '外部系统岗位导入模板.xls')
+        this.$download.excel(response, '业务系统岗位导入模板.xls')
       })
     },
     handleFileUploadProgress() {
@@ -382,7 +382,7 @@ export default {
           status: res.data.status
         }
         this.open = true
-        this.title = '修改外部系统岗位'
+        this.title = '修改业务系统岗位'
       })
     },
     submitForm() {
@@ -409,7 +409,7 @@ export default {
       }).catch(() => {})
     },
     handleDeleteBatch() {
-      this.$modal.confirm('是否确认批量删除选中的外部系统岗位？').then(() => {
+      this.$modal.confirm('是否确认批量删除选中的业务系统岗位？').then(() => {
         return deleteSubSystemPostList(this.checkedIds)
       }).then(() => {
         this.$modal.msgSuccess('删除成功')

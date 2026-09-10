@@ -451,7 +451,7 @@ export default {
 
         this.open = true
 
-        this.title = '添加外部系统'
+        this.title = '添加业务系统'
 
       })
 
@@ -483,7 +483,7 @@ export default {
 
         this.open = true
 
-        this.title = '修改外部系统'
+        this.title = '修改业务系统'
 
       })
 
@@ -551,7 +551,7 @@ export default {
 
     handleDeleteBatch() {
 
-      this.$modal.confirm('是否确认批量删除选中的外部系统？').then(() => {
+      this.$modal.confirm('是否确认批量删除选中的业务系统？').then(() => {
 
         return deleteSubSystemList(this.checkedIds)
 

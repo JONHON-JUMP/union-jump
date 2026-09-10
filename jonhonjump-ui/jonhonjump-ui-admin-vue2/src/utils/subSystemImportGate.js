@@ -56,7 +56,7 @@ export default {
 
           this.$modal.msgWarning(
 
-            `请先在左侧选择已登记的外部系统，关联系统信息后再${actionLabel}`
+            `请先在左侧选择已登记的业务系统，关联系统信息后再${actionLabel}`
 
           )
 
@@ -78,9 +78,9 @@ export default {
 
         this.$confirm(
 
-          `即将对外部系统「${name}」执行${actionLabel}。\n\n` +
+          `即将对业务系统「${name}」执行${actionLabel}。\n\n` +
 
-            '请确认：该系统已在「外部系统」中登记，并完成与主系统的关联配置。\n' +
+            '请确认：该系统已在「业务系统」中登记，并完成与主系统的关联配置。\n' +
 
             '未关联完成前请勿导入，以免数据写入错误系统。\n\n是否继续？',
 

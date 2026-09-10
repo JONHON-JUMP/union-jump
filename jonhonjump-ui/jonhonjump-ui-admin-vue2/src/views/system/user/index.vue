@@ -229,15 +229,15 @@
         <!-- 登记子系统用户（仅新增时显示；纯本地花名册登记，不调外部接口，可多选） -->
         <el-row v-if="form.id === undefined">
           <el-col :span="24">
-            <el-form-item label="登记子系统">
+            <el-form-item label="登记业务系统">
               <el-checkbox v-model="syncSubSystem" @change="handleSyncChange">
-                同时登记子系统用户
+                同时登记业务系统用户
               </el-checkbox>
             </el-form-item>
           </el-col>
           <template v-if="syncSubSystem">
             <el-col :span="24">
-              <el-form-item label="子系统">
+              <el-form-item label="业务系统">
                 <el-select
                   v-model="syncForm.subSystemIds"
                   multiple
@@ -255,7 +255,7 @@
                   />
                 </el-select>
                 <div class="sync-hint">
-                  仅在 JUMP「外部用户管理」登记并关联该用户，不调用外部系统接口；车间按部门对照自动带出，角色与车间可在登记后于【子系统 → 用户管理】中调整。
+                  仅在 JUMP「业务系统用户管理」登记并关联该用户，不调用业务系统接口；车间按部门对照自动带出，角色与车间可在登记后于【业务系统 → 用户管理】中调整。
                 </div>
               </el-form-item>
             </el-col>
@@ -677,7 +677,7 @@ export default {
           } else {
             if (this.syncSubSystem
                 && (!this.syncForm.subSystemIds || !this.syncForm.subSystemIds.length)) {
-              this.$modal.msgWarning("请选择要登记的子系统");
+              this.$modal.msgWarning("请选择要登记的业务系统");
               return;
             }
             // 勾选登记时随用户创建一并提交（后端同事务写入外部用户管理，不调外部接口）

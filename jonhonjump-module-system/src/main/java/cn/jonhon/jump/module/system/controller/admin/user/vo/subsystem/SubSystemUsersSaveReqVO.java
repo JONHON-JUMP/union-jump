@@ -16,7 +16,7 @@ public class SubSystemUsersSaveReqVO {
     private Long id;
 
     @Schema(description = "外部系统 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
-    @NotNull(message = "外部系统不能为空")
+    @NotNull(message = "业务系统不能为空")
     private Long subSystemId;
 
     @Schema(description = "主数据人员 ID（可选，挂接门户用户后可访问）", example = "1")

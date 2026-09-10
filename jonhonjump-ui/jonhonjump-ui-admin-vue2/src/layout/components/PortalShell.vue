@@ -576,13 +576,13 @@ export default {
         // Camstar：一律直开（有 path 编码或 link 即可）
         if (isDirect) {
           return openDirect().catch(err => {
-            this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入业务系统失败'))
           })
         }
 
         // 若依：菜单未就绪时后台拉，不锁全屏；业务区由 InnerLink 自己提示
         if (!menusReady) {
-          this.$message({ message: '正在准备子系统菜单…', type: 'info', duration: 1500 })
+          this.$message({ message: '正在准备业务系统菜单…', type: 'info', duration: 1500 })
         }
         this.$store.dispatch('portal/ensureSubSystemReady', {
           clientId,
@@ -595,7 +595,7 @@ export default {
             return pushWithTitle()
           })
           .catch(err => {
-            this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入业务系统失败'))
           })
         return
       }

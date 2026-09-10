@@ -5,6 +5,7 @@ export const PORTAL_CLIENT_ID_RE = '[a-zA-Z][a-zA-Z0-9_-]*'
 const GENERIC_PORTAL_TITLES = {
   '业务页': true,
   '外部系统': true,
+  '业务系统': true,
   'no-name': true
 }
 
