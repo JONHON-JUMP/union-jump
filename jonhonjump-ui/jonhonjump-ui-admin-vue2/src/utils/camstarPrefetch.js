@@ -1,23 +1,31 @@
 /**
  * Camstar 预热：只做本机 Cookie + 源站探活。
  * 对齐 4200：不预挂整页、不阻塞等待跨机种 bridge。
+ * 仅 4200 / CamstarPortal 才预热源站。
+ * 接口平台等「完整 http 路由、走 Camstar 直开」的系统不要预热前 6 个叶子，
+ * 否则每次打开任一页面都会把用户/角色/菜单/部门/岗位/字典都探活一遍。
  */
 import { ensureLocalCamstarCookie } from '@/utils/camstarCookie'
+import { isCamstarLikeUrl } from '@/utils/portalMenuKind'
 
 const warmedOrigins = {}
+const prefetchedClients = {}
 
 function isCamstarEntry(entry) {
   if (!entry || !entry.link) {
     return false
   }
-  if (entry.kind === 'camstar') {
-    return true
-  }
   const link = String(entry.link)
-  return /^https?:\/\//i.test(link) && link.indexOf('/#/') < 0 && link.indexOf('#') < 0
+  if (link.indexOf('/#/') >= 0 || (link.indexOf('#') >= 0 && !/^https?:\/\/[^#]+$/.test(link))) {
+    return false
+  }
+  return isCamstarLikeUrl(link)
 }
 
-export function collectCamstarPrefetchEntries(pathLinkMap, limit = 6) {
+export function collectCamstarPrefetchEntries(pathLinkMap, limit = 6, clientId) {
+  if (clientId && prefetchedClients[clientId]) {
+    return []
+  }
   const byLink = {}
   Object.keys(pathLinkMap || {}).forEach(path => {
     if (!path || path.indexOf('/portal/') !== 0) {
@@ -69,7 +77,7 @@ export function warmCamstarOrigin(httpUrl) {
   } catch (e) { /* ignore */ }
 }
 
-export function prepareCamstarSessionFromEntries(entries) {
+export function prepareCamstarSessionFromEntries(entries, clientId) {
   ensureLocalCamstarCookie()
   const list = entries || []
   list.forEach(item => {
@@ -77,5 +85,8 @@ export function prepareCamstarSessionFromEntries(entries) {
       warmCamstarOrigin(item.link)
     }
   })
+  if (clientId && list.length) {
+    prefetchedClients[clientId] = true
+  }
   return Promise.resolve(list.length)
 }

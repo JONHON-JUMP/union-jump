@@ -206,7 +206,7 @@ export function resolvePortalFrameRoute(route, pathLinkMap, systemList) {
   }
   let rest = extractPortalMenuRest(route.path, clientId)
   const systemUrl = resolveSystemUrl(systemList, clientId)
-  if (!rest || !systemUrl) {
+  if (!rest) {
     if (existingTitle) {
       return plainPortalView(route, {
         title: existingTitle,
@@ -220,29 +220,36 @@ export function resolvePortalFrameRoute(route, pathLinkMap, systemList) {
   }
 
   // 错误壳 path：…/129/8088/mes4200 — 是门户自己，不是业务机
-  if (isEncodedSystemUrlRest(rest, systemUrl)) {
+  if (systemUrl && isEncodedSystemUrlRest(rest, systemUrl)) {
     return plainPortalView(route)
   }
 
-  // Camstar：IP:port 编码 → http 直链；若依：systemUrl/#/
+  // 只从壳 path 还原路由地址对应的 http，不拼 /#/
   const directHttp = slashIpPortRestToHttp(rest)
-  // 直链拼出后，再按 link 反查菜单名（壳 path 带/不带 15 都能命中）
   const byLink = directHttp ? lookupPathLinkEntry(route.path, pathLinkMap, directHttp) : null
-  let link
+  let link = ''
   if (directHttp
-    && !isEncodedSystemUrlRest(encodePureHttpToShell(directHttp), systemUrl)
-    && encodePureHttpToShell(directHttp) !== encodePureHttpToShell(systemUrl)) {
+    && !(systemUrl && isEncodedSystemUrlRest(encodePureHttpToShell(directHttp), systemUrl))
+    && !(systemUrl && encodePureHttpToShell(directHttp) === encodePureHttpToShell(systemUrl))) {
     link = directHttp
-  } else {
-    link = `${systemUrl}/#/${String(rest).replace(/:/g, '/')}`
+  } else if (byLink && byLink.link) {
+    link = byLink.link
+  }
+  if (!link) {
+    if (existingTitle) {
+      return plainPortalView(route, {
+        title: existingTitle,
+        meta: { title: existingTitle, menuTitle: existingTitle }
+      })
+    }
+    return plainPortalView(route)
   }
   const title = resolvePortalMenuTitle(
     byLink && byLink.title,
     byLink && byLink.menuTitle,
     existingTitle
   ) || '业务页'
-  const kind = (byLink && byLink.kind)
-    || (directHttp ? 'camstar' : 'ruoyi')
+  const kind = (byLink && byLink.kind) || 'camstar'
   return plainPortalView(route, {
     title,
     meta: {

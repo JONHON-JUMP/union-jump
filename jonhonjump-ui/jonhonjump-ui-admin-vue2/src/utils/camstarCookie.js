@@ -5,6 +5,7 @@
  */
 import Cookies from 'js-cookie'
 import { getUsername } from '@/utils/auth'
+import { isCamstarLikeUrl } from '@/utils/portalMenuKind'
 
 const CAMSTAR_COOKIE = 'Nancal_Cam_SessionId'
 const COOKIEKEY_STORE = 'JUMP_CAMSTAR_COOKIEKEY'
@@ -66,6 +67,11 @@ export function ensureLocalCamstarCookie() {
 export function seedCamstarCookieForUrlInBackground(httpUrl) {
   const key = ensureLocalCamstarCookie()
   if (!key || !httpUrl) {
+    return
+  }
+  // 非 4200/CamstarPortal 的外链直开页不要去拉 cookie-bridge，
+  // 否则隐藏 iframe 会把对方整站拉起来（打开任一页都打用户/角色/菜单等接口）
+  if (!isCamstarLikeUrl(httpUrl)) {
     return
   }
   let parsed

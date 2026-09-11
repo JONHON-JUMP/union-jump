@@ -190,14 +190,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item v-if="form.type !== MenuTypeEnum.BUTTON" label="路由地址" prop="path">
-              <el-input v-model="form.path" placeholder="与4200 SYS_MENU.PATH 一致：Camstar 填完整 http 地址" />
-              <div v-if="form.type === MenuTypeEnum.MENU" style="line-height: 18px; margin-top: 4px; color: #909399; font-size: 12px;">
-                对齐 4200：PATH 填 Camstar 业务完整 http（iframe 直开，不经 4221）。
-                推荐：http://192.168.240.127:4200/Process/...（门户壳会编成 192.168.240.12794200/...）；
-                若只填壳 path、不要冒号：写成 192.168.240.12794200/Process/...。
-                若门户机已用 nginx 监听 4200 反代到 Camstar：可填 http://192.168.240.129:4200/Process/...（勿填 /camstar- 路径）。
-                组件路径留空。上方「访问地址」填 MES，只给若依页用。
-              </div>
+              <el-input v-model="form.path" placeholder="请输入路由地址" />
             </el-form-item>
           </el-col>
           <el-col :span="24" v-if="form.type !== MenuTypeEnum.BUTTON">
@@ -214,17 +207,17 @@
             <el-form-item label="组件路径" prop="component">
               <el-input
                 v-model="form.component"
-                :placeholder="form.type === MenuTypeEnum.DIR ? '目录一般为空；若误填可清空后保存' : '例如说：system/user/index'"
+                :placeholder="form.type === MenuTypeEnum.DIR ? '目录一般为空' : '打开页不使用，可留空'"
                 clearable
               />
-              <div v-if="form.type === MenuTypeEnum.DIR" style="line-height: 18px; margin-top: 4px; color: #909399; font-size: 12px;">
-                目录不需要组件路径。「15」应填在上方「路由地址」（对齐 4200 工艺管理 path），不要填在组件路径。
+              <div style="line-height: 18px; margin-top: 4px; color: #909399; font-size: 12px;">
+                不影响打开地址。打开只认上方「路由地址」。
               </div>
             </el-form-item>
           </el-col>
           <el-col :span="12" v-if="form.type === MenuTypeEnum.MENU">
             <el-form-item label="组件名称" prop="componentName">
-              <el-input v-model="form.componentName" placeholder="例如说：SystemUser" />
+              <el-input v-model="form.componentName" placeholder="打开页不使用，可留空" />
             </el-form-item>
           </el-col>
           <el-col :span="12">

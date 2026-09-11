@@ -4,12 +4,11 @@ import ParentView from '@/components/ParentView';
 import {toCamelCase} from "@/utils";
 import { buildPortalHomeMenu, normalizeSubsystemIframeLink, unwrapDirectHttpIframeLink, slashIpPortRestToHttp, encodeHttpToMesPath } from '@/utils/portalRoute'
 import { isExternal } from '@/utils/validate'
-import { classifyPortalMenu, isPureHttpUrl } from '@/utils/portalMenuKind'
+import { classifyPortalMenu, isHttpUrl } from '@/utils/portalMenuKind'
 
 /**
- * 菜单二分（见 portalMenuKind.js，勿在别处另写一套）：
- * - Camstar：路由地址 http → iframe 直开
- * - 若依：组件路径有值 / 相对路由 → OAuth + systemUrl/#/
+ * 打开页只认路由地址：完整 http(s) → iframe 原样打开。
+ * 组件路径 / 组件名称不参与拼链。
  */
 const PORTAL_IFRAME_EMPTY = 'system/subSystem/portal/Empty'
 
@@ -25,110 +24,63 @@ function resolveSubSystemBaseUrl(clientId) {
 }
 
 /**
- * 门户壳 path（仅地址栏）：
- * - Camstar：编码业务 http
- * - 若依：MES #/ 后段
+ * 门户壳 path（仅地址栏）：完整 http 路由地址编码进 /portal/{client}/...
  */
 function toPortalShellPath(route, clientId) {
-  const kind = classifyPortalMenu(route)
-  if (route && route.link && kind === 'camstar') {
+  const rawPath = String((route && route.path) || '').trim()
+  if (route && route.link) {
     const fixed = unwrapDirectHttpIframeLink(route.link)
     if (fixed) {
       route.link = fixed
     }
   }
   const link = (route && route.link) || ''
+  const src = isHttpUrl(rawPath) ? (unwrapDirectHttpIframeLink(rawPath) || rawPath) : link
   const base = resolveSubSystemBaseUrl(clientId)
 
-  if (kind === 'camstar' && link && isPureHttpUrl(link)) {
-    const shell = encodeHttpToMesPath(link)
+  if (isHttpUrl(src)) {
+    const shell = encodeHttpToMesPath(src)
     if (base && shell === encodeHttpToMesPath(base)) {
       return 'menu' + (route && route.id != null ? route.id : '0')
     }
     return shell
   }
 
-  const hashIdx = link.indexOf('/#/')
-  if (hashIdx >= 0) {
-    return link.substring(hashIdx + 3).replace(/:/g, '/').replace(/^\/+/, '').split('#')[0]
-  }
-
-  const raw = String((route && route.path) || '').replace(/^\/+/, '')
+  const raw = rawPath.replace(/^\/+/, '')
   if (!raw) {
     return 'menu' + (route && route.id != null ? route.id : '0')
   }
-  if (kind === 'camstar') {
-    const asHttp = slashIpPortRestToHttp(raw.replace(/:/g, '/')) || (isExternal(raw) ? raw : '')
-    if (asHttp) {
-      return encodeHttpToMesPath(asHttp)
-    }
-    return encodeHttpToMesPath(raw)
+  const asHttp = slashIpPortRestToHttp(raw.replace(/:/g, '/')) || (isExternal(raw) ? raw : '')
+  if (asHttp) {
+    return encodeHttpToMesPath(asHttp)
   }
   return raw.replace(/:/g, '/').replace(/\./g, '_').split('#')[0]
 }
 
 /**
- * 补全 iframe link：严格按 Camstar / 若依二分，禁止互转
+ * iframe src 只取路由地址。不读组件路径，不拼 systemUrl/#/。
  */
-function ensureMenuIframeLink(route, clientId, parentRestPath) {
+function ensureMenuIframeLink(route) {
   if (route.children && route.children.length) {
     return
   }
-  const base = resolveSubSystemBaseUrl(clientId)
-  const kind = classifyPortalMenu(route)
-
-  // 若依：永远 systemUrl/#/路由；有脏 link 也纠正回来
-  if (kind === 'ruoyi') {
-    if (route.link && String(route.link).indexOf('/#/') >= 0) {
-      return
-    }
-    if (!base) {
-      return
-    }
-    const raw = String(route.path || '').replace(/^\/+/, '')
-    if (!raw || isExternal(raw)) {
-      return
-    }
-    let mesRoute = raw.replace(/:/g, '/')
-    if (parentRestPath && mesRoute !== parentRestPath && mesRoute.indexOf(parentRestPath + '/') !== 0) {
-      mesRoute = `${parentRestPath}/${mesRoute}`.replace(/\/+/g, '/')
-    }
-    route.link = `${base}/#/${mesRoute}`
+  const raw = String(route.path || '').trim()
+  if (isHttpUrl(raw) || isExternal(raw)) {
+    route.link = unwrapDirectHttpIframeLink(raw) || raw
     return
   }
-
-  // Camstar：纯 http 直链
-  if (route.link) {
+  if (route.link && (isHttpUrl(route.link) || isExternal(route.link))) {
     route.link = unwrapDirectHttpIframeLink(route.link) || route.link
     return
   }
-  const raw = String(route.path || '').replace(/^\/+/, '')
-  if (!raw) {
+  const encoded = raw.replace(/^\/+/, '')
+  if (!encoded) {
     return
   }
-  if (isPureHttpUrl(raw) || isExternal(raw)) {
-    route.link = raw
-    return
-  }
-  const asHttp = slashIpPortRestToHttp(raw.replace(/:/g, '/'))
+  const asHttp = slashIpPortRestToHttp(encoded.replace(/:/g, '/'))
   if (asHttp) {
     route.link = asHttp
   }
-}
-
-function parentRestPath(lastRouter, clientId) {
-  if (!lastRouter || !lastRouter.path || !clientId) {
-    return ''
-  }
-  const p = String(lastRouter.path)
-  const prefix = `/portal/${clientId}/`
-  if (p.startsWith(prefix)) {
-    return p.substring(prefix.length).replace(/\/index$/, '').replace(/^\/+/, '')
-  }
-  if (p.startsWith('/portal/')) {
-    return ''
-  }
-  return p.replace(/^\/+/, '')
 }
 
 const permission = {
@@ -269,21 +221,15 @@ export const loadView = (view) => {
 }
 
 /**
- * 子系统路由：
- * - 叶子（若依组件页 / Camstar 路由地址）→ 绝对门户 path + Empty iframe
- * - 子 path 用绝对地址时 Sidebar path.resolve 不会再拼成 /15/xxx
- * - 目录树保留，不拆平
+ * 子系统路由：叶子用路由地址打开 iframe；目录树保留。
  */
 function filterSubSystemRouter(asyncRouterMap, subSystemId, clientId, lastRouter = false, type = false) {
   return (asyncRouterMap || []).filter(route => {
-    const restParent = parentRestPath(lastRouter, clientId)
-    // 改写 path/component 前先分类并算 link
+    // 改写 path 前：iframe 只取路由地址
     const rawPath = route.path
-    const rawComponent = route.component
-    ensureMenuIframeLink(route, clientId, restParent)
+    ensureMenuIframeLink(route)
     const portalKind = classifyPortalMenu({
       path: rawPath,
-      component: rawComponent,
       link: route.link
     })
 

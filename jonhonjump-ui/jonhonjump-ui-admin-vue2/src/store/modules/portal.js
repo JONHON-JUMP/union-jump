@@ -1078,11 +1078,11 @@ const actions = {
    */
   prefetchCamstarShells(_ctx, { clientId, pathLinkMap, limit }) {
     const map = pathLinkMap || {}
-    const entries = collectCamstarPrefetchEntries(map, limit == null ? 6 : limit)
+    const entries = collectCamstarPrefetchEntries(map, limit == null ? 6 : limit, clientId)
     if (!entries.length) {
       return Promise.resolve(0)
     }
-    return prepareCamstarSessionFromEntries(entries).then(count => {
+    return prepareCamstarSessionFromEntries(entries, clientId).then(count => {
       if (typeof console !== 'undefined' && console.log) {
         console.log(
           `%c[camstar-prefetch] cookie+origin client=${clientId || '-'} count=${count}`,
@@ -1277,7 +1277,7 @@ function buildPortalPathLinkMap(routes, parentPath = '', map = {}) {
         title,
         menuTitle: title,
         icon: route.meta.icon,
-        // camstar=主系统直开（无 SSO）；ruoyi=子系统 OAuth
+        // camstar=http 直开；ruoyi=/#/ URL 形态。打开页一律 Cookie，无 OAuth
         kind: route.meta.portalKind || (String(route.meta.link).indexOf('#') >= 0 ? 'ruoyi' : 'camstar')
       }
       map[currentPath] = entry

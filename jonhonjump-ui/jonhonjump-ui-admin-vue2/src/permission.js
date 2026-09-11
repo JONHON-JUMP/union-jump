@@ -13,11 +13,9 @@ import {
   resolvePortalShortPathAlias,
   resolvePortalLegacyMenuIdAlias,
   slashIpPortRestToHttp,
-  unwrapDirectHttpIframeLink,
   lookupPathLinkEntry,
   resolvePortalMenuTitle
 } from '@/utils/portalRoute'
-import { isCamstarLikeUrl, isPureHttpUrl } from '@/utils/portalMenuKind'
 import { syncPortalIframeView } from '@/utils/portalIframe'
 import { loadMenuStyleDefault } from '@/utils/menuIconStyle'
 import NProgress from 'nprogress'
@@ -147,15 +145,9 @@ function isCamstarShellPath(path) {
   return !!slashIpPortRestToHttp(rest.replace(/:/g, '/'))
 }
 
-function isPureHttpLink(link) {
-  return isPureHttpUrl(link)
-}
-
 /**
- * 是否 Camstar/外链直开（跳过 OAuth）：
- * Camstar 是主系统 iframe 直开能力，菜单只挂在子系统树下，与子系统 SSO 无关。
- * 只认 pathLinkMap.kind / 纯 http link / 壳 path 含 Camstar 特征。
- * 若依（kind=ruoyi 或 link 带 #）一律 false。
+ * 门户业务页一律 Cookie iframe 直开，不再走 OAuth/SSO 等待。
+ * kind=ruoyi 只表示 iframe URL 用 /#/ 形态，鉴权仍是 Nancal_Cam_SessionId。
  */
 function isDirectExternalPortalTarget(to) {
   if (!to || !to.path) {
@@ -165,24 +157,10 @@ function isDirectExternalPortalTarget(to) {
   if (!clientId) {
     return false
   }
-  const entry = lookupPathLinkEntry(to.path, store.state.portal.pathLinkMap)
-  if (entry) {
-    if (entry.kind === 'ruoyi') {
-      return false
-    }
-    if (entry.kind === 'camstar') {
-      return true
-    }
-    const link = unwrapDirectHttpIframeLink(entry.link || '')
-    if (link && String(link).indexOf('#') >= 0) {
-      return false
-    }
-    return isPureHttpLink(link)
+  if (isPortalSubSystemHomePath(to.path)) {
+    return false
   }
-  const rest = String(to.path).replace(new RegExp('^/portal/' + clientId + '/'), '').replace(/\/index$/, '')
-  const asHttp = slashIpPortRestToHttp(rest.replace(/:/g, '/'))
-  // 无 map 时：仅 Camstar 特征壳 path 才直开，避免误伤
-  return !!(asHttp && isCamstarLikeUrl(asHttp))
+  return true
 }
 
 function ensurePortalAccess(to, next) {
@@ -193,51 +171,26 @@ function ensurePortalAccess(to, next) {
   const portalState = store.state.portal
   const menusReady = !!portalState.loadedSubSystems[clientId]
 
-  // Camstar/外链：对齐 4200 —— 立刻进页，绝不在关键口等 my-menus / version（那是 10s+ 主因）
-  if (isDirectExternalPortalTarget(to)) {
-    const go = () => {
-      finishPortalNavigation(to, next)
-      // 菜单后台补，不挡 iframe
-      if (!menusReady) {
-        store.dispatch('portal/ensureSubSystemLoaded', {
-          clientId,
-          activate: false,
-          force: false
-        }).catch(() => {})
-      }
-      return true
+  // 立刻进页，菜单后台补；禁止在关键口等 my-menus / OAuth
+  const go = () => {
+    finishPortalNavigation(to, next)
+    if (!menusReady) {
+      store.dispatch('portal/ensureSubSystemLoaded', {
+        clientId,
+        activate: false,
+        force: false
+      }).catch(() => {})
     }
-    if (portalState.currentSystem !== clientId) {
-      return store.dispatch('portal/activateSubSystemShell', { clientId }).then(go).catch(err => {
-        Message.error(typeof err === 'string' ? err : (err.message || '无法进入业务系统'))
-        next('/index')
-        return true
-      })
-    }
-    return Promise.resolve(go())
+    return true
   }
-
-  const enter = () => {
-    return store.dispatch('portal/ensureSubSystemReady', {
-      clientId,
-      skipSso: false
-    }).then(() => {
-      if (store.state.portal.currentSystem !== clientId) {
-        next({ path: '/index', replace: true })
-        return true
-      }
-      return finishPortalNavigation(to, next)
+  if (portalState.currentSystem !== clientId) {
+    return store.dispatch('portal/activateSubSystemShell', { clientId }).then(go).catch(err => {
+      Message.error(typeof err === 'string' ? err : (err.message || '无法进入业务系统'))
+      next('/index')
+      return true
     })
   }
-  // 若依：不弹常驻 Message / 不锁全屏，菜单与 dock 必须始终可点
-  return enter().catch(err => {
-    if (err && err.message === 'RBAC_CHANGED_REQUIRE_RELOGIN') {
-      return true
-    }
-    Message.error(typeof err === 'string' ? err : (err.message || '无法进入业务系统'))
-    next('/index')
-    return true
-  })
+  return Promise.resolve(go())
 }
 
 function handlePortalHomeQuery(to, next) {
