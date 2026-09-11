@@ -401,14 +401,15 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
             return Collections.emptyList();
         }
         SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
-        if (subSystem == null || subSystem.getOauth2ClientId() == null) {
+        if (subSystem == null) {
             return Collections.emptyList();
         }
-        OAuth2ClientDO client = oauth2ClientMapper.selectById(subSystem.getOauth2ClientId());
-        if (client == null || StrUtil.isBlank(client.getClientId())) {
+        OAuth2ClientDO client = subSystem.getOauth2ClientId() == null
+                ? null : oauth2ClientMapper.selectById(subSystem.getOauth2ClientId());
+        String clientId = subSystem.resolvePortalClientId(client != null ? client.getClientId() : null);
+        if (StrUtil.isBlank(clientId)) {
             return Collections.emptyList();
         }
-        String clientId = client.getClientId();
         // 只加载勾选菜单及其祖先 path，不拉该子系统全量菜单
         Map<Long, SubSystemMenuDO> menuMap = loadMenusWithAncestors(menuIds);
         // 颜色只配在一级菜单，快捷导航页菜单需沿父链继承，否则全落默认蓝

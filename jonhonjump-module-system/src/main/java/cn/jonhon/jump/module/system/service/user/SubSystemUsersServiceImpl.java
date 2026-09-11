@@ -105,14 +105,15 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         boolean onlyPortal = Boolean.TRUE.equals(portalOnly);
         return subSystems.stream()
-                .filter(subSystem -> !onlyPortal || subSystem.getOauth2ClientId() != null)
+                .filter(subSystem -> !onlyPortal || subSystem.isPortalBound())
                 .map(subSystem -> {
                     SubSystemClientSimpleRespVO vo = new SubSystemClientSimpleRespVO();
                     vo.setId(subSystem.getId());
                     OAuth2ClientDO oauth2Client = getOAuth2Client(subSystem);
-                    vo.setClientId(oauth2Client != null ? oauth2Client.getClientId() : null);
+                    vo.setClientId(subSystem.resolvePortalClientId(
+                            oauth2Client != null ? oauth2Client.getClientId() : null));
                     vo.setName(subSystem.getSystemName());
-                    vo.setPortalBound(subSystem.getOauth2ClientId() != null);
+                    vo.setPortalBound(subSystem.isPortalBound());
                     if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
                         vo.setLogo(subSystem.getSystemIcon());
                     } else if (oauth2Client != null) {
@@ -619,7 +620,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             SubSystemDO subSystem = subSystemMap.get(item.getSubSystemId());
             if (subSystem != null) {
                 OAuth2ClientDO oauth2Client = getOAuth2Client(subSystem);
-                vo.setClientId(oauth2Client != null ? oauth2Client.getClientId() : null);
+                vo.setClientId(subSystem.resolvePortalClientId(
+                        oauth2Client != null ? oauth2Client.getClientId() : null));
                 vo.setClientName(subSystem.getSystemName());
             }
             // 身份字段以子系统用户表为准；仅在本地字段为空时用主用户兜底用户名/姓名
@@ -855,22 +857,26 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     }
     private UserExternalSystemRespVO convertExternal(SubSystemUsersDO item) {
         SubSystemDO subSystem = subSystemMapper.selectById(item.getSubSystemId());
-        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus())) {
+        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus()) || !subSystem.isPortalBound()) {
             return null;
         }
         OAuth2ClientDO client = getOAuth2Client(subSystem);
-        if (client == null || CommonStatusEnum.isDisable(client.getStatus())) {
+        if (client != null && CommonStatusEnum.isDisable(client.getStatus())) {
+            return null;
+        }
+        String clientId = subSystem.resolvePortalClientId(client != null ? client.getClientId() : null);
+        if (StrUtil.isBlank(clientId)) {
             return null;
         }
         UserExternalSystemRespVO vo = new UserExternalSystemRespVO();
         vo.setId(item.getId());
         vo.setSubSystemId(subSystem.getId());
         vo.setSystemUrl(subSystem.getSystemUrl());
-        vo.setClientId(client.getClientId());
+        vo.setClientId(clientId);
         vo.setClientName(subSystem.getSystemName());
         if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
             vo.setLogo(subSystem.getSystemIcon());
-        } else {
+        } else if (client != null) {
             vo.setLogo(client.getLogo());
         }
         vo.setWorkshopId(item.getWorkshopId());
@@ -881,7 +887,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             vo.setHomePageName(homePage.getHomePageName());
             vo.setHomePageUrl(homePage.getHomePageUrl());
         }
-        vo.setSsoUrl(buildSsoUrl(client));
+        vo.setSsoUrl(client != null ? buildSsoUrl(client) : null);
         return vo;
     }
     @Override

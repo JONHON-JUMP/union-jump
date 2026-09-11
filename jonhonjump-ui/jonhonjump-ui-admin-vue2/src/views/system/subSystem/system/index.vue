@@ -12,9 +12,9 @@
 
       </el-form-item>
 
-      <el-form-item label="客户端编号" prop="clientId">
+      <el-form-item label="系统编号" prop="clientId">
 
-        <el-input v-model="queryParams.clientId" placeholder="请输入 OAuth2 客户端编号" clearable style="width: 240px"
+        <el-input v-model="queryParams.clientId" placeholder="请输入系统编号" clearable style="width: 240px"
 
                   @keyup.enter.native="handleQuery"/>
 
@@ -70,17 +70,16 @@
 
       <el-table-column type="selection" width="55"/>
 
-      <el-table-column label="系统编号" align="center" prop="id" width="90" />
+      <el-table-column label="编号" align="center" prop="id" width="90" />
       <el-table-column label="系统图标" align="center" width="80">
         <template v-slot="scope">
           <img v-if="scope.row.systemIcon" width="40" height="40" :src="scope.row.systemIcon" class="system-icon">
           <el-avatar v-else :size="40" icon="el-icon-picture-outline" />
         </template>
       </el-table-column>
-      <el-table-column label="OAuth2 客户端" align="center" min-width="160">
+      <el-table-column label="系统编号" align="center" min-width="160">
         <template v-slot="scope">
-          <div>{{ scope.row.clientName || '-' }}</div>
-          <div class="client-cell__id">{{ scope.row.clientId }}</div>
+          <div>{{ scope.row.clientId || '-' }}</div>
         </template>
       </el-table-column>
 
@@ -93,18 +92,6 @@
         <template v-slot="scope">
 
           <dict-tag :type="DICT_TYPE.COMMON_STATUS" :value="scope.row.status"/>
-
-        </template>
-
-      </el-table-column>
-
-      <el-table-column label="客户端状态" align="center" prop="clientStatus" width="100">
-
-        <template v-slot="scope">
-
-          <dict-tag v-if="scope.row.clientStatus != null" :type="DICT_TYPE.COMMON_STATUS" :value="scope.row.clientStatus"/>
-
-          <span v-else>-</span>
 
         </template>
 
@@ -150,38 +137,8 @@
 
       <el-form ref="form" :model="form" :rules="rules" label-width="110px">
 
-        <el-form-item label="OAuth2 客户端" prop="oauth2ClientId">
-
-          <el-select
-
-            v-model="form.oauth2ClientId"
-
-            placeholder="请选择 OAuth2 客户端"
-
-            filterable
-
-            style="width: 100%"
-
-            @change="handleClientChange"
-
-          >
-
-            <el-option
-
-              v-for="item in availableClientOptions"
-
-              :key="item.id"
-
-              :label="item.name + ' (' + item.clientId + ')'"
-
-              :value="item.id"
-
-              :disabled="item.bound && item.id !== form.oauth2ClientId"
-
-            />
-
-          </el-select>
-
+        <el-form-item label="系统编号" prop="clientId">
+          <el-input v-model="form.clientId" placeholder="如 mes4200" maxlength="64" />
         </el-form-item>
 
         <el-form-item label="系统名称" prop="systemName">
@@ -189,6 +146,7 @@
         </el-form-item>
         <el-form-item label="系统图标" prop="systemIcon">
           <imageUpload v-model="form.systemIcon" :limit="1"/>
+          <div class="form-item-tip">选填，不上传也可保存</div>
         </el-form-item>
         <el-form-item label="系统描述" prop="description">
 
@@ -198,10 +156,7 @@
 
         <el-form-item label="访问地址" prop="systemUrl">
 
-          <el-input v-model="form.systemUrl" placeholder="MES 入口，如 http://192.168.240.127:4221" />
-          <div style="line-height: 18px; margin-top: 4px; color: #909399; font-size: 12px;">
-            填老 MES（4221）入口即可，可与门户跨域。不要填 Camstar（4200）；Camstar 由 MES 菜单内链打开。
-          </div>
+          <el-input v-model="form.systemUrl" placeholder="请输入访问地址" />
 
         </el-form-item>
 
@@ -216,26 +171,6 @@
             </el-radio>
 
           </el-radio-group>
-
-        </el-form-item>
-
-        <el-form-item v-if="selectedClientInfo" label="客户端信息">
-
-          <div class="client-preview">
-
-            <el-avatar v-if="selectedClientInfo.logo" :size="36" :src="selectedClientInfo.logo" />
-
-            <el-avatar v-else :size="36" icon="el-icon-connection" />
-
-            <div class="client-preview__info">
-
-              <div>{{ selectedClientInfo.name }}</div>
-
-              <div class="client-preview__desc">{{ selectedClientInfo.description || '暂无描述' }}</div>
-
-            </div>
-
-          </div>
 
         </el-form-item>
 
@@ -269,8 +204,6 @@ import {
 
   getSubSystem,
 
-  getSubSystemOAuth2ClientSimpleList,
-
   getSubSystemPage,
 
   updateSubSystem
@@ -278,7 +211,7 @@ import {
 } from '@/api/system/subSystem'
 
 import { CommonStatusEnum } from '@/utils/constants'
-import { DICT_TYPE, getDictDatas } from '@/utils/dict'
+import { DICT_TYPE, getDictDatas, ensureDictDatas } from '@/utils/dict'
 import ImageUpload from '@/components/ImageUpload'
 
 export default {
@@ -298,8 +231,6 @@ export default {
       total: 0,
 
       systemList: [],
-
-      clientOptions: [],
 
       title: '',
 
@@ -324,47 +255,35 @@ export default {
       form: {},
 
       rules: {
-
-        oauth2ClientId: [{ required: true, message: 'OAuth2 客户端不能为空', trigger: 'change' }],
-
+        clientId: [
+          { required: true, message: '系统编号不能为空', trigger: 'blur' },
+          { pattern: /^[a-zA-Z][a-zA-Z0-9_-]*$/, message: '须以字母开头，仅含字母、数字、下划线或中划线', trigger: 'blur' }
+        ],
         systemName: [{ required: true, message: '系统名称不能为空', trigger: 'blur' }],
-
         status: [{ required: true, message: '状态不能为空', trigger: 'change' }]
-
-      },
-
-      statusDictDatas: getDictDatas(DICT_TYPE.COMMON_STATUS)
+      }
 
     }
 
   },
 
   computed: {
-
-    availableClientOptions() {
-
-      return this.clientOptions
-
-    },
-
-    selectedClientInfo() {
-
-      if (!this.form.oauth2ClientId) {
-
-        return null
-
+    statusDictDatas() {
+      const list = getDictDatas(DICT_TYPE.COMMON_STATUS)
+      if (list && list.length) {
+        return list
       }
-
-      return this.clientOptions.find(item => item.id === this.form.oauth2ClientId) || null
-
+      return [
+        { label: '开启', value: CommonStatusEnum.ENABLE },
+        { label: '关闭', value: CommonStatusEnum.DISABLE }
+      ]
     }
-
   },
 
   created() {
-
-    this.getList()
-
+    ensureDictDatas(DICT_TYPE.COMMON_STATUS).finally(() => {
+      this.getList()
+    })
   },
 
   methods: {
@@ -382,16 +301,6 @@ export default {
       }).finally(() => {
 
         this.loading = false
-
-      })
-
-    },
-
-    loadClientOptions(excludeSubSystemId) {
-
-      return getSubSystemOAuth2ClientSimpleList(excludeSubSystemId).then(res => {
-
-        this.clientOptions = res.data || []
 
       })
 
@@ -421,7 +330,7 @@ export default {
 
         id: undefined,
 
-        oauth2ClientId: undefined,
+        clientId: undefined,
 
         systemName: undefined,
         description: undefined,
@@ -444,17 +353,9 @@ export default {
     },
 
     handleAdd() {
-
       this.resetFormData()
-
-      this.loadClientOptions().then(() => {
-
-        this.open = true
-
-        this.title = '添加业务系统'
-
-      })
-
+      this.open = true
+      this.title = '添加业务系统'
     },
 
     handleUpdate(row) {
@@ -466,44 +367,16 @@ export default {
         this.form = {
 
           id: res.data.id,
-
-          oauth2ClientId: res.data.oauth2ClientId,
-
+          clientId: res.data.clientId,
           systemName: res.data.systemName,
           description: res.data.description,
           systemUrl: res.data.systemUrl,
           systemIcon: res.data.systemIcon,
           status: res.data.status
-
         }
-
-        return this.loadClientOptions(res.data.id)
-
-      }).then(() => {
-
         this.open = true
-
         this.title = '修改业务系统'
-
       })
-
-    },
-
-    handleClientChange(oauth2ClientId) {
-
-      const client = this.clientOptions.find(item => item.id === oauth2ClientId)
-
-      if (client && !this.form.systemName) {
-
-        this.form.systemName = client.name
-
-      }
-
-      if (client && !this.form.description && client.description) {
-
-        this.form.description = client.description
-
-      }
 
     },
 
@@ -630,6 +503,13 @@ export default {
 .system-icon {
   border-radius: 4px;
   object-fit: cover;
+}
+
+.form-item-tip {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.4;
 }
 </style>
 

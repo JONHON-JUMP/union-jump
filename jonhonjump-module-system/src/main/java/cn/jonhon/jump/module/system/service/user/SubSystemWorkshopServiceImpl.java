@@ -203,11 +203,12 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
         if (StrUtil.isNotBlank(fromName)) {
             return fromName;
         }
-        if (sys.getOauth2ClientId() == null) {
-            return null;
+        String clientId = sys.resolvePortalClientId(null);
+        if (StrUtil.isBlank(clientId) && sys.getOauth2ClientId() != null) {
+            OAuth2ClientDO client = oauth2ClientMapper.selectById(sys.getOauth2ClientId());
+            clientId = client == null ? null : client.getClientId();
         }
-        OAuth2ClientDO client = oauth2ClientMapper.selectById(sys.getOauth2ClientId());
-        return client == null ? null : lastDigitGroup(client.getClientId());
+        return lastDigitGroup(clientId);
     }
 
     private static String lastDigitGroup(String text) {

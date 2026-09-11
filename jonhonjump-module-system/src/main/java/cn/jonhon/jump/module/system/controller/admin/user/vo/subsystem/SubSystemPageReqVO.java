@@ -18,7 +18,7 @@ public class SubSystemPageReqVO extends PageParam {
     @Schema(description = "系统名称", example = "SCADA")
     private String systemName;
 
-    @Schema(description = "OAuth2 客户端编号", example = "scada_client")
+    @Schema(description = "系统编号", example = "mes4200")
     private String clientId;
 
     @Schema(description = "状态", example = "0")

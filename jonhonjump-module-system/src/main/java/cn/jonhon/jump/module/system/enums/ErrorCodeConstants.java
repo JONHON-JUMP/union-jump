@@ -114,6 +114,10 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_API_CONFIG_INVALID_JSON = new ErrorCode(1_002_003_054, "接口配置 JSON 格式错误：【{}】");
     ErrorCode SUB_SYSTEM_API_CONFIG_TARGET_REQUIRED = new ErrorCode(1_002_003_062, "请选择已有业务系统，或填写新建系统名称");
     ErrorCode SUB_SYSTEM_NAME_DUPLICATE = new ErrorCode(1_002_003_063, "已存在名为【{}】的业务系统");
+    ErrorCode SUB_SYSTEM_CLIENT_ID_REQUIRED = new ErrorCode(1_002_003_064, "系统编号不能为空");
+    ErrorCode SUB_SYSTEM_CLIENT_ID_INVALID = new ErrorCode(1_002_003_065, "系统编号只能以字母开头，且仅含字母、数字、下划线或中划线");
+    ErrorCode SUB_SYSTEM_CLIENT_ID_EXISTS = new ErrorCode(1_002_003_066, "系统编号【{}】已存在");
+    ErrorCode SUB_SYSTEM_SAVE_FAILED = new ErrorCode(1_002_003_067, "业务系统保存失败，请检查系统编号是否重复");
     // ========== 业务系统人员接口模块 1-002-003-055 ==========
     ErrorCode SUB_SYSTEM_EMPLOYEE_API_NOT_CONFIGURED = new ErrorCode(1_002_003_055, "该业务系统未配置（或未启用）人员接口");
     ErrorCode SUB_SYSTEM_EMPLOYEE_API_ERROR = new ErrorCode(1_002_003_056, "业务系统接口调用失败：【{}】");

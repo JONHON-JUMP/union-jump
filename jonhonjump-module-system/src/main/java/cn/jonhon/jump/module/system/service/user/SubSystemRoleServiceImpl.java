@@ -403,7 +403,7 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
             SubSystemDO subSystem = subSystemMap.get(role.getSubSystemId());
             if (subSystem != null) {
                 OAuth2ClientDO client = clientMap.get(subSystem.getOauth2ClientId());
-                vo.setClientId(client != null ? client.getClientId() : null);
+                vo.setClientId(subSystem.resolvePortalClientId(client != null ? client.getClientId() : null));
                 vo.setClientName(subSystem.getSystemName());
             }
             return vo;
