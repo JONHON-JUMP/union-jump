@@ -169,11 +169,14 @@ export function resolvePortalMenuTitle(...candidates) {
 
 const PORTAL_INTERNAL_QUERY = {
   _portal_t: true,
-  _jump_camstar_warm: true
+  _jump_camstar_warm: true,
+  _jump_child: true
 }
 
 let pendingPortalIframeTitle = ''
 let pendingPortalIframeTabKey = ''
+let pendingPortalParentPath = ''
+let pendingPortalForceChild = false
 
 export function setPendingPortalIframeTitle(routeLike, title) {
   pendingPortalIframeTitle = String(title || '').trim()
@@ -188,6 +191,22 @@ export function peekPendingPortalIframeTitle(routeLike) {
     return ''
   }
   return pendingPortalIframeTitle
+}
+
+export function setPendingPortalParent(routeLike, parentPath, forceChild) {
+  pendingPortalParentPath = String(parentPath || '').trim()
+  pendingPortalForceChild = !!forceChild
+  pendingPortalIframeTabKey = routeLike ? portalTabKey(routeLike) : pendingPortalIframeTabKey
+}
+
+export function peekPendingPortalParent(routeLike) {
+  if (routeLike && pendingPortalIframeTabKey && portalTabKey(routeLike) !== pendingPortalIframeTabKey) {
+    return { parentPath: '', forceChild: false }
+  }
+  return {
+    parentPath: pendingPortalParentPath,
+    forceChild: pendingPortalForceChild
+  }
 }
 
 export const PORTAL_PATH_PREFIX_RE = new RegExp(`^/portal/${PORTAL_CLIENT_ID_RE}(?:/|$)`)
@@ -348,7 +367,8 @@ export function resolvePortalFrameRoute(route, pathLinkMap, systemList) {
     route.title
   )
   const exactEntry = lookupPathLinkExact(route.path, pathLinkMap)
-  const isQueryChild = portalQueryBucket(route) === 'child'
+  const pendingParent = peekPendingPortalParent(route)
+  const isQueryChild = portalQueryBucket(route) === 'child' || pendingParent.forceChild
   // 叶子菜单本身：精确路径且无 ?/#。子页（带参数或更深路径）不能套用菜单 link，否则 iframe 停在列表页
   if (exactEntry && !isQueryChild) {
     const title = resolvePortalMenuTitle(exactEntry.title, exactEntry.menuTitle, existingTitle) || '业务页'
@@ -406,11 +426,15 @@ export function resolvePortalFrameRoute(route, pathLinkMap, systemList) {
     }
     return plainPortalView(route)
   }
+  const parentEntry = (pendingParent.parentPath && pathLinkMap && pathLinkMap[pendingParent.parentPath])
+    || prefixEntry
   const parentTitle = resolvePortalMenuTitle(
+    parentEntry && parentEntry.title,
+    parentEntry && parentEntry.menuTitle,
     prefixEntry && prefixEntry.title,
     prefixEntry && prefixEntry.menuTitle
   )
-  const isChild = isQueryChild || !!(prefixEntry && !exactEntry)
+  const isChild = isQueryChild || pendingParent.forceChild || !!(prefixEntry && !exactEntry)
   const title = isChild
     ? buildPortalChildTabTitle(parentTitle || existingTitle, route, systemList)
     : (resolvePortalMenuTitle(parentTitle, existingTitle) || '业务页')
@@ -422,8 +446,11 @@ export function resolvePortalFrameRoute(route, pathLinkMap, systemList) {
       menuTitle: title,
       portalChild: isChild,
       portalChildTitle: isChild ? title : undefined,
+      portalParentPath: isChild
+        ? (pendingParent.parentPath || (route.meta && route.meta.portalParentPath) || undefined)
+        : undefined,
       link: normalizeSubsystemIframeLink(link || (prefixEntry && prefixEntry.link), clientId),
-      icon: (prefixEntry && prefixEntry.icon) || (route.meta && route.meta.icon),
+      icon: (prefixEntry && prefixEntry.icon) || (route.meta && route.meta.icon) || (parentEntry && parentEntry.icon),
       portalKind: kind
     }
   })
@@ -487,8 +514,8 @@ export function lookupPathLinkEntry(path, pathLinkMap, linkHint) {
   const rest = extractPortalMenuRest(path, clientId)
   if (rest) {
     const prefixHit = findLongestEncodedHttpPrefix(pathLinkMap, clientId, rest)
-    if (prefixHit) {
-      return prefixHit
+    if (prefixHit && prefixHit.entry) {
+      return prefixHit.entry
     }
   }
   return null
@@ -523,9 +550,74 @@ function findLongestEncodedHttpPrefix(pathLinkMap, clientId, rest) {
     }
     if (restNorm === kr || restNorm.startsWith(kr + '/')) {
       if (kr.length > bestLen) {
-        best = entry
+        best = { key, entry }
         bestLen = kr.length
       }
+    }
+  }
+  return best
+}
+
+/** 当前壳 path 归属的叶子菜单（最长 http 前缀；iframe 内跳转不得换成别的叶子） */
+export function resolveCoveringLeaf(path, pathLinkMap) {
+  const clientId = parsePortalClientId(path)
+  const rest = extractPortalMenuRest(path, clientId)
+  if (rest) {
+    const prefixHit = findLongestEncodedHttpPrefix(pathLinkMap, clientId, rest)
+    if (prefixHit && prefixHit.key) {
+      return prefixHit
+    }
+  }
+  const exact = lookupPathLinkExact(path, pathLinkMap)
+  if (!exact || !pathLinkMap) {
+    return null
+  }
+  const keys = Object.keys(pathLinkMap)
+  for (let i = 0; i < keys.length; i++) {
+    if (pathLinkMap[keys[i]] === exact) {
+      return { key: keys[i], entry: exact }
+    }
+  }
+  return { key: path, entry: exact }
+}
+
+/** 关掉详情子页签时回到打开它的叶子菜单，而不是底栏最后一个陌生页签 */
+export function findPortalCloseTarget(visitedViews, tab) {
+  const list = visitedViews || []
+  const matchRoot = (path) => list.find(v =>
+    v
+    && portalQueryBucket(v) === 'root'
+    && portalPathAliasKey(v.path) === portalPathAliasKey(path)
+  )
+  const parentPath = tab && tab.meta && tab.meta.portalParentPath
+  if (parentPath) {
+    const hit = matchRoot(parentPath)
+    if (hit && !portalTabsMatch(hit, tab)) {
+      return hit
+    }
+  }
+  if (!tab || portalQueryBucket(tab) !== 'child') {
+    return null
+  }
+  const samePathRoot = matchRoot(tab.path)
+  if (samePathRoot && !portalTabsMatch(samePathRoot, tab)) {
+    return samePathRoot
+  }
+  let best = null
+  let bestLen = -1
+  for (let i = 0; i < list.length; i++) {
+    const v = list[i]
+    if (!v || portalQueryBucket(v) !== 'root' || portalTabsMatch(v, tab)) {
+      continue
+    }
+    if (!isPortalPathDescendant(tab.path, v.path)
+      && portalPathAliasKey(v.path) !== portalPathAliasKey(tab.path)) {
+      continue
+    }
+    const len = portalPathAliasKey(v.path).length
+    if (len > bestLen) {
+      best = v
+      bestLen = len
     }
   }
   return best
@@ -537,7 +629,13 @@ export function portalPathAliasKey(path) {
 
 /** 列表 vs 带 ?/# 的子页：同一 path 拆成两个底栏页签（对齐通知公告 / 通知详情） */
 export function portalQueryBucket(view) {
+  if (view && view.meta && view.meta.portalChild) {
+    return 'child'
+  }
   const query = (view && view.query) || {}
+  if (query._jump_child) {
+    return 'child'
+  }
   const keys = Object.keys(query).filter(k => {
     if (PORTAL_INTERNAL_QUERY[k]) {
       return false

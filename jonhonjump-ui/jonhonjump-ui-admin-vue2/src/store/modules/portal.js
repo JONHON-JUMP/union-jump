@@ -9,13 +9,17 @@ import {
   parsePortalClientId,
   normalizeSubsystemIframeLink,
   isGenericPortalTitle,
-  resolvePortalMenuTitle
+  resolvePortalMenuTitle,
+  findPortalCloseTarget,
+  portalPathAliasKey,
+  portalQueryBucket
 } from '@/utils/portalRoute'
 import {
   loadPersistedPortalCache,
   persistPortalCache,
   clearPersistedPortalCache
 } from '@/utils/portalMenuCache'
+import { syncPortalIframeView } from '@/utils/portalIframe'
 import { resolveRuleBasedPortalDefault } from '@/utils/portalSubsystem'
 import {
   buildQuickNavScopeKey,
@@ -916,9 +920,17 @@ const actions = {
 
   closePortalTab({ commit, dispatch, rootState }, { tab, active }) {
     commit('SET_IFRAME_SYNC_SUSPENDED', true)
+    const parent = findPortalCloseTarget(rootState.tagsView.visitedViews, tab)
+    const resumeSync = () => {
+      commit('SET_IFRAME_SYNC_SUSPENDED', false)
+      const vuexStore = router.app && router.app.$store
+      if (vuexStore && router.currentRoute) {
+        syncPortalIframeView(vuexStore, router.currentRoute)
+      }
+    }
     return dispatch('tagsView/delView', tab, { root: true }).then(() => {
       if (!active) {
-        commit('SET_IFRAME_SYNC_SUSPENDED', false)
+        resumeSync()
         return
       }
       const remaining = rootState.tagsView.visitedViews.filter(view => {
@@ -929,14 +941,20 @@ const actions = {
         if (isPortalSubSystemHomePath(view.path)) return false
         return true
       })
-      if (remaining.length > 0) {
-        commit('SET_IFRAME_SYNC_SUSPENDED', false)
-        const nextTab = remaining[remaining.length - 1]
-        return router.push(nextTab.fullPath || nextTab.path)
+      const parentRoot = parent && remaining.find(v =>
+        portalQueryBucket(v) === 'root'
+        && portalPathAliasKey(v.path) === portalPathAliasKey(parent.path)
+      )
+      const nextTab = parentRoot || (remaining.length > 0 ? remaining[remaining.length - 1] : null)
+      if (nextTab) {
+        if (parentRoot) {
+          commit('tagsView/RESTORE_PORTAL_IFRAME', parentRoot, { root: true })
+        }
+        return router.push(nextTab.fullPath || nextTab.path).catch(() => {}).finally(resumeSync)
       }
       return dispatch('returnToPortalHome')
     }).catch(err => {
-      commit('SET_IFRAME_SYNC_SUSPENDED', false)
+      resumeSync()
       return Promise.reject(err)
     })
   },

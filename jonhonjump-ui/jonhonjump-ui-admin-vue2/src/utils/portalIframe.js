@@ -3,7 +3,8 @@ import {
   resolveCanonicalPortalPath,
   isPortalSubSystemHomePath,
   isGenericPortalTitle,
-  resolvePortalMenuTitle
+  resolvePortalMenuTitle,
+  portalTabsMatch
 } from '@/utils/portalRoute'
 import { ensureLocalCamstarCookie } from '@/utils/camstarCookie'
 
@@ -62,7 +63,9 @@ export function syncPortalIframeView(store, route) {
     view.path = canonical
   }
 
-  const prev = (store.state.tagsView.visitedViews || []).find(v =>
+  const visited = store.state.tagsView.visitedViews || []
+  const prevSameTab = visited.find(v => portalTabsMatch(v, view))
+  const prev = prevSameTab || visited.find(v =>
     v.path === view.path || portalPathAliasKey(v.path) === portalPathAliasKey(view.path)
   )
   const prevTitle = resolvePortalMenuTitle(
@@ -70,15 +73,26 @@ export function syncPortalIframeView(store, route) {
     prev && prev.meta && prev.meta.menuTitle,
     prev && prev.meta && prev.meta.title
   )
+  const prevChildTitle = resolvePortalMenuTitle(
+    prevSameTab && prevSameTab.title,
+    prevSameTab && prevSameTab.meta && prevSameTab.meta.menuTitle,
+    prevSameTab && prevSameTab.meta && prevSameTab.meta.title
+  )
   const nextTitle = resolvePortalMenuTitle(
     view.meta && view.meta.menuTitle,
     view.meta && view.meta.title,
     view.title
   )
   if (isChild) {
-    if (nextTitle) {
-      view.title = nextTitle
-      view.meta = { ...(view.meta || {}), title: nextTitle, menuTitle: nextTitle }
+    const parentPath = (view.meta && view.meta.portalParentPath)
+      || (prevSameTab && prevSameTab.meta && prevSameTab.meta.portalParentPath)
+    if (parentPath) {
+      view.meta = { ...(view.meta || {}), portalParentPath: parentPath }
+    }
+    const childTitle = prevChildTitle || nextTitle
+    if (childTitle) {
+      view.title = childTitle
+      view.meta = { ...(view.meta || {}), title: childTitle, menuTitle: childTitle }
     }
   } else if (!nextTitle && prevTitle) {
     view.title = prevTitle

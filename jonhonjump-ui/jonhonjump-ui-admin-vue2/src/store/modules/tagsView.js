@@ -74,6 +74,14 @@ function parkOrRemoveIframe(state, viewOrPath) {
   if (!isCamstarIframeView(item)) {
     return
   }
+  // 详情子页签关掉即销毁，保温会继续 postMessage，把已关页签又同步回来
+  if (portalQueryBucket(item) === 'child' || (item.meta && item.meta.portalChild)) {
+    const dropKey = portalTabKey(item)
+    state.warmIframeViews = (state.warmIframeViews || []).filter(
+      v => portalTabKey(v) !== dropKey
+    )
+    return
+  }
   const keepKey = portalTabKey(item)
   state.warmIframeViews = (state.warmIframeViews || []).filter(
     v => portalTabKey(v) !== keepKey
