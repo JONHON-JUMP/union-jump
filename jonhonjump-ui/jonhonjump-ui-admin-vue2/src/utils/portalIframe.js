@@ -89,10 +89,17 @@ export function syncPortalIframeView(store, route) {
     if (parentPath) {
       view.meta = { ...(view.meta || {}), portalParentPath: parentPath }
     }
-    const childTitle = prevChildTitle || nextTitle
+    const childTitle = (view.meta && view.meta.portalChildTitle)
+      || prevChildTitle
+      || nextTitle
     if (childTitle) {
       view.title = childTitle
-      view.meta = { ...(view.meta || {}), title: childTitle, menuTitle: childTitle }
+      view.meta = {
+        ...(view.meta || {}),
+        title: childTitle,
+        menuTitle: childTitle,
+        portalChildTitle: childTitle
+      }
     }
   } else if (!nextTitle && prevTitle) {
     view.title = prevTitle

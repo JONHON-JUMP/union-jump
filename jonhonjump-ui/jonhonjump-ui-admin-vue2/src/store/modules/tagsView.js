@@ -172,9 +172,21 @@ const mutations = {
       if (isGenericPortalTitle(title) && prev && !isGenericPortalTitle(prev.title)) {
         title = prev.title
       }
+      const childTitle = (view.meta && view.meta.portalChildTitle)
+        || (prev.meta && prev.meta.portalChildTitle)
+        || ((prev.meta && prev.meta.portalChild) || (view.meta && view.meta.portalChild)
+          ? (title !== prev.title && !isGenericPortalTitle(title) ? title : prev.title)
+          : '')
+      const nextTitle = childTitle || title
       state.visitedViews.splice(index, 1, Object.assign({}, prev, view, {
-        title,
-        meta: { ...(prev.meta || {}), ...(view.meta || {}), title, menuTitle: title }
+        title: nextTitle,
+        meta: {
+          ...(prev.meta || {}),
+          ...(view.meta || {}),
+          title: nextTitle,
+          menuTitle: nextTitle,
+          portalChildTitle: childTitle || (view.meta && view.meta.portalChildTitle) || (prev.meta && prev.meta.portalChildTitle)
+        }
       }))
       return
     }

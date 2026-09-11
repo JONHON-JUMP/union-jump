@@ -138,12 +138,14 @@ export default {
             || portalQueryBucket(view) === 'child'
             || (!!mapEntry && !exactEntry)
           )
+          const parentMenuTitle = (mapEntry && mapEntry.title) || (mapEntry && mapEntry.menuTitle)
+          const storedChildTitle = resolvePortalMenuTitle(
+            view.meta && view.meta.portalChildTitle,
+            isChild && view.title !== parentMenuTitle ? view.title : '',
+            isChild && resolved.meta && resolved.meta.portalChildTitle
+          )
           const title = isChild
-            ? buildPortalChildTabTitle(
-              (mapEntry && mapEntry.title) || (mapEntry && mapEntry.menuTitle),
-              view,
-              systems
-            )
+            ? (storedChildTitle || buildPortalChildTabTitle(parentMenuTitle, view, systems))
             : (resolvePortalMenuTitle(
               resolved.meta && resolved.meta.menuTitle,
               resolved.meta && resolved.meta.title,
@@ -163,7 +165,9 @@ export default {
               ...(view.meta || {}),
               ...((isPortal && resolved.meta) || {}),
               title,
-              menuTitle: title
+              menuTitle: title,
+              portalChild: isChild || !!(view.meta && view.meta.portalChild),
+              portalChildTitle: isChild ? title : (view.meta && view.meta.portalChildTitle)
             }
           }
         })

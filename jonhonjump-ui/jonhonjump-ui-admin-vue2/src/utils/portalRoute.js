@@ -27,12 +27,8 @@ const CHILD_ACTION_TITLE = {
   params: '查看参数',
   parameter: '查看参数',
   parameters: '查看参数',
-  preview: '查看参数',
-  detail: '查看参数',
-  view: '查看参数',
-  info: '查看参数',
-  show: '查看参数',
-  look: '查看参数',
+  preview: '预览',
+  detail: '详情',
   version: '新增版本',
   versions: '新增版本',
   addversion: '新增版本',
@@ -138,6 +134,17 @@ function inferChildActionTitle(routeLike) {
 
 export function buildPortalChildTabTitle(parentTitle, routeLike, systemList) {
   const parent = String(parentTitle || '').trim()
+  const stored = String(
+    (routeLike && routeLike.meta && (routeLike.meta.portalChildTitle || routeLike.meta.menuTitle))
+    || (routeLike && routeLike.title)
+    || ''
+  ).trim()
+  if (stored && stored !== parent && !isGenericPortalTitle(stored) && stored !== `${parent}详情`) {
+    const fromStored = usableIframeDocTitle(stored, parent, systemList)
+    if (fromStored) {
+      return fromStored
+    }
+  }
   const pending = peekPendingPortalIframeTitle(routeLike)
   const fromDoc = usableIframeDocTitle(pending, parent, systemList)
   if (fromDoc) {
@@ -435,8 +442,10 @@ export function resolvePortalFrameRoute(route, pathLinkMap, systemList) {
     prefixEntry && prefixEntry.menuTitle
   )
   const isChild = isQueryChild || pendingParent.forceChild || !!(prefixEntry && !exactEntry)
+  const clickTitle = peekPendingPortalIframeTitle(route)
   const title = isChild
-    ? buildPortalChildTabTitle(parentTitle || existingTitle, route, systemList)
+    ? (usableIframeDocTitle(clickTitle, parentTitle || existingTitle, systemList)
+      || buildPortalChildTabTitle(parentTitle || existingTitle, route, systemList))
     : (resolvePortalMenuTitle(parentTitle, existingTitle) || '业务页')
   const kind = (prefixEntry && prefixEntry.kind) || 'camstar'
   return plainPortalView(route, {
