@@ -26,18 +26,6 @@
       </el-input>
       <el-button-group class="add-item">
         <el-button
-          plain
-          @click="addOne('https://lib.baomitu.com/jquery/1.8.3/jquery.min.js')"
-        >
-          jQuery1.8.3
-        </el-button>
-        <el-button
-          plain
-          @click="addOne('https://unpkg.com/http-vue-loader')"
-        >
-          http-vue-loader
-        </el-button>
-        <el-button
           icon="el-icon-circle-plus-outline"
           plain
           @click="addOne('')"

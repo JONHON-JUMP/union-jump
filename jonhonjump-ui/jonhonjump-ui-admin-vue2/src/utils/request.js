@@ -190,11 +190,7 @@ service.interceptors.response.use(async res => {
       type: 'error',
       duration: 0,
       dangerouslyUseHTMLString: true,
-      message: '<div>演示模式，无法进行写操作</div>'
-        + '<div> &nbsp; </div>'
-        + '<div>参考 https://doc.iocoder.cn/ 教程</div>'
-        + '<div> &nbsp; </div>'
-        + '<div>5 分钟搭建本地环境</div>',
+      message: '<div>演示模式，无法进行写操作</div>',
     })
     return Promise.reject(new Error(msg))
   } else if (code !== 200) {

@@ -13,7 +13,6 @@ import plugins from './plugins' // plugins
 
 import './assets/icons' // icon
 import './permission' // permission control
-import './tongji' // 百度统计
 import { installChunkLoadGuard } from '@/utils/appVersion'
 import { installPortalLogoutBroadcast } from '@/utils/portalLogoutBroadcast'
 import { getDicts } from "@/api/system/dict/data";
