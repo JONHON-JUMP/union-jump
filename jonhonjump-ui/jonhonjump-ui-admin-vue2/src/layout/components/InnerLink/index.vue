@@ -91,6 +91,7 @@
 <script>
 import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
 import { markCamstarOpen } from '@/utils/camstarOpenDiag'
+import { applyIframeHrefToJump } from '@/utils/portalIframeNav'
 
 const SOFT_TIMEOUT_MS = 15000
 const HARD_TIMEOUT_MS = 30000
@@ -109,11 +110,12 @@ function sameCamstarDocument(a, b) {
       const parsed = new URL(String(u), window.location.href)
       parsed.searchParams.delete('_portal_t')
       parsed.searchParams.delete('_jump_camstar_warm')
+      parsed.searchParams.sort()
       let path = parsed.pathname || '/'
       if (path.length > 1 && path.endsWith('/')) {
         path = path.slice(0, -1)
       }
-      return `${parsed.origin}${path}`.toLowerCase()
+      return `${parsed.origin}${path}${parsed.search}${parsed.hash}`.toLowerCase()
     } catch (e) {
       return String(u || '').replace(/\/+$/, '').toLowerCase()
     }
@@ -145,7 +147,10 @@ export default {
       holdTimer: null,
       slowDismissed: false,
       _diagLoadStart: 0,
-      _reloadSeq: 0
+      _reloadSeq: 0,
+      _navPollTimer: null,
+      _lastReportedHref: '',
+      _lastReportedTitle: ''
     }
   },
   computed: {
@@ -205,6 +210,11 @@ export default {
         if (visible && !this.directLoaded && this.directSrc && this.directSrc !== '/') {
           this.armDirectTimeouts()
         }
+        if (visible) {
+          this.startNavSync()
+        } else {
+          this.stopNavSync()
+        }
         return
       }
       if (visible) {
@@ -222,6 +232,9 @@ export default {
     }
   },
   mounted() {
+    if (this.active) {
+      this.startNavSync()
+    }
     if (this.isDirectHttp) {
       return
     }
@@ -238,6 +251,7 @@ export default {
   beforeDestroy() {
     this.clearTimers()
     this.clearDirectTimers()
+    this.stopNavSync()
   },
   methods: {
     bindDirectSrc(url) {
@@ -315,6 +329,9 @@ export default {
         docCostMs: cost,
         note: 'onload 收遮罩；之后变慢多半是 Camstar 页内接口'
       })
+      this.captureIframeHref()
+      this.hookIframeHistory()
+      this.tryInjectJumpSync()
     },
     continueDirectWaiting() {
       this.directSlowDismissed = true
@@ -356,6 +373,9 @@ export default {
         this.hasLoaded = true
         this.phase = 'idle'
         this.holdTimer = null
+        this.captureIframeHref()
+        this.hookIframeHistory()
+        this.tryInjectJumpSync()
       }, OVERLAY_HOLD_MS)
     },
     continueWaiting() {
@@ -398,6 +418,110 @@ export default {
     },
     goPortalHome() {
       this.$router.push({ path: '/index' }).catch(() => {})
+    },
+    getFrameEl() {
+      if (this.iframeId) {
+        return document.getElementById(this.iframeId)
+      }
+      return this.$refs.frame || this.$el.querySelector('iframe')
+    },
+    reportHref(href, title) {
+      if (!this.active || !href) {
+        return
+      }
+      if (href === this._lastReportedHref && title === this._lastReportedTitle) {
+        return
+      }
+      this._lastReportedHref = href
+      this._lastReportedTitle = title || ''
+      applyIframeHrefToJump(this.$router, href, this.clientId, title)
+    },
+    captureIframeHref() {
+      const el = this.getFrameEl()
+      if (!el) {
+        return
+      }
+      try {
+        const href = el.contentWindow && el.contentWindow.location && el.contentWindow.location.href
+        if (href && href.indexOf('about:blank') < 0) {
+          let title = ''
+          try {
+            title = (el.contentDocument && el.contentDocument.title) || ''
+          } catch (e2) { /* ignore */ }
+          this.reportHref(href, title)
+        }
+      } catch (e) { /* 跨域读不到，靠 postMessage */ }
+    },
+    hookIframeHistory() {
+      const el = this.getFrameEl()
+      if (!el) {
+        return
+      }
+      try {
+        const w = el.contentWindow
+        if (!w || w.__jumpPortalNavHook) {
+          return
+        }
+        w.__jumpPortalNavHook = true
+        const self = this
+        const report = function () {
+          try {
+            let title = ''
+            try {
+              title = w.document && w.document.title
+            } catch (e2) { /* ignore */ }
+            self.reportHref(w.location.href, title)
+          } catch (e) { /* ignore */ }
+        }
+        w.addEventListener('hashchange', report)
+        w.addEventListener('popstate', report)
+        const push = w.history.pushState
+        const replace = w.history.replaceState
+        w.history.pushState = function () {
+          const ret = push.apply(this, arguments)
+          report()
+          return ret
+        }
+        w.history.replaceState = function () {
+          const ret = replace.apply(this, arguments)
+          report()
+          return ret
+        }
+        report()
+      } catch (e) { /* 跨域 */ }
+    },
+    tryInjectJumpSync() {
+      const el = this.getFrameEl()
+      if (!el) {
+        return
+      }
+      try {
+        const doc = el.contentDocument
+        if (!doc || doc.getElementById('jump-portal-sync')) {
+          return
+        }
+        const s = doc.createElement('script')
+        s.id = 'jump-portal-sync'
+        s.src = `${window.location.origin}/jump-portal-sync.js`
+        ;(doc.head || doc.documentElement).appendChild(s)
+      } catch (e) { /* 跨域：靠 9100 nginx 注入 */ }
+    },
+    startNavSync() {
+      this.stopNavSync()
+      this.captureIframeHref()
+      this.hookIframeHistory()
+      this._navPollTimer = setInterval(() => {
+        if (!this.active) {
+          return
+        }
+        this.captureIframeHref()
+      }, 400)
+    },
+    stopNavSync() {
+      if (this._navPollTimer) {
+        clearInterval(this._navPollTimer)
+        this._navPollTimer = null
+      }
     },
     resetLoadState() {
       this.hasLoaded = false

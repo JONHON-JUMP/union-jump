@@ -33,7 +33,7 @@
       <div v-if="businessTabs.length" ref="tabScroller" class="business-tabs" aria-label="已打开应用">
         <button
           v-for="tab in businessTabs"
-          :key="tab.path"
+          :key="tabKey(tab)"
           :class="{ active: isActive(tab) }"
           class="business-tab"
           type="button"
@@ -68,7 +68,12 @@ import {
   resolvePortalFrameRoute,
   isPortalSubSystemHomePath,
   resolvePortalMenuTitle,
-  lookupPathLinkEntry
+  lookupPathLinkEntry,
+  lookupPathLinkExact,
+  portalTabKey,
+  portalQueryBucket,
+  portalTabsMatch,
+  buildPortalChildTabTitle
 } from '@/utils/portalRoute'
 import { syncPortalIframeView } from '@/utils/portalIframe'
 
@@ -125,16 +130,29 @@ export default {
               systems
             )
             : view
-          const mapEntry = isPortal ? lookupPathLinkEntry(view.path, map) : null
-          const title = resolvePortalMenuTitle(
-            resolved.meta && resolved.meta.menuTitle,
-            resolved.meta && resolved.meta.title,
-            mapEntry && mapEntry.title,
-            mapEntry && mapEntry.menuTitle,
-            view.title,
-            view.meta && view.meta.menuTitle,
-            view.meta && view.meta.title
-          ) || '业务页'
+          const exactEntry = isPortal ? lookupPathLinkExact(view.path, map) : null
+          const mapEntry = isPortal ? (exactEntry || lookupPathLinkEntry(view.path, map)) : null
+          const isChild = isPortal && (
+            !!(resolved.meta && resolved.meta.portalChild)
+            || !!(view.meta && view.meta.portalChild)
+            || portalQueryBucket(view) === 'child'
+            || (!!mapEntry && !exactEntry)
+          )
+          const title = isChild
+            ? buildPortalChildTabTitle(
+              (mapEntry && mapEntry.title) || (mapEntry && mapEntry.menuTitle),
+              view,
+              systems
+            )
+            : (resolvePortalMenuTitle(
+              resolved.meta && resolved.meta.menuTitle,
+              resolved.meta && resolved.meta.title,
+              mapEntry && mapEntry.title,
+              mapEntry && mapEntry.menuTitle,
+              view.title,
+              view.meta && view.meta.menuTitle,
+              view.meta && view.meta.title
+            ) || '业务页')
           if (!title || title === 'no-name') {
             return null
           }
@@ -179,13 +197,20 @@ export default {
       syncPortalIframeView(this.$store, route)
       this.$store.dispatch('tagsView/touchVisitedView', route)
     },
+    tabKey(tab) {
+      return portalTabKey(tab) || tab.path
+    },
     isActive(tab) {
-      return tab.path === this.$route.path
+      return portalTabsMatch(tab, this.$route)
     },
     tabIcon(tab) {
       return (tab.meta && tab.meta.icon) || 'component'
     },
     activateTab(tab) {
+      // 列表 iframe 里点过详情后会停在子页；点回叶子菜单时强制重载列表地址
+      if (/^\/portal\//.test(tab.path || '') && portalQueryBucket(tab) === 'root') {
+        this.$store.commit('tagsView/RESTORE_PORTAL_IFRAME', tab)
+      }
       if (!this.isActive(tab)) {
         this.$router.push(tab.fullPath || tab.path)
       }

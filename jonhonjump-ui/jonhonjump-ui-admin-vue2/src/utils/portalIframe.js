@@ -32,18 +32,6 @@ function portalPathAliasKey(path) {
   return String(path || '').replace(/\/index\/?$/, '').replace(/\/$/, '')
 }
 
-function findFrameByPathAlias(list, path) {
-  if (!path || !list || !list.length) {
-    return null
-  }
-  const exact = list.find(v => v && v.path === path)
-  if (exact) {
-    return exact
-  }
-  const key = portalPathAliasKey(path)
-  return list.find(v => v && portalPathAliasKey(v.path) === key) || null
-}
-
 function isCamstarLink(link) {
   const s = String(link || '')
   return /^https?:\/\//i.test(s) && s.indexOf('/#/') < 0 && s.indexOf('#') < 0
@@ -51,7 +39,7 @@ function isCamstarLink(link) {
 
 /**
  * 门户 iframe 唯一登记入口。
- * 不变量：页签用当前/canonical path；iframe :key 优先保温帧原 path；Camstar link 冻结。
+ * 子页（带 ? 或更深路径）与主菜单分开登记，对齐通知公告 / 通知详情。
  */
 export function syncPortalIframeView(store, route) {
   if (store.state.portal.iframeSyncSuspended) {
@@ -66,15 +54,12 @@ export function syncPortalIframeView(store, route) {
   if (!view || !view.name) {
     return view || route
   }
-  // 即使 link 暂时为空（pathLinkMap 还没加载好），也先注册到 visitedViews，
-  // 这样底部 Dock 能显示页签；link 等 pathLinkMap 更新后由 AppMain watch 补上
   const hasLink = !!(view.meta && view.meta.link)
+  const isChild = !!(view.meta && view.meta.portalChild)
 
-  // 打开时规范到 pathLinkMap canonical，减少 /index 分叉
-  const canonical = hasLink ? resolveCanonicalPortalPath(view.path, pathLinkMap) : null
+  const canonical = hasLink && !isChild ? resolveCanonicalPortalPath(view.path, pathLinkMap) : null
   if (canonical && canonical !== view.path) {
     view.path = canonical
-    view.fullPath = canonical
   }
 
   const prev = (store.state.tagsView.visitedViews || []).find(v =>
@@ -90,7 +75,12 @@ export function syncPortalIframeView(store, route) {
     view.meta && view.meta.title,
     view.title
   )
-  if (!nextTitle && prevTitle) {
+  if (isChild) {
+    if (nextTitle) {
+      view.title = nextTitle
+      view.meta = { ...(view.meta || {}), title: nextTitle, menuTitle: nextTitle }
+    }
+  } else if (!nextTitle && prevTitle) {
     view.title = prevTitle
     view.meta = { ...(view.meta || {}), title: prevTitle, menuTitle: prevTitle }
   } else if (nextTitle && isGenericPortalTitle(view.meta && view.meta.title) && prevTitle) {
@@ -108,23 +98,7 @@ export function syncPortalIframeView(store, route) {
   store.dispatch('tagsView/addView', view)
 
   if (view.meta && view.meta.link) {
-    const existing = findFrameByPathAlias(
-      [].concat(store.state.tagsView.iframeViews || [], store.state.tagsView.warmIframeViews || []),
-      view.path
-    )
-    // iframe 复用必须用原 path 作 :key；页签仍跟 canonical/当前 path
-    const iframeView = existing
-      ? Object.assign({}, view, {
-        path: existing.path,
-        meta: {
-          ...(view.meta || {}),
-          link: isCamstarLink(existing.meta && existing.meta.link)
-            ? existing.meta.link
-            : view.meta.link
-        }
-      })
-      : view
-    store.dispatch('tagsView/addIframeView', iframeView)
+    store.dispatch('tagsView/addIframeView', view)
   }
 
   store.dispatch('tagsView/updateVisitedView', view)

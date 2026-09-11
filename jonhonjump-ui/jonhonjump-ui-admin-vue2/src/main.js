@@ -15,6 +15,7 @@ import './assets/icons' // icon
 import './permission' // permission control
 import { installChunkLoadGuard } from '@/utils/appVersion'
 import { installPortalLogoutBroadcast } from '@/utils/portalLogoutBroadcast'
+import { installJumpPortalLocationListener } from '@/utils/portalIframeNav'
 import { getDicts } from "@/api/system/dict/data";
 import { getConfigKey } from "@/api/infra/config";
 import { parseTime, resetForm, handleTree, addBeginAndEndTime, divide } from "@/utils/ruoyi";
@@ -125,6 +126,7 @@ installChunkLoadGuard(router)
 // 保留 chunk 加载失败守卫：发版后旧页面点新路由 chunk 404 时仍会提示刷新，闭环不受影响。
 // startAppVersionPoll()
 installPortalLogoutBroadcast()
+installJumpPortalLocationListener(router)
 
 new Vue({
   el: '#app',

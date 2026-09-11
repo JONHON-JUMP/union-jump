@@ -22,8 +22,8 @@
       <inner-link
         v-for="item in allIframeFrames"
         v-show="isIframeVisible(item)"
-        :key="item.path"
-        :iframeId="'iframe-' + stableFrameId(item.path)"
+        :key="iframeKey(item)"
+        :iframeId="'iframe-' + stableFrameId(iframeKey(item))"
         :src="normalizeLink(item)"
         :active="isIframeVisible(item)"
         :clientId="parsePortalClientId(item.path)"
@@ -41,7 +41,8 @@ import {
   resolvePortalFrameRoute,
   slashIpPortRestToHttp,
   unwrapDirectHttpIframeLink,
-  lookupPathLinkEntry
+  portalTabKey,
+  portalTabsMatch
 } from '@/utils/portalRoute'
 import { syncPortalIframeView } from '@/utils/portalIframe'
 
@@ -61,12 +62,12 @@ export default {
       const map = {}
       ;(this.$store.state.tagsView.warmIframeViews || []).forEach(item => {
         if (item && item.path) {
-          map[item.path] = item
+          map[portalTabKey(item) || item.path] = item
         }
       })
       ;(this.iframeViews || []).forEach(item => {
         if (item && item.path) {
-          map[item.path] = item
+          map[portalTabKey(item) || item.path] = item
         }
       })
       return Object.keys(map).map(k => map[k])
@@ -76,7 +77,7 @@ export default {
     },
     resolvedFrameLink() {
       const fromView = (this.allIframeFrames || []).find(item =>
-        this.menuPathsMatch(this.$route.path, item && item.path)
+        portalTabsMatch(this.$route, item)
       )
       if (fromView && fromView.meta && fromView.meta.link) {
         return unwrapDirectHttpIframeLink(fromView.meta.link) || fromView.meta.link
@@ -127,7 +128,7 @@ export default {
     }
   },
   watch: {
-    '$route.path': {
+    '$route.fullPath': {
       immediate: true,
       handler() {
         this.placeholderFailed = false
@@ -142,6 +143,9 @@ export default {
         this.placeholderFailed = false
       }
     }
+  },
+  mounted() {
+    this.armPlaceholderTimeout()
   },
   beforeDestroy() {
     this.clearPlaceholderTimeout()
@@ -186,39 +190,13 @@ export default {
       const clientId = parsePortalClientId(item && item.path) || this.routeClientId
       return normalizeSubsystemIframeLink(unwrapped, clientId)
     },
+    iframeKey(item) {
+      const base = portalTabKey(item) || (item && item.path) || ''
+      const nonce = item && item.meta && item.meta.portalSrcNonce
+      return nonce ? `${base}__${nonce}` : base
+    },
     isIframeVisible(item) {
-      if (!this.menuPathsMatch(this.$route.path, item && item.path)) {
-        return false
-      }
-      return true
-    },
-    pathsMatchPortalAlias(routePath, itemPath) {
-      if (!routePath || !itemPath) {
-        return false
-      }
-      if (routePath === itemPath) {
-        return true
-      }
-      const strip = p => String(p).replace(/\/index\/?$/, '').replace(/\/$/, '')
-      return strip(routePath) === strip(itemPath)
-    },
-    menuPathsMatch(routePath, itemPath) {
-      if (this.pathsMatchPortalAlias(routePath, itemPath)) {
-        return true
-      }
-      const map = this.$store.state.portal.pathLinkMap
-      if (!map) {
-        return false
-      }
-      const a = lookupPathLinkEntry(routePath, map)
-      const b = lookupPathLinkEntry(itemPath, map)
-      if (!a || !b) {
-        return false
-      }
-      if (a === b) {
-        return true
-      }
-      return !!(a.link && b.link && a.link === b.link && a.title && b.title && a.title === b.title)
+      return portalTabsMatch(this.$route, item)
     },
     goPortalHome() {
       this.$router.push({ path: '/index' }).catch(() => {})
