@@ -50,16 +50,19 @@ export default {
     syncSessionGuard() {
       destroySessionGuard()
       this.sessionLocked = false
-      if (!getAccessToken()) {
+      if ((this.$route.meta && this.$route.meta.publicPage) || !getAccessToken()) {
         return
       }
       // 并行加载空闲锁屏时长（来自参数配置，非写死）
       loadSessionIdleTimeoutConfig(true).then(timeoutMs => {
+        // 配置请求返回前可能已经切换到公共页面。
+        if ((this.$route.meta && this.$route.meta.publicPage) || !getAccessToken()) return
         this.sessionIdleMinutes = getSessionIdleTimeoutMinutes()
         if (timeoutMs <= 0) {
           return
         }
         initSessionGuard(() => {
+          if (this.$route.meta && this.$route.meta.publicPage) return
           pauseSessionGuard()
           // 空闲锁屏=整机无人：踢掉所有标签页（含其它账号），安全优先
           broadcastForceLoginHome({ kickAll: true })
@@ -76,7 +79,9 @@ export default {
   },
   metaInfo() {
     return {
-      title: this.$store.state.settings.dynamicTitle && this.$store.state.settings.title,
+      title: this.$route.meta && this.$route.meta.publicPage
+        ? this.$route.meta.title
+        : this.$store.state.settings.dynamicTitle && this.$store.state.settings.title,
       titleTemplate: title => {
         return title ? `${title} - ${process.env.VUE_APP_TITLE}` : process.env.VUE_APP_TITLE
       }

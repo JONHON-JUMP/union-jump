@@ -1,6 +1,7 @@
 package cn.jonhon.jump.module.mes.process.controller.admin;
 
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
+import cn.jonhon.jump.framework.tenant.core.aop.TenantIgnore;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardReqVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardRespVO;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessFileUrlReqVO;
@@ -14,6 +15,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
+import javax.annotation.security.PermitAll;
 import javax.validation.Valid;
 
 import java.util.List;
@@ -31,6 +33,8 @@ public class ProcessController {
     private ProcessService processService;
 
     @PostMapping("/query/card")
+    @PermitAll
+    @TenantIgnore // 独立公共查询页，工艺数据来自共享外部系统
     @Operation(summary = "查看工艺卡片")
     @Parameter(name = "queryCard", description = "查看工艺卡片", required = true)
     public CommonResult<List<ProcessCardRespVO>> queryCard(@RequestBody @Valid ProcessCardReqVO reqVO) {
@@ -38,6 +42,8 @@ public class ProcessController {
     }
 
     @PostMapping("/query/file-url")
+    @PermitAll
+    @TenantIgnore
     @Operation(summary = "获取MPM工艺文件地址")
     public CommonResult<ProcessFileUrlRespVO> queryFileUrl(
             @RequestBody @Valid ProcessFileUrlReqVO reqVO) {

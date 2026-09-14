@@ -38,7 +38,7 @@ function parseBroadcast(newValue) {
   }
 }
 
-export function installPortalLogoutBroadcast() {
+export function installPortalLogoutBroadcast(router) {
   window.addEventListener('storage', (event) => {
     if (event.key !== FORCE_LOGIN_KEY || !event.newValue) {
       return
@@ -61,6 +61,9 @@ export function installPortalLogoutBroadcast() {
       removeUsername()
       clearCamstarCookie()
     } catch (e) { /* ignore */ }
+    // 公共页面继续使用；会话凭证仍按退出通知清理。
+    const route = router && router.currentRoute
+    if (route && route.meta && route.meta.publicPage) return
     try {
       const topWin = window.top && window.top !== window.self ? window.top : window
       topWin.location.href = buildLoginHomeUrl()

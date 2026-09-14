@@ -125,7 +125,7 @@ installChunkLoadGuard(router)
 // 版本轮询停用（现场反馈：自动弹"系统已更新"打断使用且低配机有感知）。
 // 保留 chunk 加载失败守卫：发版后旧页面点新路由 chunk 404 时仍会提示刷新，闭环不受影响。
 // startAppVersionPoll()
-installPortalLogoutBroadcast()
+installPortalLogoutBroadcast(router)
 installJumpPortalLocationListener(router)
 
 new Vue({

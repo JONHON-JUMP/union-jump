@@ -316,6 +316,12 @@ function continueNavigation(to, from, next) {
 }
 
 router.beforeEach((to, from, next) => {
+  // 公共页面无需用户信息和门户初始化，残留的过期 token 也不影响访问。
+  if (to.meta && to.meta.publicPage) {
+    NProgress.done()
+    next()
+    return
+  }
   if (isPortalHomePath(to.path)) {
     NProgress.done()
   } else {
@@ -388,6 +394,10 @@ router.beforeEach((to, from, next) => {
 })
 
 router.afterEach((to) => {
+  if (to.meta && to.meta.publicPage) {
+    NProgress.done()
+    return
+  }
   if (store.state.portal.iframeSyncSuspended) {
     NProgress.done()
     return

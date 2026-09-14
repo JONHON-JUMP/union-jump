@@ -30,6 +30,13 @@ Vue.use(Router)
 // 公共路由
 export const constantRoutes = [
   {
+    path: '/process-card',
+    component: (resolve) => require(['@/views/mes/process/card/index'], resolve),
+    name: 'PublicProcessCard',
+    hidden: true,
+    meta: { title: '工艺查询', publicPage: true }
+  },
+  {
     path: '/redirect',
     component: Layout,
     hidden: true,
