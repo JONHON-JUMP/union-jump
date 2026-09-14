@@ -52,6 +52,8 @@ public class ProcessServiceImpl implements ProcessService{
     private TemporaryProcessTreeAssembler temporaryProcessTreeAssembler;
     @Resource
     private FormalProcessTreeAssembler formalProcessTreeAssembler;
+    @Resource
+    private PdmProcessStateService pdmProcessStateService;
 
     /**
      * 临时工艺信息查询接口地址
@@ -113,9 +115,7 @@ public class ProcessServiceImpl implements ProcessService{
         if (document == null) {
             throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
         }
-        if (!CommonConstant.PUBLISHED.equals(document.getDocState())) {
-            throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
-        }
+        pdmProcessStateService.requirePublished(accno);
         String link = StringUtils.trimToEmpty(document.getDocLink());
         int queryIndex = link.indexOf('?');
         String query = queryIndex < 0 ? "" : link.substring(queryIndex + 1);
@@ -225,9 +225,7 @@ public class ProcessServiceImpl implements ProcessService{
             throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
         }
         log.info("caoeDocInfoDTO:{}", document);
-        if (!CommonConstant.PUBLISHED.equals(document.getDocState())) {
-            throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
-        }
+        pdmProcessStateService.requirePublished(docNumber);
         if (StringUtils.isBlank(document.getOid())) {
             throw exception(new ErrorCode(500, "临时工艺查看地址缺失"));
         }
@@ -309,12 +307,15 @@ public class ProcessServiceImpl implements ProcessService{
 
         String version = queryFormalVersion(request);
 
-        String state = caoeTableMapper.queryProcessState(accno, version);
-        if (!CommonConstant.PUBLISHED.equals(state)) {
-            throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
-        }
-
         boolean mpm = accno.startsWith(CommonConstant.MPM_FORMAL_ACCNO_PREFIX);
+        if (mpm) {
+            String state = caoeTableMapper.queryProcessState(accno, version);
+            if (!CommonConstant.PUBLISHED.equals(state)) {
+                throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
+            }
+        } else {
+            pdmProcessStateService.requirePublished(accno);
+        }
         List<ProcessCardDetailsRespVO> details = formalProcessTreeAssembler.assemble(accno, version, mpm);
         return ProcessCardRespVO.builder()
                 .accno(accno)

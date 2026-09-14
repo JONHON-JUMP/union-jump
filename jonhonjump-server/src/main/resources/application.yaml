@@ -354,6 +354,7 @@ jonhonjump:
       type: redis # 消息总线的类型
   mes:
     process:
+      pdm-version-url: http://192.168.240.127:4306/api/apiTransOperation/getPdmVersion # 非CX工艺发行状态查询，无鉴权
       mpm-login-url: http://mpm.caoe.com/basic/loginController/login.do
       mpm-login-username: ${MPM_LOGIN_USERNAME:MPMJCUSER}
       mpm-login-password: ${MPM_LOGIN_PASSWORD:TVBNSkNVU0VSQWRtaW4=} # 填文档中的接口密码值（已编码），不再二次编码
