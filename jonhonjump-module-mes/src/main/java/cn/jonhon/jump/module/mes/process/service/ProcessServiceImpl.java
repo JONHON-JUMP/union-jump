@@ -71,11 +71,8 @@ public class ProcessServiceImpl implements ProcessService{
     @Value("${jonhonjump.mes.process.formal-process-url}")
     private String formalProcessUrl;
 
-    /**
-     * MPM 正式工艺版本查询接口的 X-Access-Token
-     */
-    @Value("${jonhonjump.mes.process.mpm-access-token}")
-    private String mpmAccessToken;
+    @Resource
+    private MpmTokenService mpmTokenService;
 
     /**
      * MPM 工艺文件地址查询接口地址
@@ -367,7 +364,7 @@ public class ProcessServiceImpl implements ProcessService{
     private HttpHeaders buildMpmHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(new MediaType(MediaType.APPLICATION_JSON, StandardCharsets.UTF_8));
-        headers.set("X-Access-Token", mpmAccessToken);
+        headers.set("X-Access-Token", mpmTokenService.getToken());
         headers.set("Accept-User", CommonConstant.MPM_VIEW_USER);
         return headers;
     }

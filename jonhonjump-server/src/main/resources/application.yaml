@@ -354,6 +354,11 @@ jonhonjump:
       type: redis # 消息总线的类型
   mes:
     process:
+      mpm-login-url: http://mpm.caoe.com/basic/loginController/login.do
+      mpm-login-username: ${MPM_LOGIN_USERNAME:MPMJCUSER}
+      mpm-login-password: ${MPM_LOGIN_PASSWORD:TVBNSkNVU0VSQWRtaW4=} # 填文档中的接口密码值（已编码），不再二次编码
+      mpm-login-language: zh-CN
+      # 每天北京时间0点及应用启动时刷新；mpm-access-token仅作为首次刷新前的兜底
       temporary-process-url: http://192.168.240.10:10011/api/jonhon/erpdata/mesdatainterface/sono/rest/SonoRest/GetPrtRoutInfo/v1 # MES 临时工艺信息查询接口地址
       temporary-process-token: Basic YXZpY2l0MjAxNTphdmljaXQyMDE1 # MES 临时工艺信息查询接口请求头 Authorization 的值，向 MES 平台管理员申请后填入，暂默认为空
       formal-process-url: http://mpm.caoe.com/plm-service/api/gate/object/v1/queryObjectInfo # MES 正式工艺版本查询接口地址
