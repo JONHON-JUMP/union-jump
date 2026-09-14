@@ -328,6 +328,13 @@ public class ProcessServiceImpl implements ProcessService{
     }
 
     private String queryFormalCardUrl(String accno, String version) {
+        String oid = caoeTableMapper.queryProcessOid(accno, version);
+        if (oid != null && oid.startsWith("ProcessEntity")) {
+            MultiValueMap<String, Object> request = new LinkedMultiValueMap<>();
+            // 整本工艺使用数据库中的完整oid，不能复用工序入口添加OperationEntity前缀。
+            request.add("oid", oid);
+            return queryProcessFileUrl(request).getUrl();
+        }
         String link = StringUtils.trimToEmpty(caoeTableMapper.queryProcessLink(accno, version));
         int queryIndex = link.indexOf('?');
         String query = queryIndex < 0 ? "" : link.substring(queryIndex + 1);
