@@ -107,14 +107,9 @@ export default {
       if (this.isDirectExternalLink(this.resolvedFrameLink)) {
         return true
       }
-      const clientId = this.routeClientId
-      if (!clientId) {
-        return false
-      }
-      const rest = String(this.$route.path || '')
-        .replace(new RegExp('^/portal/' + clientId + '/'), '')
-        .replace(/\/index$/, '')
-      return !!slashIpPortRestToHttp(rest.replace(/:/g, '/'))
+      const link = this.resolvedFrameLink
+      // 带 /#/ 的 SPA 也算已解析到业务地址
+      return !!(link && /^https?:\/\//i.test(link))
     },
     showFramePlaceholder() {
       if (!this.routeClientId) {

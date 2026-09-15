@@ -411,18 +411,27 @@ export function resolvePortalFrameRoute(route, pathLinkMap, systemList) {
     return plainPortalView(route)
   }
 
-  // 只从壳 path 还原路由地址对应的 http，不拼 /#/
+  // 壳 path → 业务 http（含 __hash__/ → #/）；pathLinkMap 有完整 link 时优先（尤其旧壳无 __hash__）
   const directHttp = slashIpPortRestToHttp(rest)
   const prefixEntry = exactEntry || (directHttp
     ? lookupPathLinkEntry(route.path, pathLinkMap, directHttp)
     : lookupPathLinkEntry(route.path, pathLinkMap))
   let link = ''
-  if (directHttp
+  const mapLink = prefixEntry && prefixEntry.link ? String(prefixEntry.link) : ''
+  if (directHttp && String(directHttp).indexOf('#') >= 0) {
+    // 壳上已带 SPA 路由，以壳为准
+    link = mergeRouteQueryHash(directHttp, route)
+  } else if (mapLink && mapLink.indexOf('#') >= 0) {
+    link = mergeRouteQueryHash(mapLink, route)
+  } else if (directHttp
     && !(systemUrl && isEncodedSystemUrlRest(encodePureHttpToShell(directHttp), systemUrl))
     && !(systemUrl && encodePureHttpToShell(directHttp) === encodePureHttpToShell(systemUrl))) {
     link = mergeRouteQueryHash(directHttp, route)
-  } else if (prefixEntry && prefixEntry.link) {
-    link = mergeRouteQueryHash(prefixEntry.link, route)
+  } else if (mapLink) {
+    link = mergeRouteQueryHash(mapLink, route)
+  } else if (directHttp) {
+    // 菜单未加载时仍直开壳还原地址，避免「未挂载」白屏
+    link = mergeRouteQueryHash(directHttp, route)
   }
   if (!link) {
     if (existingTitle) {
@@ -531,7 +540,12 @@ export function lookupPathLinkEntry(path, pathLinkMap, linkHint) {
 }
 
 function restWithoutQuery(rest) {
-  return String(rest || '').split('#')[0].split('?')[0].replace(/\/index$/, '').replace(/\/$/, '')
+  return String(rest || '')
+    .split('#')[0]
+    .split('?')[0]
+    .replace(/\/__hash__\/.*$/i, '')
+    .replace(/\/index$/, '')
+    .replace(/\/$/, '')
 }
 
 function isEncodedHttpRest(rest) {
@@ -749,9 +763,19 @@ function pathnameOnly(httpUrl) {
  */
 export function slashIpPortRestToHttp(rest) {
   const raw0 = String(rest || '').replace(/^\/+/, '')
-  const hashIdx = raw0.indexOf('#')
-  const hashPart = hashIdx >= 0 ? raw0.substring(hashIdx) : ''
-  const noHash = hashIdx >= 0 ? raw0.substring(0, hashIdx) : raw0
+  // 壳内 SPA：.../__hash__/d3OtherDept/d2AlterRecord → #/d3OtherDept/d2AlterRecord
+  const hashMarker = '__hash__/'
+  let spaHash = ''
+  let work = raw0
+  const markerAt = work.indexOf(hashMarker)
+  if (markerAt >= 0) {
+    const before = work.substring(0, markerAt).replace(/\/$/, '')
+    spaHash = '#/' + work.substring(markerAt + hashMarker.length).replace(/^\/+/, '')
+    work = before
+  }
+  const hashIdx = work.indexOf('#')
+  const hashPart = hashIdx >= 0 ? work.substring(hashIdx) : ''
+  const noHash = hashIdx >= 0 ? work.substring(0, hashIdx) : work
   const qIdx = noHash.indexOf('?')
   const searchPart = qIdx >= 0 ? noHash.substring(qIdx) : ''
   const pathPart = qIdx >= 0 ? noHash.substring(0, qIdx) : noHash
@@ -759,7 +783,7 @@ export function slashIpPortRestToHttp(rest) {
   if (!built) {
     return ''
   }
-  return built.replace(/\/$/, '') + searchPart + hashPart
+  return built.replace(/\/$/, '') + searchPart + (spaHash || hashPart)
 }
 
 function slashIpPortRestToHttpPath(rest) {
@@ -860,14 +884,18 @@ function mergeRouteQueryHash(httpUrl, route) {
 
 function encodePureHttpToShell(httpUrl) {
   let s = String(httpUrl || '').trim()
+  // SPA hash（#/xxx）编进壳 path：.../__hash__/xxx，否则地址栏/回退都会丢路由
+  let spaHash = ''
   const hashPos = s.indexOf('#')
   if (hashPos >= 0) {
+    spaHash = s.substring(hashPos + 1).replace(/^\/+/, '')
     s = s.substring(0, hashPos)
   }
   const qPos = s.indexOf('?')
   if (qPos >= 0) {
     s = s.substring(0, qPos)
   }
+  let shell = ''
   // 点分 IP + 显式端口 → 192/168/240/127/4200[/path]（纯斜杠，避免壳 path 里出现 :4200 触发 Vue Router 动态参数）
   try {
     const withProto = /^https?:\/\//i.test(s) ? s : (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?(\/|$)/.test(s) ? `http://${s}` : '')
@@ -876,17 +904,23 @@ function encodePureHttpToShell(httpUrl) {
       if (/^\d{1,3}(\.\d{1,3}){3}$/.test(u.hostname) && u.port) {
         const hostSlash = u.hostname.replace(/\./g, '/')
         const path = (u.pathname || '/').replace(/^\/+/, '').replace(/\/$/, '')
-        return `${hostSlash}/${u.port}${path ? `/${path}` : ''}`
+        shell = `${hostSlash}/${u.port}${path ? `/${path}` : ''}`
       }
     }
   } catch (e) { /* fallback */ }
-  return s
-    .replace(/^https?:\/\//i, '')
-    .replace(/^www\./i, '')
-    .replace(/\./g, '/')
-    .replace(/:/g, '/')
-    .replace(/\/+/g, '/')
-    .replace(/\/$/, '')
+  if (!shell) {
+    shell = s
+      .replace(/^https?:\/\//i, '')
+      .replace(/^www\./i, '')
+      .replace(/\./g, '/')
+      .replace(/:/g, '/')
+      .replace(/\/+/g, '/')
+      .replace(/\/$/, '')
+  }
+  if (spaHash) {
+    shell = `${shell.replace(/\/$/, '')}/__hash__/${spaHash.replace(/^\/+/, '')}`
+  }
+  return shell
 }
 
 /** 门户壳 path：业务直链 http → 192/168/240/127/4200/...（纯斜杠；旧 点+9 编码仍可解码） */
@@ -899,17 +933,17 @@ export function encodeHttpToMesPath(httpUrl) {
   return encodePureHttpToShell(raw)
 }
 
-/** 业务页 http（含子路径、?、#）→ JUMP 地址栏 location */
+/** 业务页 http（含子路径、?、#）→ JUMP 地址栏 location；SPA # 编进 path 的 __hash__/，不依赖 Vue hash */
 export function httpUrlToPortalLocation(clientId, httpUrl) {
   if (!clientId || !httpUrl) {
     return null
   }
   try {
-    const u = new URL(String(httpUrl))
-    const shell = encodePureHttpToShell(u.origin + u.pathname)
+    const shell = encodePureHttpToShell(String(httpUrl))
     if (!shell) {
       return null
     }
+    const u = new URL(String(httpUrl))
     const query = {}
     const search = String(u.search || '').replace(/^\?/, '')
     if (search) {
@@ -927,8 +961,7 @@ export function httpUrlToPortalLocation(clientId, httpUrl) {
     }
     return {
       path: (`/portal/${clientId}/${shell}`).replace(/\/{2,}/g, '/'),
-      query,
-      hash: u.hash || ''
+      query
     }
   } catch (e) {
     return null

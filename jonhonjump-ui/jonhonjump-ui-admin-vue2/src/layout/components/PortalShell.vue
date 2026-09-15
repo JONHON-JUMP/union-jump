@@ -125,7 +125,7 @@
 import { mapGetters } from 'vuex'
 import { confirmSwitchUser, confirmLogout } from '@/utils/switchUser'
 import { isExternal } from '@/utils/validate'
-import { parsePortalClientId, resolvePortalFrameRoute, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath } from '@/utils/portalRoute'
+import { parsePortalClientId, resolvePortalFrameRoute, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath, httpUrlToPortalLocation } from '@/utils/portalRoute'
 import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
 import { startCamstarOpenTrace, markCamstarOpen } from '@/utils/camstarOpenDiag'
 import AllAppsDrawer from '@/views/components/AllAppsDrawer.vue'
@@ -508,11 +508,19 @@ export default {
           || cachedMap[targetPath] || lookupPathLinkEntry(targetPath, cachedMap)
           || activeMap[app.path] || lookupPathLinkEntry(app.path, activeMap)
           || cachedMap[app.path] || lookupPathLinkEntry(app.path, cachedMap)
-        const link = (entry && entry.link) || ''
-        const rest = String(targetPath).replace(new RegExp('^/portal/' + clientId + '/'), '')
-        const isDirect = (/^https?:\/\//i.test(link) && link.indexOf('#') < 0)
-          || !!slashIpPortRestToHttp(rest.replace(/:/g, '/'))
-        const resolvedLink = link || slashIpPortRestToHttp(rest.replace(/:/g, '/')) || ''
+        const link = (entry && entry.link) || (app && app.link) || ''
+        // 旧快捷导航可能只有 .../d3/needle；有完整 http(含 #) 时重写成带 __hash__ 的壳 path
+        if (link && /^https?:\/\//i.test(link) && String(link).indexOf('#') >= 0) {
+          const loc = httpUrlToPortalLocation(clientId, link)
+          if (loc && loc.path) {
+            targetPath = loc.path
+          }
+        }
+        const rest = String(targetPath).replace(new RegExp('^/portal/' + clientId + '/'), '').replace(/\/index$/, '')
+        const restHttp = /^menu\d+/i.test(rest) ? '' : (slashIpPortRestToHttp(rest.replace(/:/g, '/')) || '')
+        // 任意完整 http(s)（含 /#/xxx）都直开；禁止用壳 path 回退成丢 hash 的 host 根
+        const isDirect = /^https?:\/\//i.test(link) || !!restHttp
+        const resolvedLink = link || restHttp || ''
 
         const pushWithTitle = () => {
           return this.$router.push(targetPath).then(() => {

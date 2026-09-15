@@ -39,6 +39,7 @@ function toPortalShellPath(route, clientId) {
   const base = resolveSubSystemBaseUrl(clientId)
 
   if (isHttpUrl(src)) {
+    // 带 # 的直开地址：壳 path 用 .../__hash__/路由（见 encodePureHttpToShell），iframe 还原完整 http://.../#/...
     const shell = encodeHttpToMesPath(src)
     if (base && shell === encodeHttpToMesPath(base)) {
       return 'menu' + (route && route.id != null ? route.id : '0')
