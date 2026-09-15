@@ -211,10 +211,8 @@ export default {
       return (tab.meta && tab.meta.icon) || 'component'
     },
     activateTab(tab) {
-      // 列表 iframe 里点过详情后会停在子页；点回叶子菜单时强制重载列表地址
-      if (/^\/portal\//.test(tab.path || '') && portalQueryBucket(tab) === 'root') {
-        this.$store.commit('tagsView/RESTORE_PORTAL_IFRAME', tab)
-      }
+      // 切换 tab 只切路由：iframe 帧由 IframeToggle 用 v-show 保活，保持现场不重载；
+      // 需要刷新时用户按浏览器 F5（打开/关闭详情子页时既有逻辑仍会刷新父列表）
       if (!this.isActive(tab)) {
         this.$router.push(tab.fullPath || tab.path)
       }

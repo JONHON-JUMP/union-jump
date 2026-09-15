@@ -337,6 +337,12 @@ public class SubSystemUsersController {
 
     }
 
+    @GetMapping("/my-camstar-username")
+    @Operation(summary = "当前用户在 Camstar 侧的登录用户名（注册时标记拼接车间则为 车间编号_工号，否则为主登录工号）")
+    public CommonResult<String> getMyCamstarUsername() {
+        return success(subSystemUsersService.getMyCamstarUsername(getLoginUserId()));
+    }
+
     @GetMapping("/my-menus")
     @Operation(summary = "获得当前用户在指定外部系统下的门户菜单")
     public CommonResult<List<SubSystemPortalMenuRespVO>> getMyPortalMenus(

@@ -608,6 +608,10 @@ export default {
       }).then(res => {
         this.roleList = res.data.list || []
         this.total = res.data.total || 0
+      }).catch(() => {
+        this.roleList = []
+        this.total = 0
+        this.$modal.msgError('加载角色列表失败，请重试')
       }).finally(() => {
         this.loading = false
       })
@@ -716,6 +720,8 @@ export default {
         }
         this.open = true
         this.title = '修改业务系统角色'
+      }).catch(() => {
+        this.$modal.msgError('加载角色信息失败，请重试')
       })
     },
     submitForm() {
@@ -747,6 +753,8 @@ export default {
           this.open = false
           this.getList()
           this.loadClientList()
+        }).catch(() => {
+          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
         }).finally(() => {
           this.submitting = false
         })

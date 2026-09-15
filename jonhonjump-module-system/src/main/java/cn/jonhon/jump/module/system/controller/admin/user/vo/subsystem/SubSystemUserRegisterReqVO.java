@@ -22,4 +22,7 @@ public class SubSystemUserRegisterReqVO {
     @Schema(description = "车间编码（花名册用户未维护车间时必填；Camstar 新增人员不允许为空）", example = "4200")
     private String workshopCode;
 
+    @Schema(description = "注册用户名是否拼接车间编号（可选，任意类型接口均可用；勾选后对接系统用户名为 车间编号_工号）", example = "true")
+    private Boolean usernameWithWorkshop;
+
 }

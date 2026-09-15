@@ -194,7 +194,7 @@ import {
   updateSubSystemPost
 } from '@/api/system/subSystemPost'
 import { CommonStatusEnum } from '@/utils/constants'
-import { DICT_TYPE, getDictDatas } from '@/utils/dict'
+import { DICT_TYPE, ensureDictDatas, getDictDatas } from '@/utils/dict'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
 
@@ -233,11 +233,13 @@ export default {
         code: [{ required: true, message: '岗位编码不能为空', trigger: 'blur' }],
         sort: [{ required: true, message: '岗位顺序不能为空', trigger: 'blur' }],
         status: [{ required: true, message: '状态不能为空', trigger: 'change' }]
-      },
-      statusDictDatas: getDictDatas(DICT_TYPE.COMMON_STATUS)
+      }
     }
   },
   computed: {
+    statusDictDatas() {
+      return getDictDatas(DICT_TYPE.COMMON_STATUS)
+    },
     uploadAction() {
       const id = this.selectedClient && this.selectedClient.id
       const update = this.upload.updateSupport ? 'true' : 'false'
@@ -257,7 +259,10 @@ export default {
     }
   },
   created() {
-    this.loadClientList()
+    // 字典按需加载（本项目无全局字典预载，不加载时 dict-tag/下拉全空）
+    ensureDictDatas(DICT_TYPE.COMMON_STATUS).finally(() => {
+      this.loadClientList()
+    })
   },
   methods: {
     loadClientList() {
@@ -294,6 +299,10 @@ export default {
       }).then(res => {
         this.postList = res.data.list || []
         this.total = res.data.total || 0
+      }).catch(() => {
+        this.postList = []
+        this.total = 0
+        this.$modal.msgError('加载岗位列表失败，请重试')
       }).finally(() => {
         this.loading = false
       })
@@ -383,6 +392,8 @@ export default {
         }
         this.open = true
         this.title = '修改业务系统岗位'
+      }).catch(() => {
+        this.$modal.msgError('加载岗位信息失败，请重试')
       })
     },
     submitForm() {
@@ -396,6 +407,8 @@ export default {
           this.open = false
           this.getList()
           this.loadClientList()
+        }).catch(() => {
+          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
         })
       })
     },

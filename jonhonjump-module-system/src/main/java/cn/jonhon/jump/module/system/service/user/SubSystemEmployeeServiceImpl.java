@@ -91,8 +91,9 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     @Override
     public void createEmployee(SubSystemEmployeeSaveReqVO createReqVO) {
         try {
-            getApi(createReqVO.getSubSystemId())
-                    .create(BeanUtils.toBean(createReqVO, SubSystemEmployeeDTO.class));
+            SubSystemEmployeeDTO dto = BeanUtils.toBean(createReqVO, SubSystemEmployeeDTO.class);
+            applyWorkshopPrefixedUserCode(dto);
+            getApi(createReqVO.getSubSystemId()).create(dto);
         } catch (ExternalApiException e) {
             throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
         }
@@ -101,8 +102,9 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     @Override
     public void updateEmployee(SubSystemEmployeeSaveReqVO updateReqVO) {
         try {
-            getApi(updateReqVO.getSubSystemId())
-                    .update(BeanUtils.toBean(updateReqVO, SubSystemEmployeeDTO.class));
+            SubSystemEmployeeDTO dto = BeanUtils.toBean(updateReqVO, SubSystemEmployeeDTO.class);
+            applyWorkshopPrefixedUserCode(dto);
+            getApi(updateReqVO.getSubSystemId()).update(dto);
         } catch (ExternalApiException e) {
             throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
         }
@@ -173,6 +175,9 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     public List<SubSystemUserRegisterRespVO> registerEmployees(SubSystemUserRegisterReqVO reqVO) {
         // 接口目标必须已配置且新增接口启用（未配置时 getApi 会抛具体业务异常）
         getApi(reqVO.getApiSubSystemId());
+        // 用户名拼接车间编号为可选项，对任意类型接口（camstar/http）均可用：
+        // 对接系统要求用户名全局唯一时，以 车间编号_工号 注册，同一工号可登录不同车间系统
+        boolean usernameWithWorkshop = Boolean.TRUE.equals(reqVO.getUsernameWithWorkshop());
         List<SubSystemUsersDO> rosters = subSystemUsersMapper.selectBatchIds(reqVO.getIds());
         Map<Long, SubSystemUsersDO> rosterMap = rosters.stream()
                 .collect(Collectors.toMap(SubSystemUsersDO::getId, r -> r, (a, b) -> a));
@@ -200,13 +205,15 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                 continue;
             }
             try {
-                SubSystemEmployeeDTO dto = buildEmployeeDTO(roster, reqVO.getApiSubSystemId(), reqVO.getWorkshopCode());
+                SubSystemEmployeeDTO dto = buildEmployeeDTO(roster, reqVO.getApiSubSystemId(), reqVO.getWorkshopCode(),
+                        usernameWithWorkshop);
                 if (StrUtil.isBlank(dto.getWorkshopCode())) {
                     result.setSuccess(false).setMessage("车间编码为空：请在注册时选择车间，或先在花名册维护该用户的车间（选业务系统不等于选车间）");
                     continue;
                 }
                 getApi(reqVO.getApiSubSystemId()).create(dto);
-                markRegistered(roster.getId(), dto.getWorkshopCode());
+                markRegistered(roster.getId(), dto.getWorkshopCode(), usernameWithWorkshop,
+                        resolveApiType(reqVO.getApiSubSystemId()));
                 result.setSuccess(true);
             } catch (ExternalApiException e) {
                 log.warn("[registerEmployees] rosterId={} apiSubSystemId={} 调用新增人员接口失败",
@@ -222,14 +229,18 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     }
 
     /** 车间优先：花名册已填 > 注册弹窗指定 > 花名册系统车间对照 > 接口目标车间对照 */
-    private SubSystemEmployeeDTO buildEmployeeDTO(SubSystemUsersDO roster, Long apiSubSystemId, String overrideWorkshopCode) {
+    private SubSystemEmployeeDTO buildEmployeeDTO(SubSystemUsersDO roster, Long apiSubSystemId, String overrideWorkshopCode,
+                                                  boolean usernameWithWorkshop) {
         AdminUserDO mainUser = roster.getMainUserId() == null
                 ? null : adminUserMapper.selectById(roster.getMainUserId());
         SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
-        dto.setUserCode(roster.getUsername());
+        String workshopCode = resolveWorkshopCode(roster, apiSubSystemId, mainUser, overrideWorkshopCode);
+        dto.setWorkshopCode(workshopCode);
+        // Camstar 用户名全局唯一：勾选拼接时以 车间编号_工号 注册，同一工号可登录不同车间 MES
+        dto.setUserCode(usernameWithWorkshop && StrUtil.isNotBlank(workshopCode)
+                ? workshopCode.trim() + "_" + roster.getUsername() : roster.getUsername());
         dto.setUserName(StrUtil.blankToDefault(roster.getNickname(),
                 mainUser != null ? mainUser.getNickname() : null));
-        dto.setWorkshopCode(resolveWorkshopCode(roster, apiSubSystemId, mainUser, overrideWorkshopCode));
         dto.setTeamCode(roster.getTeamId());
         if (mainUser != null) {
             dto.setDomainName(mainUser.getDomainNo());
@@ -264,14 +275,48 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         return subSystemWorkshopService.inferWorkshopCode(roster.getSubSystemId());
     }
 
-    private void markRegistered(Long rosterId, String workshopCode) {
+    private void markRegistered(Long rosterId, String workshopCode, boolean usernameWithWorkshop, String apiType) {
         SubSystemUsersDO updateObj = new SubSystemUsersDO();
         updateObj.setId(rosterId);
         updateObj.setEmployeeRegistered("1");
+        // 记录拼接方式：后续访问子系统与手动接口都按该标记还原 车间编号_工号
+        updateObj.setUsernameWithWorkshop(usernameWithWorkshop ? "1" : "0");
+        // 记录所调接口类型：Camstar Cookie 身份预取只认注册到 camstar 的行
+        updateObj.setRegisteredApiType(apiType);
         if (StrUtil.isNotBlank(workshopCode)) {
             updateObj.setWorkshopId(workshopCode.trim());
         }
         subSystemUsersMapper.updateById(updateObj);
+    }
+
+    /** 所调「新增人员」接口的适配器类型（注册成功后记录在行上） */
+    private String resolveApiType(Long apiSubSystemId) {
+        SubSystemApiConfigDO config = subSystemApiConfigMapper.selectBySubSystemId(apiSubSystemId);
+        return config != null ? config.getApiType() : null;
+    }
+
+    /**
+     * 手动新增/修改人员时的用户名归一：已按 车间编号_工号 注册过的用户，传裸工号会被对接系统
+     * 的 addOrUpdateUser（按 userCode 精确匹配）当成新用户重复建号，这里按行上的拼接标记自动补车间前缀。
+     * 传入已含 "_" 视为操作者明确指定全名，原样透传。
+     */
+    private void applyWorkshopPrefixedUserCode(SubSystemEmployeeDTO dto) {
+        if (StrUtil.isBlank(dto.getUserCode()) || dto.getUserCode().contains("_")) {
+            return;
+        }
+        List<SubSystemUsersDO> rosters = subSystemUsersMapper
+                .selectListByUsernameAndUsernameWithWorkshop(dto.getUserCode().trim());
+        if (CollUtil.isEmpty(rosters)) {
+            return;
+        }
+        if (rosters.size() > 1) {
+            throw exception0(BAD_REQUEST.getCode(),
+                    "工号【" + dto.getUserCode() + "】存在多个车间身份，请使用完整用户名（车间编号_工号）操作");
+        }
+        SubSystemUsersDO roster = rosters.get(0);
+        if (StrUtil.isNotBlank(roster.getWorkshopId())) {
+            dto.setUserCode(roster.getWorkshopId().trim() + "_" + dto.getUserCode().trim());
+        }
     }
 
     private SubSystemEmployeeApi getApi(Long subSystemId) {

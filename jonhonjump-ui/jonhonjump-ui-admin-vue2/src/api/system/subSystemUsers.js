@@ -15,6 +15,14 @@ export function getMyExternalSystemList() {
   })
 }
 
+// 当前用户在 Camstar 侧的登录用户名（拼接车间时为 车间编号_工号，否则为主登录工号）
+export function getMyCamstarUsername() {
+  return request({
+    url: '/system/sub-system-users/my-camstar-username',
+    method: 'get'
+  })
+}
+
 export function getMyPortalMenus(subSystemId) {
   return request({
     url: '/system/sub-system-users/my-menus',

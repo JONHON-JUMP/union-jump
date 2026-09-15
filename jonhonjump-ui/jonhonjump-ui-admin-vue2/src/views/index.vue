@@ -588,9 +588,9 @@ export default {
         const resolvedLink = link || slashIpPortRestToHttp(rest.replace(/:/g, '/')) || ''
 
         const openDirect = () => {
-          ensureLocalCamstarCookie()
+          ensureLocalCamstarCookie(resolvedLink, clientId)
           if (resolvedLink) {
-            seedCamstarCookieForUrlInBackground(resolvedLink)
+            seedCamstarCookieForUrlInBackground(resolvedLink, clientId)
           }
           const afterPush = () => {
             if (!menusReady) {

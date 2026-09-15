@@ -170,6 +170,10 @@ export default {
       getSubSystemWorkshopPage({ ...this.queryParams }).then(res => {
         this.workshopList = res.data.list || []
         this.total = res.data.total || 0
+      }).catch(() => {
+        this.workshopList = []
+        this.total = 0
+        this.$modal.msgError('加载车间对照列表失败，请重试')
       }).finally(() => {
         this.loading = false
       })

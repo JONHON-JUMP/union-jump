@@ -298,6 +298,14 @@ export default {
 
         this.total = res.data.total || 0
 
+      }).catch(() => {
+
+        this.systemList = []
+
+        this.total = 0
+
+        this.$modal.msgError('加载业务系统列表失败，请重试')
+
       }).finally(() => {
 
         this.loading = false
@@ -376,6 +384,8 @@ export default {
         }
         this.open = true
         this.title = '修改业务系统'
+      }).catch(() => {
+        this.$modal.msgError('加载业务系统信息失败，请重试')
       })
 
     },
@@ -399,6 +409,10 @@ export default {
           this.open = false
 
           this.getList()
+
+        }).catch(() => {
+
+          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
 
         })
 

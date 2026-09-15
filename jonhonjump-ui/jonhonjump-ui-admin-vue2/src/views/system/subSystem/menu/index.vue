@@ -317,7 +317,7 @@ import {
   updateSubSystemMenu
 } from '@/api/system/subSystemMenu'
 import { SystemMenuTypeEnum, CommonStatusEnum } from '@/utils/constants'
-import { DICT_TYPE, getDictDatas } from '@/utils/dict'
+import { DICT_TYPE, ensureDictDatas, getDictDatas } from '@/utils/dict'
 import { isExternal } from '@/utils/validate'
 import { flattenMenuTree, inheritedStyleId as resolveInheritedStyleId, isFirstLevelMenu as checkFirstLevelMenu } from '@/utils/menuStyleInherit'
 import { getBaseHeader } from '@/utils/request'
@@ -360,12 +360,16 @@ export default {
         sort: [{ required: true, message: '菜单顺序不能为空', trigger: 'blur' }],
         status: [{ required: true, message: '状态不能为空', trigger: 'blur' }]
       },
-      MenuTypeEnum: SystemMenuTypeEnum,
-      menuTypeDictDatas: getDictDatas(DICT_TYPE.SYSTEM_MENU_TYPE),
-      statusDictDatas: getDictDatas(DICT_TYPE.COMMON_STATUS)
+      MenuTypeEnum: SystemMenuTypeEnum
     }
   },
   computed: {
+    menuTypeDictDatas() {
+      return getDictDatas(DICT_TYPE.SYSTEM_MENU_TYPE)
+    },
+    statusDictDatas() {
+      return getDictDatas(DICT_TYPE.COMMON_STATUS)
+    },
     uploadAction() {
       const id = this.selectedClient && this.selectedClient.id
       const update = this.upload.updateSupport ? 'true' : 'false'
@@ -397,7 +401,11 @@ export default {
     }
   },
   created() {
-    this.loadClientList()
+    // 字典按需加载（本项目无全局字典预载，不加载时 dict-tag/下拉全空）
+    ensureDictDatas(DICT_TYPE.SYSTEM_MENU_TYPE)
+    ensureDictDatas(DICT_TYPE.COMMON_STATUS).finally(() => {
+      this.loadClientList()
+    })
   },
   methods: {
     refreshSubPortalMenus(extra = {}) {
@@ -451,6 +459,9 @@ export default {
         status: this.queryParams.status
       }).then(res => {
         this.menuList = this.handleTree(res.data || [], 'id')
+      }).catch(() => {
+        this.menuList = []
+        this.$modal.msgError('加载菜单列表失败，请重试')
       }).finally(() => {
         this.loading = false
       })
@@ -577,28 +588,30 @@ export default {
       this.resetFormData()
       const subSystemId = row.subSystemId || (this.selectedClient ? this.selectedClient.id : null)
       this.getTreeselect(subSystemId).then(() => {
-        getSubSystemMenu(row.id).then(res => {
-          this.form = {
-            id: res.data.id,
-            subSystemId: res.data.subSystemId,
-            parentId: res.data.parentId,
-            name: res.data.name,
-            icon: res.data.icon,
-            type: res.data.type,
-            sort: res.data.sort,
-            path: res.data.path,
-            permission: res.data.permission,
-            component: res.data.component,
-            componentName: res.data.componentName,
-            status: res.data.status,
-            visible: res.data.visible,
-            keepAlive: res.data.keepAlive,
-            alwaysShow: res.data.alwaysShow,
-            styleId: res.data.styleId
-          }
-          this.open = true
-          this.title = '修改业务系统菜单'
-        })
+        return getSubSystemMenu(row.id)
+      }).then(res => {
+        this.form = {
+          id: res.data.id,
+          subSystemId: res.data.subSystemId,
+          parentId: res.data.parentId,
+          name: res.data.name,
+          icon: res.data.icon,
+          type: res.data.type,
+          sort: res.data.sort,
+          path: res.data.path,
+          permission: res.data.permission,
+          component: res.data.component,
+          componentName: res.data.componentName,
+          status: res.data.status,
+          visible: res.data.visible,
+          keepAlive: res.data.keepAlive,
+          alwaysShow: res.data.alwaysShow,
+          styleId: res.data.styleId
+        }
+        this.open = true
+        this.title = '修改业务系统菜单'
+      }).catch(() => {
+        this.$modal.msgError('加载菜单信息失败，请重试')
       })
     },
     submitForm() {
@@ -650,6 +663,8 @@ export default {
           this.getList()
           this.loadClientList()
           this.refreshSubPortalMenus()
+        }).catch(() => {
+          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
         })
       })
     },

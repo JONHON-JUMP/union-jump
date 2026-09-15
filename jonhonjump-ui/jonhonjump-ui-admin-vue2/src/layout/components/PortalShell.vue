@@ -540,10 +540,10 @@ export default {
             title: app.name
           })
           const tCookie0 = Date.now()
-          ensureLocalCamstarCookie()
+          ensureLocalCamstarCookie(resolvedLink, clientId)
           markCamstarOpen(traceId, 'cookie', { ms: Date.now() - tCookie0 })
           if (resolvedLink) {
-            seedCamstarCookieForUrlInBackground(resolvedLink)
+            seedCamstarCookieForUrlInBackground(resolvedLink, clientId)
           }
           const afterPush = () => {
             markCamstarOpen(traceId, 'navigate', { path: targetPath })

@@ -91,9 +91,11 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(list)) {
             return Collections.emptyList();
         }
+        // 对接用户名兜底用主用户工号（行上未存用户名时）
+        AdminUserDO mainUser = adminUserMapper.selectById(userId);
         return list.stream()
                 .filter(item -> !"1".equals(item.getStatus()))
-                .map(this::convertExternal)
+                .map(item -> convertExternal(item, mainUser))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
     }
@@ -184,11 +186,59 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (StrUtil.isBlank(username)) {
             return null;
         }
-        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, username.trim());
+        SubSystemUsersDO user = selectByUsernameCompat(subSystemId, username.trim());
         if (user == null) {
             return null;
         }
         return buildRespList(Collections.singletonList(user)).get(0);
+    }
+
+    @Override
+    public String getMyCamstarUsername(Long userId) {
+        AdminUserDO mainUser = adminUserMapper.selectById(userId);
+        if (mainUser == null) {
+            return null;
+        }
+        // 未标记拼接车间的用户，Camstar 侧身份即主登录工号；
+        // 只认花名册 usernameWithWorkshop=1 + 有车间编号的行（与门户 Cookie 规则一致）
+        List<SubSystemUsersDO> rosters = subSystemUsersMapper.selectListByMainUserId(userId).stream()
+                .filter(item -> "1".equals(item.getUsernameWithWorkshop()))
+                .filter(item -> StrUtil.isNotBlank(item.getWorkshopId()))
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(rosters)) {
+            return mainUser.getUsername();
+        }
+        // 全局预取仅兜底：多车间时取最新一条；真正打开/切换系统以该系统 externalUsername 为准
+        SubSystemUsersDO roster = rosters.get(0);
+        String bare = StrUtil.isNotBlank(roster.getUsername()) ? roster.getUsername().trim() : mainUser.getUsername();
+        String workshopCode = roster.getWorkshopId().trim();
+        if (bare != null && bare.startsWith(workshopCode + "_")) {
+            return bare;
+        }
+        return workshopCode + "_" + bare;
+    }
+
+    /**
+     * 按用户名查子系统用户的兼容查询：子系统（Camstar）侧用户名为 车间编号_工号 时，
+     * 先按传入全名精确匹配；查不到且含 "_" 时按后缀工号回查，
+     * 命中行须已标记拼接车间（username_with_workshop=1）且车间编号与前缀一致才认。
+     */
+    private SubSystemUsersDO selectByUsernameCompat(Long subSystemId, String username) {
+        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, username);
+        if (user != null) {
+            return user;
+        }
+        int split = username.lastIndexOf('_');
+        if (split <= 0 || split >= username.length() - 1) {
+            return null;
+        }
+        String workshopCode = username.substring(0, split);
+        String bareUsername = username.substring(split + 1);
+        user = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, bareUsername);
+        if (user == null || !"1".equals(user.getUsernameWithWorkshop())) {
+            return null;
+        }
+        return workshopCode.equals(StrUtil.nullToEmpty(user.getWorkshopId()).trim()) ? user : null;
     }
 
     @Override
@@ -404,8 +454,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (StrUtil.isBlank(username)) {
             throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
         }
-        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(
-                subSystem.getId(), username.trim());
+        SubSystemUsersDO user = selectByUsernameCompat(subSystem.getId(), username.trim());
         if (user == null) {
             throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
         }
@@ -451,8 +500,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (StrUtil.isBlank(username)) {
             throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
         }
-        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(
-                subSystem.getId(), username.trim());
+        SubSystemUsersDO user = selectByUsernameCompat(subSystem.getId(), username.trim());
         if (user == null) {
             throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
         }
@@ -855,7 +903,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return mainUser;
     }
-    private UserExternalSystemRespVO convertExternal(SubSystemUsersDO item) {
+    private UserExternalSystemRespVO convertExternal(SubSystemUsersDO item, AdminUserDO mainUser) {
         SubSystemDO subSystem = subSystemMapper.selectById(item.getSubSystemId());
         if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus()) || !subSystem.isPortalBound()) {
             return null;
@@ -881,6 +929,23 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         vo.setWorkshopId(item.getWorkshopId());
         vo.setTeamId(item.getTeamId());
+        // Cookie 身份只认花名册「关联车间编号」：是 → 车间_工号，否 → 工号（不再卡 registeredApiType）
+        String bareUsername = StrUtil.isNotBlank(item.getUsername()) ? item.getUsername().trim()
+                : (mainUser != null ? mainUser.getUsername() : null);
+        vo.setUsername(bareUsername);
+        vo.setUsernameWithWorkshop(StrUtil.blankToDefault(item.getUsernameWithWorkshop(), "0"));
+        if (bareUsername != null && "1".equals(item.getUsernameWithWorkshop())
+                && StrUtil.isNotBlank(item.getWorkshopId())) {
+            String workshopCode = item.getWorkshopId().trim();
+            // 用户名本身已是 车间_工号 时不再叠一层
+            if (bareUsername.startsWith(workshopCode + "_")) {
+                vo.setExternalUsername(bareUsername);
+            } else {
+                vo.setExternalUsername(workshopCode + "_" + bareUsername);
+            }
+        } else {
+            vo.setExternalUsername(bareUsername);
+        }
         vo.setHomeMenuId(item.getHomeMenuId());
         SubSystemHomePageDO homePage = subSystemHomePageMapper.selectBySubSystemId(subSystem.getId());
         if (homePage != null) {

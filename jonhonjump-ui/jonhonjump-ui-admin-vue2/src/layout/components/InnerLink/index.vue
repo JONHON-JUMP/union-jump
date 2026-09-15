@@ -92,6 +92,7 @@
 import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
 import { markCamstarOpen } from '@/utils/camstarOpenDiag'
 import { applyIframeHrefToJump } from '@/utils/portalIframeNav'
+import { parsePortalClientId } from '@/utils/portalRoute'
 
 const SOFT_TIMEOUT_MS = 15000
 const HARD_TIMEOUT_MS = 30000
@@ -267,8 +268,10 @@ export default {
       if (this.directSrc && sameCamstarDocument(this.directSrc, n) && this.directPhase === 'loading') {
         return
       }
-      ensureLocalCamstarCookie()
-      seedCamstarCookieForUrlInBackground(n)
+      // 按"当前选择的系统"取该用户的对接身份（clientId 精确匹配，优于 URL 推断）
+      const portalClientId = parsePortalClientId(this.$route.path)
+      ensureLocalCamstarCookie(n, portalClientId)
+      seedCamstarCookieForUrlInBackground(n, portalClientId)
       this.directLoaded = false
       this.directSlowDismissed = false
       this.directPhase = 'loading'
@@ -387,8 +390,9 @@ export default {
     reloadIframe() {
       if (this.isDirectHttp) {
         const base = this.src || '/'
-        ensureLocalCamstarCookie()
-        seedCamstarCookieForUrlInBackground(base)
+        const portalClientId = parsePortalClientId(this.$route.path)
+        ensureLocalCamstarCookie(base, portalClientId)
+        seedCamstarCookieForUrlInBackground(base, portalClientId)
         this.directLoaded = false
         this.directSlowDismissed = false
         this.directPhase = 'loading'

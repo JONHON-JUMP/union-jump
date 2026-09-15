@@ -1,5 +1,6 @@
 import router, { constantRoutes } from '@/router'
 import { getMyExternalSystemList, getMyPortalMenus, getMyPortalMenusVersion } from '@/api/system/subSystemUsers'
+import { registerExternalUsernames, refreshCamstarCookieForSystem, ensureLocalCamstarCookie, resetCamstarCookieToLoginUser } from '@/utils/camstarCookie'
 import { getUserPortalDefault } from '@/api/system/user/portalDefault'
 import { getUserQuickNavList } from '@/api/system/user/quickNav'
 import { getSubSystemUserQuickNavList } from '@/api/system/user/subSystemQuickNav'
@@ -244,6 +245,9 @@ const actions = {
   loadSystemList({ commit }) {
     return getMyExternalSystemList().then(res => {
       commit('SET_SYSTEM_LIST', res.data || [])
+      // 注册各子系统对接用户名（clientId/subSystemId 主键 + origin/host 兜底）：
+      // 切换系统时按"选择的系统"种对应身份的 Camstar Cookie（车间_工号 或 工号）
+      registerExternalUsernames(res.data)
       return res.data || []
     })
   },
@@ -652,6 +656,15 @@ const actions = {
     if (cachedLinks) {
       commit('SET_PORTAL_PATH_LINKS', sanitizePathLinkMap(cachedLinks))
     }
+    // 切换系统立刻按该系统花名册身份重写 Camstar Cookie（拼接车间 → 车间_工号；不拼接 → 工号）
+    const sys = (state.systemList || []).find(item =>
+      item && (item.clientId === key || String(item.subSystemId) === String(key))
+    )
+    if (sys) {
+      refreshCamstarCookieForSystem(sys)
+    } else {
+      ensureLocalCamstarCookie(undefined, key)
+    }
     // 主系统侧栏快照后台做，绝不挡本次打开
     dispatch('cacheMainSidebar').catch(() => {})
     return Promise.resolve(key)
@@ -842,6 +855,8 @@ const actions = {
     return ensureMainMenus().then(() => {
       commit('SET_CURRENT_SYSTEM', 'main')
       commit('SET_PORTAL_PATH_LINKS', {})
+      // 回主系统：本域 Cookie 恢复主登录工号，清掉上一子系统的「车间_工号」身份
+      resetCamstarCookieToLoginUser()
       if (state.mainSidebarRouters && state.mainSidebarRouters.length) {
         commit('SET_SIDEBAR_ROUTERS', state.mainSidebarRouters, { root: true })
       } else if (rootState.permission.defaultRoutes && rootState.permission.defaultRoutes.length) {
