@@ -1,0 +1,21 @@
+# 变更记录
+
+## [1.0.0-SNAPSHOT] - 2026-08-31
+
+### Changed
+
+- 消费端配置由单数 `workshop-code` 调整为必填列表 `workshop-codes`，同一 MES 可监听并处理多个车间的工艺变更主队列。
+- Starter 启动时按配置车间逐一声明主队列、延迟重试队列及路由绑定，消息失败后仅回流所属车间主队列。
+- 延迟重试拓扑支持通过 `retry-queue-overrides` 按车间覆盖队列前缀和 TTL；告警中队列名称按消息所属车间准确记录。
+
+## [1.0.0-SNAPSHOT] - 2026-08-28
+
+### Added
+
+- 新增工艺变更消息消费者 Spring Boot Starter。
+- 支持按 MES 车间监听专属 RabbitMQ 主队列。
+- 支持工艺变更专用 RabbitMQ 连接、主交换机、延迟重试交换机及按车间动态声明的队列绑定。
+- 支持手动确认消息，消费前调用 JUMP 领取处理权，终态消息直接确认。
+- 支持调用 MES 本地工艺变更处理器，并将处理结果回调 JUMP。
+- 支持处理失败后触发钉钉告警，并通过按车间延迟队列在 TTL 到期后重试。
+- 支持通过 RecipeChangeMessageProcessor、RecipeChangeDingTalkAlarmProcessor 和 RecipeChangeJUMPClient 扩展 MES 本地处理、告警和 JUMP 通信实现。
