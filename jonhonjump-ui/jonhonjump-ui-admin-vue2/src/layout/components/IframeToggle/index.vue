@@ -194,7 +194,7 @@ export default {
       return portalTabsMatch(this.$route, item)
     },
     goPortalHome() {
-      this.$router.push({ path: '/index' }).catch(() => {})
+      this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
     }
   }
 }

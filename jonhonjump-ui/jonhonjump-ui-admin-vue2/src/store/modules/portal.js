@@ -777,11 +777,11 @@ const actions = {
         }
         commit('SET_IFRAME_SYNC_SUSPENDED', true)
         return dispatch('tagsView/clearDockBusinessTabs', null, { root: true }).then(() => {
-          return enter().finally(() => {
-            commit('SET_IFRAME_SYNC_SUSPENDED', false)
-          })
+          return enter()
         }).then(() => {
           schedulePortalBootstrap(() => dispatch('warmMainSystemInBackground'))
+        }).finally(() => {
+          commit('SET_IFRAME_SYNC_SUSPENDED', false)
         })
       })
     }
@@ -824,13 +824,12 @@ const actions = {
               )
             )
             if (skipNavigate) {
-              commit('SET_IFRAME_SYNC_SUSPENDED', false)
               return Promise.resolve()
             }
-            return dispatch('navigateToPortalHome', { clearDock: true }).finally(() => {
-              commit('SET_IFRAME_SYNC_SUSPENDED', false)
-            })
+            return dispatch('navigateToPortalHome', { clearDock: true })
           })
+        }).finally(() => {
+          commit('SET_IFRAME_SYNC_SUSPENDED', false)
         })
       })
     })
@@ -881,6 +880,7 @@ const actions = {
   /** 回到门户 /index。clearDock=true：切系统场景，不保留上一系统页签 */
   navigateToPortalHome({ commit, dispatch, state }, payload) {
     const clearDock = payload && payload.clearDock === true
+    const keepWorkbench = payload && payload.keepWorkbench === true
     if (state.currentSystem) {
       persistPortalSystemChoice(state.currentSystem)
     }
@@ -899,7 +899,7 @@ const actions = {
       ? dispatch('tagsView/clearDockBusinessTabs', null, { root: true })
       : dispatch('tagsView/prunePortalHomeViews', null, { root: true })
     return prune.then(() => {
-      return goPortalIndex().finally(() => {
+      return goPortalIndex({ keepWorkbench }).finally(() => {
         if (clearDock) {
           // 路由已到首页后再清一次，杜绝旧 path 的 TagsView.addTags 回写
           return dispatch('tagsView/clearDockBusinessTabs', null, { root: true }).finally(() => {
@@ -909,6 +909,10 @@ const actions = {
         }
         commit('SET_PRESERVE_DOCK_TABS', false)
       })
+    }).catch(err => {
+      commit('SET_IFRAME_SYNC_SUSPENDED', false)
+      commit('SET_PRESERVE_DOCK_TABS', false)
+      return Promise.reject(err)
     })
   },
 
@@ -930,6 +934,10 @@ const actions = {
         commit('SET_IFRAME_SYNC_SUSPENDED', false)
         commit('SET_PRESERVE_DOCK_TABS', false)
       })
+    }).catch(err => {
+      commit('SET_IFRAME_SYNC_SUSPENDED', false)
+      commit('SET_PRESERVE_DOCK_TABS', false)
+      return Promise.reject(err)
     })
   },
 
@@ -1257,11 +1265,34 @@ function isNavigationFailure(err) {
     message.indexOf('Avoided redundant navigation') >= 0
 }
 
-function goPortalIndex() {
+function goPortalIndex(options) {
+  emitPortalHomeCleanup(options)
+  const keepWorkbench = !!(options && options.keepWorkbench)
   if (isPortalIndexPath(router.currentRoute.path)) {
+    if (!keepWorkbench && router.currentRoute.query && router.currentRoute.query.workbench) {
+      return router.replace({ path: '/index' }).catch(err => {
+        if (isNavigationFailure(err)) {
+          return Promise.resolve(router.currentRoute)
+        }
+        return Promise.reject(err)
+      })
+    }
     return Promise.resolve(router.currentRoute)
   }
   return navigateReplace('/index')
+}
+
+/** 显式回门户首页时的统一清理：关「全部应用」、清残留标记；业务页通过事件关抽屉 */
+function emitPortalHomeCleanup(options) {
+  try {
+    sessionStorage.removeItem('JUMP_ALLAPPS_RETURN')
+  } catch (e) { /* ignore */ }
+  try {
+    const root = router.app && router.app.$root
+    if (root && typeof root.$emit === 'function') {
+      root.$emit('portal-explicit-home', options || {})
+    }
+  } catch (e) { /* ignore */ }
 }
 
 function navigateReplace(path) {

@@ -272,7 +272,17 @@ export default {
     this._onOpenWorkbench = (tabKey) => {
       this.openWorkbenchTab(tabKey)
     }
+    this._onExplicitHome = (opts) => {
+      if (opts && opts.keepWorkbench) {
+        return
+      }
+      // 显式回首页：去掉待办深链，工作台回到默认页签
+      if (this.activeWorkbench !== 'notice') {
+        this.activeWorkbench = 'notice'
+      }
+    }
     this.$root.$on('portal-open-workbench', this._onOpenWorkbench)
+    this.$root.$on('portal-explicit-home', this._onExplicitHome)
     // 时钟纯本地更新（无请求），后台标签页跳过以免无谓重渲染
     this.timer = window.setInterval(() => { if (!document.hidden) { this.now = new Date() } }, 30000)
     this.setupWorkbenchObserver()
@@ -295,6 +305,10 @@ export default {
     if (this._onOpenWorkbench) {
       this.$root.$off('portal-open-workbench', this._onOpenWorkbench)
       this._onOpenWorkbench = null
+    }
+    if (this._onExplicitHome) {
+      this.$root.$off('portal-explicit-home', this._onExplicitHome)
+      this._onExplicitHome = null
     }
     window.clearInterval(this.timer)
     if (this.workbenchObserver) {

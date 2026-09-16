@@ -421,7 +421,7 @@ export default {
       })
     },
     goPortalHome() {
-      this.$router.push({ path: '/index' }).catch(() => {})
+      this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
     },
     getFrameEl() {
       if (this.iframeId) {

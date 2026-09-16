@@ -259,7 +259,6 @@ export default {
     '$route.path'(newPath) {
       this.dockExpanded = false
       this.loadTodoCount()
-      this.restoreAllAppsDrawerOnHome(newPath)
     },
     // 进入业务菜单（主系统或子系统）自动收起顶栏给页面让空间，回门户首页自动展开；
     // 折叠条可点击展开、展开态右上角箭头可再收起（停留当前路由时保持用户选择）
@@ -304,6 +303,11 @@ export default {
     }
     this.$root.$on('portal-open-all-apps', this._onPortalOpenAllApps)
     this.$root.$on('portal-quick-nav-changed', this._onPortalQuickNavChanged)
+    this._onPortalExplicitHome = () => {
+      // 任意路径回门户首页：关掉「全部应用」，避免盖住快捷导航
+      this.drawerVisible = false
+    }
+    this.$root.$on('portal-explicit-home', this._onPortalExplicitHome)
     this.restoreQuickNavFromCache()
     this.loadQuickNav()
     // 在线变更探测已移除（quickNavWatch/permWatch）：后端 cache-aside（改数据删 Redis），
@@ -328,6 +332,10 @@ export default {
     if (this._onPortalQuickNavChanged) {
       this.$root.$off('portal-quick-nav-changed', this._onPortalQuickNavChanged)
       this._onPortalQuickNavChanged = null
+    }
+    if (this._onPortalExplicitHome) {
+      this.$root.$off('portal-explicit-home', this._onPortalExplicitHome)
+      this._onPortalExplicitHome = null
     }
     if (this._onTodoVisibility) {
       document.removeEventListener('visibilitychange', this._onTodoVisibility)
@@ -449,9 +457,8 @@ export default {
       if (isExternal(routePath) || routePath.charAt(0) === '/') return routePath
       return `${basePath}/${routePath}`.replace(/\/+/g, '/')
     },
-    /** 从「全部应用」抽屉打开菜单：记住来源，关闭菜单回到首页时自动重开抽屉 */
+    /** 从「全部应用」抽屉打开菜单 */
     openAppFromDrawer(app) {
-      try { sessionStorage.setItem('JUMP_ALLAPPS_RETURN', '1') } catch (e) { /* ignore */ }
       this.openApp(app)
     },
     openApp(app) {
@@ -745,37 +752,9 @@ export default {
       }
     },
     goHome() {
-      if (this.$route.path === '/index' || this.$route.path === '/') return
-      // 主动回首页：不自动重开「全部应用」抽屉
-      try { sessionStorage.removeItem('JUMP_ALLAPPS_RETURN') } catch (e) { /* ignore */ }
+      // 已在首页：仍要关抽屉、清 workbench query，避免「点了首页还停在全部应用/待办态」
+      this.drawerVisible = false
       this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
-    },
-    /**
-     * 关闭从「全部应用」打开的菜单回到门户首页时，自动重新打开抽屉，
-     * 用户可继续浏览/选择下一个应用（主系统与子系统同逻辑）
-     */
-    restoreAllAppsDrawerOnHome(newPath) {
-      if (newPath !== '/index' && newPath !== '/') {
-        return
-      }
-      let reopen = false
-      try { reopen = sessionStorage.getItem('JUMP_ALLAPPS_RETURN') === '1' } catch (e) { /* ignore */ }
-      if (reopen) {
-        try { sessionStorage.removeItem('JUMP_ALLAPPS_RETURN') } catch (e) { /* ignore */ }
-        // 82：等首页快捷导航露出后再重开抽屉，避免与回首页叠层抢同一帧
-        if (typeof document !== 'undefined'
-          && document.documentElement.classList.contains('legacy-anim')) {
-          this.$nextTick(() => {
-            window.requestAnimationFrame(() => {
-              window.requestAnimationFrame(() => {
-                this.drawerVisible = true
-              })
-            })
-          })
-          return
-        }
-        this.drawerVisible = true
-      }
     },
     loadTodoCount() {
       if (!checkPermi(['bpm:task:query'])) {
@@ -789,15 +768,20 @@ export default {
       })
     },
     goTodo() {
-      if (this.$route.path === '/index' || this.$route.path === '/') {
-        // 首页已打开时：直接通知切到待办（仅改 query 可能因重复导航不触发 watch）
+      this.drawerVisible = false
+      const openTodo = () => {
         this.$root.$emit('portal-open-workbench', 'todo')
-        if (this.$route.query.workbench !== 'todo') {
-          this.$router.replace({
-            path: '/index',
-            query: { ...this.$route.query, workbench: 'todo' }
-          }).catch(() => {})
+        if (this.$route.path === '/index' || this.$route.path === '/') {
+          if (this.$route.query.workbench !== 'todo') {
+            this.$router.replace({
+              path: '/index',
+              query: { ...this.$route.query, workbench: 'todo' }
+            }).catch(() => {})
+          }
         }
+      }
+      if (this.$route.path === '/index' || this.$route.path === '/') {
+        openTodo()
         return
       }
       const app = this.authorizedApps.find(item => item.path === '/bpm/task/todo')
@@ -805,7 +789,16 @@ export default {
         this.openApp(app)
         return
       }
-      this.$router.push({ path: '/index', query: { workbench: 'todo' } }).catch(() => {})
+      // 走正式回首页（保留 dock），再切待办；禁止裸 push('/index') 清掉页签
+      this.$store.dispatch('portal/navigateToPortalHome', { keepWorkbench: true })
+        .then(() => {
+          this.$root.$emit('portal-open-workbench', 'todo')
+          return this.$router.replace({
+            path: '/index',
+            query: { workbench: 'todo' }
+          }).catch(() => {})
+        })
+        .catch(() => {})
     },
     handleSwitchUser() {
       // 换人后固定 /index，由 bootstrap 按新用户星标默认系统进入

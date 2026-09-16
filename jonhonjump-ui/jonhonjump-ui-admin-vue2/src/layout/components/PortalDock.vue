@@ -227,7 +227,7 @@ export default {
       }).catch(() => {})
     },
     goHome() {
-      if (this.isHome) return
+      // 与顶栏一致：走 navigateToPortalHome（会发 portal-explicit-home 关抽屉）
       this.$store.dispatch('portal/navigateToPortalHome').catch(err => {
         this.$message.error(typeof err === 'string' ? err : (err.message || '返回首页失败'))
       })
