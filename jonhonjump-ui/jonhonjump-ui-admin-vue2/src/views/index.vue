@@ -89,7 +89,7 @@ import { getTodoTaskPage } from '@/api/bpm/task'
 import { listNoticeWorkbench } from '@/api/system/notice'
 import { listFaqWorkbench } from '@/api/system/faq'
 import { checkPermi } from '@/utils/permission'
-import { parsePortalClientId, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath } from '@/utils/portalRoute'
+import { parsePortalClientId, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath, httpUrlToPortalLocation } from '@/utils/portalRoute'
 import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
 import PortalQuickNavPanel from './components/PortalQuickNavPanel.vue'
 import { buildPortalHomeApps } from '@/utils/portalQuickNavApps'
@@ -272,27 +272,45 @@ export default {
     this._onOpenWorkbench = (tabKey) => {
       this.openWorkbenchTab(tabKey)
     }
+    this._onExplicitHome = (opts) => {
+      if (opts && opts.keepWorkbench) {
+        return
+      }
+      // 显式回首页：去掉待办深链，工作台回到默认页签
+      if (this.activeWorkbench !== 'notice') {
+        this.activeWorkbench = 'notice'
+      }
+    }
     this.$root.$on('portal-open-workbench', this._onOpenWorkbench)
-    this.timer = window.setInterval(() => { this.now = new Date() }, 30000)
+    this.$root.$on('portal-explicit-home', this._onExplicitHome)
+    // 时钟纯本地更新（无请求），后台标签页跳过以免无谓重渲染
+    this.timer = window.setInterval(() => { if (!document.hidden) { this.now = new Date() } }, 30000)
     this.setupWorkbenchObserver()
+    // 待办刷新交给常驻的 PortalShell 60s 轮询，首页不再重复拉（此前两份轮询每分钟打两次接口）
     this.loadTodoCount()
-    this.todoRefreshTimer = window.setInterval(() => {
-      this.loadTodoCount()
-    }, 60000)
   },
   activated() {
     this.applyWorkbenchFromQuery(this.$route.query.workbench)
+    // 首页已进 keep-alive（AppMain 恒缓存 JumpPortalHome），mounted 只跑一次；
+    // 切回首页时刷一次待办保持新鲜。82：推迟到快捷导航露出后再请求，避免同帧卡顿
+    const refresh = () => this.loadTodoCount()
+    if (typeof document !== 'undefined'
+      && document.documentElement.classList.contains('legacy-anim')) {
+      window.setTimeout(refresh, 360)
+      return
+    }
+    refresh()
   },
   beforeDestroy() {
     if (this._onOpenWorkbench) {
       this.$root.$off('portal-open-workbench', this._onOpenWorkbench)
       this._onOpenWorkbench = null
     }
-    window.clearInterval(this.timer)
-    if (this.todoRefreshTimer) {
-      window.clearInterval(this.todoRefreshTimer)
-      this.todoRefreshTimer = null
+    if (this._onExplicitHome) {
+      this.$root.$off('portal-explicit-home', this._onExplicitHome)
+      this._onExplicitHome = null
     }
+    window.clearInterval(this.timer)
     if (this.workbenchObserver) {
       this.workbenchObserver.disconnect()
       this.workbenchObserver = null
@@ -577,16 +595,24 @@ export default {
           || cachedMap[targetPath] || lookupPathLinkEntry(targetPath, cachedMap)
           || activeMap[app.path] || lookupPathLinkEntry(app.path, activeMap)
           || cachedMap[app.path] || lookupPathLinkEntry(app.path, cachedMap)
-        const link = (entry && entry.link) || ''
-        const rest = String(targetPath).replace(new RegExp('^/portal/' + clientId + '/'), '')
-        const isDirect = (/^https?:\/\//i.test(link) && link.indexOf('#') < 0)
-          || !!slashIpPortRestToHttp(rest.replace(/:/g, '/'))
-        const resolvedLink = link || slashIpPortRestToHttp(rest.replace(/:/g, '/')) || ''
+        const link = (entry && entry.link) || (app && app.link) || ''
+        // 旧快捷导航可能只有 .../d3/needle；有完整 http(含 #) 时重写成带 __hash__ 的壳 path
+        if (link && /^https?:\/\//i.test(link) && String(link).indexOf('#') >= 0) {
+          const loc = httpUrlToPortalLocation(clientId, link)
+          if (loc && loc.path) {
+            targetPath = loc.path
+          }
+        }
+        const rest = String(targetPath).replace(new RegExp('^/portal/' + clientId + '/'), '').replace(/\/index$/, '')
+        const restHttp = /^menu\d+/i.test(rest) ? '' : (slashIpPortRestToHttp(rest.replace(/:/g, '/')) || '')
+        // 任意完整 http(s)（含 /#/xxx）都直开；禁止用壳 path 回退成丢 hash 的 host 根
+        const isDirect = /^https?:\/\//i.test(link) || !!restHttp
+        const resolvedLink = link || restHttp || ''
 
         const openDirect = () => {
-          ensureLocalCamstarCookie()
+          ensureLocalCamstarCookie(resolvedLink, clientId)
           if (resolvedLink) {
-            seedCamstarCookieForUrlInBackground(resolvedLink)
+            seedCamstarCookieForUrlInBackground(resolvedLink, clientId)
           }
           const afterPush = () => {
             if (!menusReady) {
@@ -609,12 +635,12 @@ export default {
 
         if (isDirect) {
           return openDirect().catch(err => {
-            this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入业务系统失败'))
           })
         }
 
         if (!menusReady) {
-          this.$message({ message: '正在准备子系统菜单…', type: 'info', duration: 1500 })
+          this.$message({ message: '正在准备业务系统菜单…', type: 'info', duration: 1500 })
         }
         this.$store.dispatch('portal/ensureSubSystemReady', {
           clientId,
@@ -627,7 +653,7 @@ export default {
             return this.$router.push(targetPath)
           })
           .catch(err => {
-            this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入业务系统失败'))
           })
         return
       }
@@ -891,6 +917,7 @@ button { color: inherit; }
   font-size: inherit;
   line-height: normal;
 }
+/* 低配机默认毛玻璃；降级规则见文件末尾非 scoped 块（保证 html.legacy-anim 命中） */
 .info-panel {
   padding: 22px;
   box-sizing: border-box;
@@ -903,6 +930,7 @@ button { color: inherit; }
   backdrop-filter: blur(18px) saturate(130%);
   -webkit-backdrop-filter: blur(18px) saturate(130%);
 }
+
 .panel-heading { display: flex; align-items: center; justify-content: space-between; }
 .panel-heading h2 { margin: 0; font-size: 20px; }
 .panel-heading p { margin: 5px 0 0; color: #607895; font-size: 12px; }
@@ -1067,5 +1095,15 @@ button { color: inherit; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+</style>
+
+<style lang="scss">
+/* 低配 / Chrome<90：毛玻璃降级为实底色，消除首页持续合成开销 */
+:root.low-perf .info-panel,
+html.legacy-anim .info-panel {
+  background: rgba(238, 249, 255, .96) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 </style>

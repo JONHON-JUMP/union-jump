@@ -3,7 +3,11 @@ import {
   resolveCanonicalPortalPath,
   isPortalSubSystemHomePath,
   isGenericPortalTitle,
-  resolvePortalMenuTitle
+  resolvePortalMenuTitle,
+  portalTabsMatch,
+  parsePortalClientId,
+  extractPortalMenuRest,
+  slashIpPortRestToHttp
 } from '@/utils/portalRoute'
 import { ensureLocalCamstarCookie } from '@/utils/camstarCookie'
 
@@ -32,26 +36,27 @@ function portalPathAliasKey(path) {
   return String(path || '').replace(/\/index\/?$/, '').replace(/\/$/, '')
 }
 
-function findFrameByPathAlias(list, path) {
-  if (!path || !list || !list.length) {
-    return null
-  }
-  const exact = list.find(v => v && v.path === path)
-  if (exact) {
-    return exact
-  }
-  const key = portalPathAliasKey(path)
-  return list.find(v => v && portalPathAliasKey(v.path) === key) || null
-}
-
 function isCamstarLink(link) {
   const s = String(link || '')
   return /^https?:\/\//i.test(s) && s.indexOf('/#/') < 0 && s.indexOf('#') < 0
 }
 
+/** 壳 path 还原业务 http，补上 resolve 未给出的 meta.link */
+function fallbackLinkFromShell(route) {
+  const clientId = parsePortalClientId(route && route.path)
+  if (!clientId) {
+    return ''
+  }
+  const rest = extractPortalMenuRest(route.path, clientId)
+  if (!rest || /^menu\d+/i.test(rest)) {
+    return ''
+  }
+  return slashIpPortRestToHttp(String(rest).replace(/:/g, '/')) || ''
+}
+
 /**
  * 门户 iframe 唯一登记入口。
- * 不变量：页签用当前/canonical path；iframe :key 优先保温帧原 path；Camstar link 冻结。
+ * 子页（带 ? 或更深路径）与主菜单分开登记，对齐通知公告 / 通知详情。
  */
 export function syncPortalIframeView(store, route) {
   if (store.state.portal.iframeSyncSuspended) {
@@ -66,18 +71,23 @@ export function syncPortalIframeView(store, route) {
   if (!view || !view.name) {
     return view || route
   }
-  // 即使 link 暂时为空（pathLinkMap 还没加载好），也先注册到 visitedViews，
-  // 这样底部 Dock 能显示页签；link 等 pathLinkMap 更新后由 AppMain watch 补上
+  if (!(view.meta && view.meta.link)) {
+    const shellLink = fallbackLinkFromShell(route)
+    if (shellLink) {
+      view.meta = { ...(view.meta || {}), link: shellLink }
+    }
+  }
   const hasLink = !!(view.meta && view.meta.link)
+  const isChild = !!(view.meta && view.meta.portalChild)
 
-  // 打开时规范到 pathLinkMap canonical，减少 /index 分叉
-  const canonical = hasLink ? resolveCanonicalPortalPath(view.path, pathLinkMap) : null
+  const canonical = hasLink && !isChild ? resolveCanonicalPortalPath(view.path, pathLinkMap) : null
   if (canonical && canonical !== view.path) {
     view.path = canonical
-    view.fullPath = canonical
   }
 
-  const prev = (store.state.tagsView.visitedViews || []).find(v =>
+  const visited = store.state.tagsView.visitedViews || []
+  const prevSameTab = visited.find(v => portalTabsMatch(v, view))
+  const prev = prevSameTab || visited.find(v =>
     v.path === view.path || portalPathAliasKey(v.path) === portalPathAliasKey(view.path)
   )
   const prevTitle = resolvePortalMenuTitle(
@@ -85,12 +95,35 @@ export function syncPortalIframeView(store, route) {
     prev && prev.meta && prev.meta.menuTitle,
     prev && prev.meta && prev.meta.title
   )
+  const prevChildTitle = resolvePortalMenuTitle(
+    prevSameTab && prevSameTab.title,
+    prevSameTab && prevSameTab.meta && prevSameTab.meta.menuTitle,
+    prevSameTab && prevSameTab.meta && prevSameTab.meta.title
+  )
   const nextTitle = resolvePortalMenuTitle(
     view.meta && view.meta.menuTitle,
     view.meta && view.meta.title,
     view.title
   )
-  if (!nextTitle && prevTitle) {
+  if (isChild) {
+    const parentPath = (view.meta && view.meta.portalParentPath)
+      || (prevSameTab && prevSameTab.meta && prevSameTab.meta.portalParentPath)
+    if (parentPath) {
+      view.meta = { ...(view.meta || {}), portalParentPath: parentPath }
+    }
+    const childTitle = (view.meta && view.meta.portalChildTitle)
+      || prevChildTitle
+      || nextTitle
+    if (childTitle) {
+      view.title = childTitle
+      view.meta = {
+        ...(view.meta || {}),
+        title: childTitle,
+        menuTitle: childTitle,
+        portalChildTitle: childTitle
+      }
+    }
+  } else if (!nextTitle && prevTitle) {
     view.title = prevTitle
     view.meta = { ...(view.meta || {}), title: prevTitle, menuTitle: prevTitle }
   } else if (nextTitle && isGenericPortalTitle(view.meta && view.meta.title) && prevTitle) {
@@ -108,23 +141,7 @@ export function syncPortalIframeView(store, route) {
   store.dispatch('tagsView/addView', view)
 
   if (view.meta && view.meta.link) {
-    const existing = findFrameByPathAlias(
-      [].concat(store.state.tagsView.iframeViews || [], store.state.tagsView.warmIframeViews || []),
-      view.path
-    )
-    // iframe 复用必须用原 path 作 :key；页签仍跟 canonical/当前 path
-    const iframeView = existing
-      ? Object.assign({}, view, {
-        path: existing.path,
-        meta: {
-          ...(view.meta || {}),
-          link: isCamstarLink(existing.meta && existing.meta.link)
-            ? existing.meta.link
-            : view.meta.link
-        }
-      })
-      : view
-    store.dispatch('tagsView/addIframeView', iframeView)
+    store.dispatch('tagsView/addIframeView', view)
   }
 
   store.dispatch('tagsView/updateVisitedView', view)

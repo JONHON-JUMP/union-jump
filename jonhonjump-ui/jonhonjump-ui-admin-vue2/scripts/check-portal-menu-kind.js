@@ -1,68 +1,57 @@
 /**
- * 自检：Camstar / 若依二分不能互踩（发版前本地跑）
+ * 自检：打开页只认路由地址（发版前本地跑）
  * node scripts/check-portal-menu-kind.js
  */
-const path = require('path')
 
-// 与 portalMenuKind.js 保持同规则的纯 JS 副本，避免 ESM 加载问题
 function isCamstarLikeUrl(url) {
   const s = String(url || '')
   return /:4200\b/i.test(s) || /\/4200\//i.test(s) || /camstarportal/i.test(s) || /\/camstar\//i.test(s)
 }
-function isRuoyiComponent(component) {
-  const c = String(component || '').trim()
-  if (!c) return false
-  const lower = c.toLowerCase()
-  if (lower === 'innerlink' || lower.includes('empty') || lower.includes('portal/')) return false
-  return true
-}
-function isPureHttpUrl(url) {
-  const s = String(url || '')
-  return /^https?:\/\//i.test(s) && s.indexOf('/#/') < 0 && s.indexOf('#') < 0
+function isHttpUrl(url) {
+  return /^https?:\/\//i.test(String(url || ''))
 }
 function isExternal(path) {
   return /^(https?:|mailto:|tel:)/.test(path)
 }
-function classifyPortalMenu({ path, component, link } = {}) {
-  if (isRuoyiComponent(component)) return 'ruoyi'
+function classifyPortalMenu({ path, link } = {}) {
   const p = String(path || '')
   const l = String(link || '')
-  if (l.indexOf('/#/') >= 0 || (l.indexOf('#') >= 0 && !isPureHttpUrl(l))) return 'ruoyi'
-  if (isPureHttpUrl(p) || isPureHttpUrl(l)) return 'camstar'
-  if (isExternal(p) || isCamstarLikeUrl(p) || isCamstarLikeUrl(l)) return 'camstar'
+  if (isHttpUrl(p) || isHttpUrl(l) || isExternal(p) || isCamstarLikeUrl(p) || isCamstarLikeUrl(l)) {
+    return 'camstar'
+  }
   return 'ruoyi'
 }
 
 const cases = [
   {
-    name: 'Camstar http 路由',
+    name: '完整 http 路由',
     input: { path: 'http://192.168.240.127:4200/WorkOrder/x', component: '' },
     expect: 'camstar'
   },
   {
-    name: '若依有组件路径',
-    input: { path: 'system/user', component: 'system/user/index' },
-    expect: 'ruoyi'
+    name: '完整 http 即使填了组件路径也只认路由地址',
+    input: { path: 'http://192.168.240.129:9100/system/user', component: 'system/user/index' },
+    expect: 'camstar'
   },
   {
-    name: '若依有组件即使 path 像 http 也不走 Camstar',
-    input: { path: 'http://evil', component: 'system/user/index' },
-    expect: 'ruoyi'
+    name: '完整 http 即使填了组件名称也只认路由地址',
+    input: { path: 'http://192.168.240.129:9100/system/role', component: 'system/role/index', link: '' },
+    expect: 'camstar'
   },
   {
-    name: '若依 hash link',
-    input: { path: 'system/user', link: 'http://192.168.240.129:8088/mes4200/#/system/user' },
-    expect: 'ruoyi'
-  },
-  {
-    name: '相对路由无组件 → 若依',
-    input: { path: 'system/dept', component: '' },
-    expect: 'ruoyi'
+    name: '路由地址带 hash 仍按该 URL 打开',
+    input: { path: 'http://192.168.240.129:9100/#/system/user' },
+    expect: 'camstar'
   },
   {
     name: 'Camstar 已解套 link',
     input: { path: '192/168/240/127/4200/WorkOrder/x', link: 'http://192.168.240.127:4200/WorkOrder/x' },
     expect: 'camstar'
+  },
+  {
+    name: '相对路由无 http 才不是直开',
+    input: { path: 'system/dept', component: 'system/dept/index' },
+    expect: 'ruoyi'
   }
 ]
 

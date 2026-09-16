@@ -1,23 +1,30 @@
 /**
- * Camstar 预热：只做本机 Cookie + 源站探活。
+ * Camstar 预热：只做源站探活（本域 Cookie 按系统身份写，收敛到登录/打开系统时机）。
  * 对齐 4200：不预挂整页、不阻塞等待跨机种 bridge。
+ * 仅 4200 / CamstarPortal 才预热源站。
+ * 接口平台等「完整 http 路由、走 Camstar 直开」的系统不要预热前 6 个叶子，
+ * 否则每次打开任一页面都会把用户/角色/菜单/部门/岗位/字典都探活一遍。
  */
-import { ensureLocalCamstarCookie } from '@/utils/camstarCookie'
+import { isCamstarLikeUrl } from '@/utils/portalMenuKind'
 
 const warmedOrigins = {}
+const prefetchedClients = {}
 
 function isCamstarEntry(entry) {
   if (!entry || !entry.link) {
     return false
   }
-  if (entry.kind === 'camstar') {
-    return true
-  }
   const link = String(entry.link)
-  return /^https?:\/\//i.test(link) && link.indexOf('/#/') < 0 && link.indexOf('#') < 0
+  if (link.indexOf('/#/') >= 0 || (link.indexOf('#') >= 0 && !/^https?:\/\/[^#]+$/.test(link))) {
+    return false
+  }
+  return isCamstarLikeUrl(link)
 }
 
-export function collectCamstarPrefetchEntries(pathLinkMap, limit = 6) {
+export function collectCamstarPrefetchEntries(pathLinkMap, limit = 6, clientId) {
+  if (clientId && prefetchedClients[clientId]) {
+    return []
+  }
   const byLink = {}
   Object.keys(pathLinkMap || {}).forEach(path => {
     if (!path || path.indexOf('/portal/') !== 0) {
@@ -51,7 +58,8 @@ export function collectCamstarPrefetchEntries(pathLinkMap, limit = 6) {
 }
 
 export function warmCamstarOrigin(httpUrl) {
-  ensureLocalCamstarCookie()
+  // 预热只做源站探活，不写本域 Cookie：身份按系统各不相同（车间_工号/工号），
+  // 本域 Cookie 收敛到登录/GetInfo 与打开系统时按目标身份写，避免预热覆盖
   let origin = ''
   try {
     origin = new URL(httpUrl, window.location.href).origin
@@ -69,13 +77,15 @@ export function warmCamstarOrigin(httpUrl) {
   } catch (e) { /* ignore */ }
 }
 
-export function prepareCamstarSessionFromEntries(entries) {
-  ensureLocalCamstarCookie()
+export function prepareCamstarSessionFromEntries(entries, clientId) {
   const list = entries || []
   list.forEach(item => {
     if (item && item.link) {
       warmCamstarOrigin(item.link)
     }
   })
+  if (clientId && list.length) {
+    prefetchedClients[clientId] = true
+  }
   return Promise.resolve(list.length)
 }

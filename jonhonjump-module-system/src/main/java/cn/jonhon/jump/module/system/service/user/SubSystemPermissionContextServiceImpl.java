@@ -289,14 +289,20 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
     }
 
     /**
-     * subSystemId → clientId（subSystem.oauth2ClientId → OAuth2Client.clientId）。
+     * subSystemId → 门户系统编号（优先 sub_system.client_id，旧数据回落到 OAuth2 client_id）。
      */
     private String resolveClientId(Long subSystemId) {
         if (subSystemId == null) {
             return null;
         }
         SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
-        if (subSystem == null || subSystem.getOauth2ClientId() == null) {
+        if (subSystem == null) {
+            return null;
+        }
+        if (StrUtil.isNotBlank(subSystem.getClientId())) {
+            return subSystem.getClientId();
+        }
+        if (subSystem.getOauth2ClientId() == null) {
             return null;
         }
         OAuth2ClientDO client = oauth2ClientMapper.selectById(subSystem.getOauth2ClientId());
@@ -329,8 +335,8 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
             throw exception(SUB_SYSTEM_USER_NOT_EXISTS);
         }
         String username = adminUser.getUsername();
-        String clientId = null;
-        if (subSystem.getOauth2ClientId() != null) {
+        String clientId = subSystem.resolvePortalClientId(null);
+        if (StrUtil.isBlank(clientId) && subSystem.getOauth2ClientId() != null) {
             OAuth2ClientDO client = oauth2ClientMapper.selectById(subSystem.getOauth2ClientId());
             if (client != null) {
                 clientId = client.getClientId();

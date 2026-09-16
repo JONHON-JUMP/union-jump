@@ -145,7 +145,7 @@ public class SubSystemMenuController {
                         .visible(true)
                         .build()
         );
-        ExcelUtils.write(response, "外部系统菜单导入模板.xls", "菜单", SubSystemMenuImportExcelVO.class, list);
+        ExcelUtils.write(response, "业务系统菜单导入模板.xls", "菜单", SubSystemMenuImportExcelVO.class, list);
     }
 
     @PostMapping("/import")

@@ -326,6 +326,10 @@ export default {
       }).then(res => {
         this.teamList = res.data.list || []
         this.total = res.data.total || 0
+      }).catch(() => {
+        this.teamList = []
+        this.total = 0
+        this.$modal.msgError('加载班组列表失败，请重试')
       }).finally(() => {
         this.loading = false
       })
@@ -423,6 +427,8 @@ export default {
         }
         this.open = true
         this.title = '修改班组'
+      }).catch(() => {
+        this.$modal.msgError('加载班组信息失败，请重试')
       })
     },
     submitForm() {
@@ -435,6 +441,8 @@ export default {
           this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
           this.open = false
           this.getList()
+        }).catch(() => {
+          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
         })
       })
     },

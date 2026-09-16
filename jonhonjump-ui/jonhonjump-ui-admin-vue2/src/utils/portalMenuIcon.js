@@ -61,6 +61,8 @@ const NAME_ICON_MAP = {
   '配置管理': 'edit',
   '外部系统': 'link',
   '外部系统管理': 'link',
+  '业务系统': 'link',
+  '业务系统管理': 'link',
   '文件管理': 'documentation',
   '加工数据查询': 'documentation',
   '加工数据': 'online',

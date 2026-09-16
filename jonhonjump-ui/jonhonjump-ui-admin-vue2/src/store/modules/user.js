@@ -1,7 +1,8 @@
 import {login, logout, getInfo, socialLogin, smsLogin} from '@/api/login'
 import {setToken, removeToken, removeVisitTenantId, removeUsername, setUsername} from '@/utils/auth'
 import { resolveUserAvatar, loadRoleAvatarConfig } from '@/utils/defaultAvatar'
-import { clearCamstarCookie, ensureLocalCamstarCookie } from '@/utils/camstarCookie'
+import { getMyCamstarUsername } from '@/api/system/subSystemUsers'
+import { clearCamstarCookie, ensureLocalCamstarCookie, saveCamstarUsername } from '@/utils/camstarCookie'
 
 function applyLoginSession(commit, tokenRes, username) {
   // 清门户菜单内存
@@ -13,6 +14,20 @@ function applyLoginSession(commit, tokenRes, username) {
   // 登录即写 Camstar Cookie（子系统页面用，不依赖 OAuth SSO）
   ensureLocalCamstarCookie()
   return Promise.resolve()
+}
+
+/**
+ * Camstar 身份预取：注册时标记拼接车间的用户，其在 Camstar 侧用户名为 车间_工号。
+ * 只更新全局兜底值（URL 未命中系统注册表时使用），不写本域 Cookie——
+ * 本域 Cookie 按目标系统身份写（打开系统时），此处写会把当前打开系统的身份污染掉；失败静默。
+ */
+function prefetchCamstarUsername() {
+  getMyCamstarUsername().then(res => {
+    const name = res && res.data
+    if (name) {
+      saveCamstarUsername(name)
+    }
+  }).catch(() => {})
 }
 
 function normalizePermissions(permissions) {
@@ -154,6 +169,8 @@ const user = {
           }
           // 刷新会话时补种 Camstar Cookie（对齐 4200 登录后 setCookie）
           ensureLocalCamstarCookie()
+          // 后台预取 Camstar 侧用户名（车间_工号）作为全局兜底值；不阻塞 GetInfo
+          prefetchCamstarUsername()
           resolve(res)
           loadRoleAvatarConfig().then(() => {
             commit('SET_AVATAR', resolveUserAvatar(user.avatar, roles))

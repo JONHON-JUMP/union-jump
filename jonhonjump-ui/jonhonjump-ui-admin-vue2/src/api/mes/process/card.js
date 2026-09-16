@@ -1,4 +1,4 @@
-import request from '@/utils/request'
+import request from '@/utils/publicRequest'
 
 export function queryProcessCard(data) {
   return request({

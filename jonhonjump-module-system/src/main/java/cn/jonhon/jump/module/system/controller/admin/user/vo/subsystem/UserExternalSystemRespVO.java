@@ -43,4 +43,13 @@ public class UserExternalSystemRespVO {
     @Schema(description = "班组编号")
     private String teamId;
 
+    @Schema(description = "该系统花名册用户名（工号）")
+    private String username;
+
+    @Schema(description = "关联车间编号/注册时是否拼接车间（0否 1是）")
+    private String usernameWithWorkshop;
+
+    @Schema(description = "用户在该子系统的对接用户名：usernameWithWorkshop=1 时为 车间编号_工号，否则为工号；门户种 Camstar Cookie 用", example = "4200_10086")
+    private String externalUsername;
+
 }

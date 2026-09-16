@@ -47,17 +47,17 @@ async function reloadQuickNavFromDb() {
 
 /** Redis 已失效：GetInfo / 快捷导航走库重建，慢则前端已有「加载中」 */
 async function reloadMainFromDb(rbacVersion) {
-  store.commit('permission/CLEAR_MENU_TREES')
-  store.commit('portal/SET_MAIN_SIDEBAR_ROUTERS', null)
-  store.commit('portal/SET_ALL_APPS_MENUS_LOADING', true)
+  // 不再预清菜单树（CLEAR_MENU_TREES / SET_MAIN_SIDEBAR_ROUTERS null / loading 遮罩）：
+  // 预清会让全部应用抽屉在打开瞬间整树闪没再整树重渲染（低配 Chrome 82 上表现为「有时超级卡」）。
+  // GenerateRoutes 拉到新菜单后是整体替换提交，旧树一直展示到新数据原子替换为止。
   try {
     await store.dispatch('LoadMainMenus', { force: true })
     await reloadQuickNavFromDb()
     if (rbacVersion != null) {
       store.commit('SET_PERM_RBAC_VERSION', rbacVersion)
     }
-  } finally {
-    store.commit('portal/SET_ALL_APPS_MENUS_LOADING', false)
+  } catch (e) {
+    console.warn('[portalPermWatch] reload main menus failed:', e)
   }
 }
 
@@ -125,7 +125,7 @@ async function reloadSubSystemIfStale() {
     if (Number(localVersion) === remoteVersion) {
       return false
     }
-    store.commit('portal/SET_ALL_APPS_MENUS_LOADING', true)
+    // 不切 loading 遮罩：抽屉继续展示旧菜单，force 重载完成后原子替换（同主系统 reloadMainFromDb 的处理）
     try {
       await store.dispatch('portal/ensureSubSystemLoaded', {
         clientId: key,
@@ -136,8 +136,8 @@ async function reloadSubSystemIfStale() {
         subSystemId: Number(hit.subSystemId),
         force: true
       }).catch(() => null)
-    } finally {
-      store.commit('portal/SET_ALL_APPS_MENUS_LOADING', false)
+    } catch (e) {
+      console.warn('[portalPermWatch] sub reload failed:', e)
     }
     return true
   } catch (e) {
@@ -161,8 +161,15 @@ export function startPortalPermWatch() {
     return
   }
   started = true
+  // 切回标签页的版本检查做最小间隔节流：频繁切窗时不再每次都发请求（低配机上撞上重建会卡顿一阵）
+  let lastVisibilityCheckAt = 0
   onVisibility = () => {
     if (document.visibilityState === 'visible') {
+      const now = Date.now()
+      if (now - lastVisibilityCheckAt < 30000) {
+        return
+      }
+      lastVisibilityCheckAt = now
       syncIfStale()
     }
   }

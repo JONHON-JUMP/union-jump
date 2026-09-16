@@ -1,6 +1,5 @@
 package cn.jonhon.jump.module.mes.process.service;
 
-import cn.jonhon.jump.module.mes.process.constant.CommonConstant;
 import cn.jonhon.jump.module.mes.process.controller.admin.vo.ProcessCardDetailsRespVO;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
@@ -20,24 +19,23 @@ import java.util.Map;
 public class TemporaryProcessTreeAssembler {
 
 
-    public List<ProcessCardDetailsRespVO> assemble(JSONArray details, String documentOid) {
+    public List<ProcessCardDetailsRespVO> assemble(JSONArray details) {
         List<Row> rows = new ArrayList<>();
         if (details != null) {
             for (int index = 0; index < details.size(); index++) {
-                rows.add(toRow(details.getJSONObject(index), index, documentOid));
+                rows.add(toRow(details.getJSONObject(index), index));
             }
         }
         rows.sort(this::compareRows);
         return buildTreeAndAssignIndexes(rows);
     }
 
-    private Row toRow(JSONObject json, int sourceIndex, String documentOid) {
+    private Row toRow(JSONObject json, int sourceIndex) {
         String no = StringUtils.trimToEmpty(json.getString("Seqno"));
         ProcessCardDetailsRespVO node = ProcessCardDetailsRespVO.builder()
                 .name(json.getString("Seqdesc"))
                 .code(null)
                 .no(no)
-                .url(CommonConstant.VIEW_URL_PREFIX + documentOid)
                 .children(new ArrayList<>())
                 .build();
         return new Row(no, sourceIndex, parseParts(no), node);

@@ -156,7 +156,7 @@ import {
   getQuickNavCache,
   setQuickNavCache
 } from '@/utils/portalQuickNavCache'
-import { checkQuickNavUpdateIfNeeded, rememberQuickNavSignature } from '@/utils/portalQuickNavWatch'
+import { rememberQuickNavSignature } from '@/utils/portalQuickNavWatch'
 import { buildPortalHomeApps } from '@/utils/portalQuickNavApps'
 import { buildIconStyle } from '@/utils/menuIconStyle'
 import QuickNavContextMenu from '@/components/QuickNavContextMenu.vue'
@@ -283,7 +283,6 @@ export default {
     this.loadQuickNav()
     this.$nextTick(this.initAppPagination)
     document.addEventListener('keydown', this.handleQuickNavEditKeydown)
-    document.addEventListener('visibilitychange', this.handleVisibilityChange)
     window.addEventListener('resize', this.handleEditGridResize)
     this._onPortalQuickNavChanged = (payload) => {
       if (!payload || payload.scopeKey !== this.quickNavScopeKey || payload.source === 'panel') {
@@ -298,9 +297,32 @@ export default {
     }
     this.$root.$on('portal-quick-nav-changed', this._onPortalQuickNavChanged)
   },
+  activated() {
+    // keep-alive 回首页：顶栏高度可能刚变，延后一帧再量网格，避免与关菜单同帧打架
+    if (this.variant !== 'home') {
+      return
+    }
+    const legacy = typeof document !== 'undefined'
+      && document.documentElement.classList.contains('legacy-anim')
+    this.$nextTick(() => {
+      if (legacy) {
+        window.requestAnimationFrame(() => {
+          this.initAppPagination()
+        })
+        return
+      }
+      this.initAppPagination()
+    })
+  },
+  deactivated() {
+    if (this.appResizeObserver) {
+      this.appResizeObserver.disconnect()
+      this.appResizeObserver = null
+    }
+    window.removeEventListener('resize', this.updateAppPagination)
+  },
   beforeDestroy() {
     document.removeEventListener('keydown', this.handleQuickNavEditKeydown)
-    document.removeEventListener('visibilitychange', this.handleVisibilityChange)
     window.removeEventListener('resize', this.handleEditGridResize)
     window.removeEventListener('mousemove', this.trackEditPointer)
     if (this._onPortalQuickNavChanged) {
@@ -763,17 +785,18 @@ export default {
         this.quickNavSaving = false
       }
     },
-    handleVisibilityChange() {
-      if (document.visibilityState !== 'visible' || this.quickNavEditMode || this.quickNavSaving) {
-        return
-      }
-      checkQuickNavUpdateIfNeeded(this.currentSubSystemId)
-    },
+    // handleVisibilityChange 已移除：切回标签页不再探测快捷导航变更（后端 cache-aside，
+    // 改动删 Redis 后刷新页面/重新登录即拿到新数据，在线探测是低配机上的无谓请求）
     initAppPagination() {
       if (this.variant !== 'home') {
         return
       }
       this.updateAppPagination()
+      if (this.appResizeObserver) {
+        this.appResizeObserver.disconnect()
+        this.appResizeObserver = null
+      }
+      window.removeEventListener('resize', this.updateAppPagination)
       if (typeof ResizeObserver !== 'undefined' && this.$refs.appViewport) {
         this.appResizeObserver = new ResizeObserver(this.updateAppPagination)
         this.appResizeObserver.observe(this.$refs.appViewport)
@@ -1293,4 +1316,39 @@ $canvas: #eaf4fc;
   100% { transform: rotate(1.4deg); }
 }
 
+</style>
+
+<style lang="scss">
+/* Chrome <90：饱和度 filter / 抖动 / 翻页位移在 82 上会逼出快捷导航整层重绘 */
+html.legacy-anim {
+  .app-tile--edit .app-icon,
+  .app-tile--edit:nth-child(2n) .app-icon,
+  .app-tile--edit:nth-child(3n) .app-icon {
+    animation: none !important;
+  }
+
+  .app-tile:hover .app-icon,
+  .app-tile:focus .app-icon,
+  .app-tile:active .app-icon {
+    transform: none !important;
+    filter: none !important;
+  }
+
+  .app-page-next-enter-active,
+  .app-page-next-leave-active,
+  .app-page-prev-enter-active,
+  .app-page-prev-leave-active,
+  .app-page-next-enter,
+  .app-page-next-leave-to,
+  .app-page-prev-enter,
+  .app-page-prev-leave-to {
+    transition: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+
+  .app-grid--edit .sortable-fallback {
+    box-shadow: 0 4px 12px rgba(16, 35, 62, .14) !important;
+  }
+}
 </style>

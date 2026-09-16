@@ -265,10 +265,10 @@ jonhonjump:
       retry-routing-key-prefix: RECIPE_CHANGE_RETRY_ROUTE_ # 延迟重试交换机按车间路由的键前缀
       retry-queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_ # 车间延迟重试队列名称前缀
       retry-delay-millis: 180000 # 延迟重试队列消息存活时长,当前为3分钟
-#      retry-queue-overrides: # 指定车间使用独立版本重试队列，JUMP 自动声明、绑定，无需在管理页面手建 V2
-#        "3500":
-#          queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_V1_
-#          delay-millis: 60000
+  #      retry-queue-overrides: # 指定车间使用独立版本重试队列，JUMP 自动声明、绑定，无需在管理页面手建 V2
+  #        "3500":
+  #          queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_V1_
+  #          delay-millis: 60000
   wxa-code:
     env-version: develop # 小程序版本: 正式版为 "release"；体验版为 "trial"；开发版为 "develop"
   wxa-subscribe-message:

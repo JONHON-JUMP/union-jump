@@ -125,9 +125,8 @@
 import { mapGetters } from 'vuex'
 import { confirmSwitchUser, confirmLogout } from '@/utils/switchUser'
 import { isExternal } from '@/utils/validate'
-import { parsePortalClientId, resolvePortalFrameRoute, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath } from '@/utils/portalRoute'
+import { parsePortalClientId, resolvePortalFrameRoute, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath, httpUrlToPortalLocation } from '@/utils/portalRoute'
 import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
-import { startCamstarOpenTrace, markCamstarOpen } from '@/utils/camstarOpenDiag'
 import AllAppsDrawer from '@/views/components/AllAppsDrawer.vue'
 import PortalDock from './PortalDock.vue'
 import PortalSystemSwitch from './PortalSystemSwitch.vue'
@@ -139,8 +138,7 @@ import {
   getQuickNavCache,
   setQuickNavCache
 } from '@/utils/portalQuickNavCache'
-import { startQuickNavWatch, stopQuickNavWatch, rememberQuickNavSignature } from '@/utils/portalQuickNavWatch'
-import { startPortalPermWatch, stopPortalPermWatch } from '@/utils/portalPermWatch'
+import { rememberQuickNavSignature } from '@/utils/portalQuickNavWatch'
 import { getTodoTaskPage } from '@/api/bpm/task'
 import { checkPermi } from '@/utils/permission'
 
@@ -171,8 +169,7 @@ export default {
       quickNavMenuIds: [],
       quickNavLockedMenuIds: [],
       quickNavConfigured: false,
-      todoCount: 0,
-      todoRefreshTimer: null
+      todoCount: 0
     }
   },
   computed: {
@@ -235,6 +232,11 @@ export default {
       this.searchKeyword = ''
       this.searchFocused = false
       this.restoreQuickNavFromCache()
+      // switchSystem 已预拉快捷导航；有 apps 缓存则不再打接口，避免切换下拉「卡第二下」
+      const cached = getQuickNavCache(this.quickNavScopeKey)
+      if (cached && Array.isArray(cached.apps)) {
+        return
+      }
       this.loadQuickNav()
     },
     currentSubSystemId(newId, oldId) {
@@ -256,7 +258,6 @@ export default {
     '$route.path'(newPath) {
       this.dockExpanded = false
       this.loadTodoCount()
-      this.restoreAllAppsDrawerOnHome(newPath)
     },
     // 进入业务菜单（主系统或子系统）自动收起顶栏给页面让空间，回门户首页自动展开；
     // 折叠条可点击展开、展开态右上角箭头可再收起（停留当前路由时保持用户选择）
@@ -265,7 +266,9 @@ export default {
       immediate: true,
       handler(inBusiness) {
         this.headerCollapsed = inBusiness
-        this.scheduleInitialIframeNudge()
+        if (inBusiness) {
+          this.scheduleInitialIframeNudge()
+        }
       }
     },
     // 折叠/展开、dock 展开收起都会改变 iframe 可视高度；跨域子系统不监听 resize，
@@ -273,10 +276,10 @@ export default {
     // 变化后对可见 iframe 做 1px 宽度抖动，强制其触发内部 resize 重算。
     headerCollapsed() {
       this.$nextTick(() => this.nudgeVisibleIframes())
-    },
-    dockExpanded() {
-      this.$nextTick(() => this.nudgeVisibleIframes())
     }
+    // dockExpanded 不再立即抖 iframe：dock 尺寸变化必然触发 setupDockSpaceSync 的
+    // ResizeObserver（--dock-space 写回 + 320ms 防抖补抖）。此前 watch + 防抖各抖一次，
+    // 折叠/展开连做两次全页 iframe 重排（Camstar 类重页面单次数百毫秒，82 上是折叠展开卡顿主因）
   },
   mounted() {
     this._onPortalOpenAllApps = (keyword) => {
@@ -299,20 +302,28 @@ export default {
     }
     this.$root.$on('portal-open-all-apps', this._onPortalOpenAllApps)
     this.$root.$on('portal-quick-nav-changed', this._onPortalQuickNavChanged)
+    this._onPortalExplicitHome = () => {
+      // 任意路径回门户首页：关掉「全部应用」，避免盖住快捷导航
+      this.drawerVisible = false
+    }
+    this.$root.$on('portal-explicit-home', this._onPortalExplicitHome)
     this.restoreQuickNavFromCache()
     this.loadQuickNav()
-    startQuickNavWatch(this.$router)
-    startPortalPermWatch(this.$router)
+    // 在线变更探测已移除（quickNavWatch/permWatch）：后端 cache-aside（改数据删 Redis），
+    // 刷新页面/重新登录自然从库重建；在线探测的版本比对请求是低配机上的无谓负担
     this.loadTodoCount()
-    this.todoRefreshTimer = window.setInterval(() => {
-      this.loadTodoCount()
-    }, 60000)
+    // 待办不再定时轮询（无实时性要求）：切回标签页时刷新，路由切换由 $route watch 刷新，
+    // 其余场景靠用户手动刷新页面——低配 Chrome 82 上定时器是纯负担
+    this._onTodoVisibility = () => {
+      if (!document.hidden) {
+        this.loadTodoCount()
+      }
+    }
+    document.addEventListener('visibilitychange', this._onTodoVisibility)
     this.setupDockSpaceSync()
   },
   beforeDestroy() {
     this.teardownDockSpaceSync()
-    stopQuickNavWatch()
-    stopPortalPermWatch()
     if (this._onPortalOpenAllApps) {
       this.$root.$off('portal-open-all-apps', this._onPortalOpenAllApps)
       this._onPortalOpenAllApps = null
@@ -321,9 +332,13 @@ export default {
       this.$root.$off('portal-quick-nav-changed', this._onPortalQuickNavChanged)
       this._onPortalQuickNavChanged = null
     }
-    if (this.todoRefreshTimer) {
-      window.clearInterval(this.todoRefreshTimer)
-      this.todoRefreshTimer = null
+    if (this._onPortalExplicitHome) {
+      this.$root.$off('portal-explicit-home', this._onPortalExplicitHome)
+      this._onPortalExplicitHome = null
+    }
+    if (this._onTodoVisibility) {
+      document.removeEventListener('visibilitychange', this._onTodoVisibility)
+      this._onTodoVisibility = null
     }
   },
   methods: {
@@ -441,14 +456,26 @@ export default {
       if (isExternal(routePath) || routePath.charAt(0) === '/') return routePath
       return `${basePath}/${routePath}`.replace(/\/+/g, '/')
     },
-    /** 从「全部应用」抽屉打开菜单：记住来源，关闭菜单回到首页时自动重开抽屉 */
+    /** 从「全部应用」抽屉打开菜单 */
     openAppFromDrawer(app) {
-      try { sessionStorage.setItem('JUMP_ALLAPPS_RETURN', '1') } catch (e) { /* ignore */ }
       this.openApp(app)
     },
     openApp(app) {
       this.searchFocused = false
+      const legacy = document.documentElement.classList.contains('legacy-anim')
+      // 82：先关抽屉再导航，避免同帧「卸抽屉 + 收顶栏 + 挂 iframe」主线程堵死、闪黑
+      const runNavigate = () => this.navigateOpenApp(app)
+      if (this.drawerVisible && legacy) {
+        this.drawerVisible = false
+        this.$nextTick(() => {
+          window.requestAnimationFrame(() => runNavigate())
+        })
+        return
+      }
       this.drawerVisible = false
+      runNavigate()
+    },
+    navigateOpenApp(app) {
       if (!app || !app.path) return
       if (this.currentSystem !== 'main' && isMainBusinessPath(app.path)) {
         // 禁止 lock 全屏：会挡住 dock/菜单，用户以为「卡死不能点」
@@ -487,11 +514,19 @@ export default {
           || cachedMap[targetPath] || lookupPathLinkEntry(targetPath, cachedMap)
           || activeMap[app.path] || lookupPathLinkEntry(app.path, activeMap)
           || cachedMap[app.path] || lookupPathLinkEntry(app.path, cachedMap)
-        const link = (entry && entry.link) || ''
-        const rest = String(targetPath).replace(new RegExp('^/portal/' + clientId + '/'), '')
-        const isDirect = (/^https?:\/\//i.test(link) && link.indexOf('#') < 0)
-          || !!slashIpPortRestToHttp(rest.replace(/:/g, '/'))
-        const resolvedLink = link || slashIpPortRestToHttp(rest.replace(/:/g, '/')) || ''
+        const link = (entry && entry.link) || (app && app.link) || ''
+        // 旧快捷导航可能只有 .../d3/needle；有完整 http(含 #) 时重写成带 __hash__ 的壳 path
+        if (link && /^https?:\/\//i.test(link) && String(link).indexOf('#') >= 0) {
+          const loc = httpUrlToPortalLocation(clientId, link)
+          if (loc && loc.path) {
+            targetPath = loc.path
+          }
+        }
+        const rest = String(targetPath).replace(new RegExp('^/portal/' + clientId + '/'), '').replace(/\/index$/, '')
+        const restHttp = /^menu\d+/i.test(rest) ? '' : (slashIpPortRestToHttp(rest.replace(/:/g, '/')) || '')
+        // 任意完整 http(s)（含 /#/xxx）都直开；禁止用壳 path 回退成丢 hash 的 host 根
+        const isDirect = /^https?:\/\//i.test(link) || !!restHttp
+        const resolvedLink = link || restHttp || ''
 
         const pushWithTitle = () => {
           return this.$router.push(targetPath).then(() => {
@@ -512,23 +547,11 @@ export default {
 
         const openDirect = () => {
           // 对齐 4200：只切壳 + 立刻 push，绝不 await 全量菜单（那会到 10s+）
-          const traceId = startCamstarOpenTrace({
-            path: targetPath,
-            link: resolvedLink,
-            clientId,
-            title: app.name
-          })
-          const tCookie0 = Date.now()
-          ensureLocalCamstarCookie()
-          markCamstarOpen(traceId, 'cookie', { ms: Date.now() - tCookie0 })
+          ensureLocalCamstarCookie(resolvedLink, clientId)
           if (resolvedLink) {
-            seedCamstarCookieForUrlInBackground(resolvedLink)
+            seedCamstarCookieForUrlInBackground(resolvedLink, clientId)
           }
           const afterPush = () => {
-            markCamstarOpen(traceId, 'navigate', { path: targetPath })
-            try {
-              sessionStorage.setItem('JUMP_CAMSTAR_TRACE', String(traceId))
-            } catch (e) { /* ignore */ }
             if (!menusReady) {
               this.$store.dispatch('portal/ensureSubSystemLoaded', {
                 clientId,
@@ -540,28 +563,23 @@ export default {
           const needShell = this.$store.state.portal.currentSystem !== clientId
             || !(this.$store.state.portal.pathLinkMap && Object.keys(this.$store.state.portal.pathLinkMap).length)
           if (needShell) {
-            const tShell = Date.now()
             return this.$store.dispatch('portal/activateSubSystemShell', { clientId })
-              .then(() => {
-                markCamstarOpen(traceId, 'shell', { ms: Date.now() - tShell })
-                return pushWithTitle()
-              })
+              .then(() => pushWithTitle())
               .then(afterPush)
           }
-          markCamstarOpen(traceId, 'shell', { ms: 0, skipped: true })
           return Promise.resolve(pushWithTitle()).then(afterPush)
         }
 
         // Camstar：一律直开（有 path 编码或 link 即可）
         if (isDirect) {
           return openDirect().catch(err => {
-            this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入业务系统失败'))
           })
         }
 
         // 若依：菜单未就绪时后台拉，不锁全屏；业务区由 InnerLink 自己提示
         if (!menusReady) {
-          this.$message({ message: '正在准备子系统菜单…', type: 'info', duration: 1500 })
+          this.$message({ message: '正在准备业务系统菜单…', type: 'info', duration: 1500 })
         }
         this.$store.dispatch('portal/ensureSubSystemReady', {
           clientId,
@@ -574,7 +592,7 @@ export default {
             return pushWithTitle()
           })
           .catch(err => {
-            this.$message.error(typeof err === 'string' ? err : (err.message || '进入子系统失败'))
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入业务系统失败'))
           })
         return
       }
@@ -602,6 +620,13 @@ export default {
      * 靠抖动触发其内部 window.resize 重算布局，修复底部内容滞留旧视口
      */
     nudgeVisibleIframes() {
+      // 旧 Chromium（legacy-anim）：1px 抖动=强制可见 iframe 全量重排，低配 82 上单次数百毫秒，
+      // 是折叠 dock/顶栏、进业务页卡顿的最大单一来源。iframe 容器尺寸变化时浏览器本就会
+      // 自动重排其内容，nudge 只服务少数自算固定高度的子页面——体验优先，82 上全部跳过；
+      // 若个别子系统页面出现底部留白，再针对该页面单独处理
+      if (document.documentElement.classList.contains('legacy-anim')) {
+        return
+      }
       window.requestAnimationFrame(() => {
         document.querySelectorAll('iframe.inner-link__frame').forEach(frame => {
           // 隐藏的保温帧跳过，等它再次可见时高度自然按新容器渲染
@@ -632,10 +657,13 @@ export default {
       if (this._dockSpaceNudgeTimer) {
         clearTimeout(this._dockSpaceNudgeTimer)
       }
+      // 新浏览器 320ms 等 padding 过渡结束；旧 Chromium（legacy-anim）过渡已禁、dock 瞬时到位，
+      // 短延迟等 layout 落定即可，避免 320ms 后突然补抖造成"又一顿"
+      const delay = document.documentElement.classList.contains('legacy-anim') ? 60 : 320
       this._dockSpaceNudgeTimer = window.setTimeout(() => {
         this._dockSpaceNudgeTimer = null
         this.nudgeVisibleIframes()
-      }, 320)
+      }, delay)
     },
     /**
      * 实测 dock 占位，替代 CSS 里 100/116/44 的估算值：
@@ -659,6 +687,12 @@ export default {
         }
         // dock 顶边到视口底 + 安全缝（含阴影/亚像素）；不低于 24px 兜底
         const space = Math.max(24, Math.ceil(window.innerHeight - rect.top) + 10)
+        // 同值短路：写 --dock-space 会改 padding 触发 layout，若再次触发 observer 回调
+        // 会形成回环；值未变时直接跳过，也免去一次全页重排
+        if (this._lastDockSpace === space) {
+          return
+        }
+        this._lastDockSpace = space
         shellEl.style.setProperty('--dock-space', space + 'px')
         // 跨域 iframe（Camstar 等）收不到 resize：占位变化后必须补抖，否则仍按旧高度渲染、底栏文字被裁
         this.scheduleDockSpaceIframeNudge()
@@ -694,30 +728,15 @@ export default {
         clearTimeout(this._dockSpaceNudgeTimer)
         this._dockSpaceNudgeTimer = null
       }
+      this._lastDockSpace = null
       if (this.$el) {
         this.$el.style.removeProperty('--dock-space')
       }
     },
     goHome() {
-      if (this.$route.path === '/index' || this.$route.path === '/') return
-      // 主动回首页：不自动重开「全部应用」抽屉
-      try { sessionStorage.removeItem('JUMP_ALLAPPS_RETURN') } catch (e) { /* ignore */ }
+      // 已在首页：仍要关抽屉、清 workbench query，避免「点了首页还停在全部应用/待办态」
+      this.drawerVisible = false
       this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
-    },
-    /**
-     * 关闭从「全部应用」打开的菜单回到门户首页时，自动重新打开抽屉，
-     * 用户可继续浏览/选择下一个应用（主系统与子系统同逻辑）
-     */
-    restoreAllAppsDrawerOnHome(newPath) {
-      if (newPath !== '/index' && newPath !== '/') {
-        return
-      }
-      let reopen = false
-      try { reopen = sessionStorage.getItem('JUMP_ALLAPPS_RETURN') === '1' } catch (e) { /* ignore */ }
-      if (reopen) {
-        try { sessionStorage.removeItem('JUMP_ALLAPPS_RETURN') } catch (e) { /* ignore */ }
-        this.drawerVisible = true
-      }
     },
     loadTodoCount() {
       if (!checkPermi(['bpm:task:query'])) {
@@ -731,15 +750,20 @@ export default {
       })
     },
     goTodo() {
-      if (this.$route.path === '/index' || this.$route.path === '/') {
-        // 首页已打开时：直接通知切到待办（仅改 query 可能因重复导航不触发 watch）
+      this.drawerVisible = false
+      const openTodo = () => {
         this.$root.$emit('portal-open-workbench', 'todo')
-        if (this.$route.query.workbench !== 'todo') {
-          this.$router.replace({
-            path: '/index',
-            query: { ...this.$route.query, workbench: 'todo' }
-          }).catch(() => {})
+        if (this.$route.path === '/index' || this.$route.path === '/') {
+          if (this.$route.query.workbench !== 'todo') {
+            this.$router.replace({
+              path: '/index',
+              query: { ...this.$route.query, workbench: 'todo' }
+            }).catch(() => {})
+          }
         }
+      }
+      if (this.$route.path === '/index' || this.$route.path === '/') {
+        openTodo()
         return
       }
       const app = this.authorizedApps.find(item => item.path === '/bpm/task/todo')
@@ -747,7 +771,16 @@ export default {
         this.openApp(app)
         return
       }
-      this.$router.push({ path: '/index', query: { workbench: 'todo' } }).catch(() => {})
+      // 走正式回首页（保留 dock），再切待办；禁止裸 push('/index') 清掉页签
+      this.$store.dispatch('portal/navigateToPortalHome', { keepWorkbench: true })
+        .then(() => {
+          this.$root.$emit('portal-open-workbench', 'todo')
+          return this.$router.replace({
+            path: '/index',
+            query: { workbench: 'todo' }
+          }).catch(() => {})
+        })
+        .catch(() => {})
     },
     handleSwitchUser() {
       // 换人后固定 /index，由 bootstrap 按新用户星标默认系统进入
@@ -837,11 +870,15 @@ button { color: inherit; }
   display: flex;
   width: 100%;
   align-items: center;
-  gap: 10px;
   border: 0;
   padding: 2px 6px;
   background: transparent;
   cursor: pointer;
+}
+
+/* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+.header-collapsed-bar > :not(:last-child) {
+  margin-right: 10px;
 }
 
 .header-collapsed-bar .collapsed-mark {
@@ -1057,5 +1094,13 @@ button { color: inherit; }
   *,
   *::before,
   *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* 旧 Chromium（<90）：dock 展开时 padding-bottom 布局动画每帧触发全页 layout（含 iframe 重排），
+   82 上卡顿明显（90 同机流畅）；降级为瞬时到位 */
+:root.legacy-anim .jump-portal-shell {
+  transition: none !important;
+  /* 三层 radial-gradient 大背景在 82 上任何重绘都贵，降级为纯色（同底色） */
+  background: $canvas;
 }
 </style>

@@ -31,25 +31,32 @@
       </button>
 
       <div v-if="businessTabs.length" ref="tabScroller" class="business-tabs" aria-label="已打开应用">
-        <button
+        <div
           v-for="tab in businessTabs"
-          :key="tab.path"
+          :key="tabKey(tab)"
           :class="{ active: isActive(tab) }"
           class="business-tab"
-          type="button"
-          :tabindex="tabIndex"
-          :title="tab.title"
-          @click="activateTab(tab)"
         >
-          <svg-icon :icon-class="tabIcon(tab)" />
-          <span>{{ tab.title }}</span>
-          <i
-            class="el-icon-close close-tab"
-            role="button"
+          <button
+            type="button"
+            class="business-tab-main"
+            :tabindex="tabIndex"
+            :title="tab.title"
+            @click="activateTab(tab)"
+          >
+            <svg-icon :icon-class="tabIcon(tab)" />
+            <span>{{ tab.title }}</span>
+          </button>
+          <button
+            type="button"
+            class="close-tab"
+            :tabindex="tabIndex"
             :aria-label="'关闭' + tab.title"
-            @click.stop="closeTab(tab)"
-          />
-        </button>
+            @click.stop.prevent="closeTab(tab)"
+          >
+            <i class="el-icon-close" />
+          </button>
+        </div>
       </div>
 
       <div class="fixed-actions">
@@ -68,7 +75,14 @@ import {
   resolvePortalFrameRoute,
   isPortalSubSystemHomePath,
   resolvePortalMenuTitle,
-  lookupPathLinkEntry
+  lookupPathLinkEntry,
+  lookupPathLinkExact,
+  portalTabKey,
+  portalQueryBucket,
+  portalTabsMatch,
+  portalPathAliasKey,
+  isPortalPathDescendant,
+  buildPortalChildTabTitle
 } from '@/utils/portalRoute'
 import { syncPortalIframeView } from '@/utils/portalIframe'
 
@@ -125,16 +139,31 @@ export default {
               systems
             )
             : view
-          const mapEntry = isPortal ? lookupPathLinkEntry(view.path, map) : null
-          const title = resolvePortalMenuTitle(
-            resolved.meta && resolved.meta.menuTitle,
-            resolved.meta && resolved.meta.title,
-            mapEntry && mapEntry.title,
-            mapEntry && mapEntry.menuTitle,
-            view.title,
-            view.meta && view.meta.menuTitle,
-            view.meta && view.meta.title
-          ) || '业务页'
+          const exactEntry = isPortal ? lookupPathLinkExact(view.path, map) : null
+          const mapEntry = isPortal ? (exactEntry || lookupPathLinkEntry(view.path, map)) : null
+          const isChild = isPortal && (
+            !!(resolved.meta && resolved.meta.portalChild)
+            || !!(view.meta && view.meta.portalChild)
+            || portalQueryBucket(view) === 'child'
+            || (!!mapEntry && !exactEntry)
+          )
+          const parentMenuTitle = (mapEntry && mapEntry.title) || (mapEntry && mapEntry.menuTitle)
+          const storedChildTitle = resolvePortalMenuTitle(
+            view.meta && view.meta.portalChildTitle,
+            isChild && view.title !== parentMenuTitle ? view.title : '',
+            isChild && resolved.meta && resolved.meta.portalChildTitle
+          )
+          const title = isChild
+            ? (storedChildTitle || buildPortalChildTabTitle(parentMenuTitle, view, systems))
+            : (resolvePortalMenuTitle(
+              resolved.meta && resolved.meta.menuTitle,
+              resolved.meta && resolved.meta.title,
+              mapEntry && mapEntry.title,
+              mapEntry && mapEntry.menuTitle,
+              view.title,
+              view.meta && view.meta.menuTitle,
+              view.meta && view.meta.title
+            ) || '业务页')
           if (!title || title === 'no-name') {
             return null
           }
@@ -145,7 +174,9 @@ export default {
               ...(view.meta || {}),
               ...((isPortal && resolved.meta) || {}),
               title,
-              menuTitle: title
+              menuTitle: title,
+              portalChild: isChild || !!(view.meta && view.meta.portalChild),
+              portalChildTitle: isChild ? title : (view.meta && view.meta.portalChildTitle)
             }
           }
         })
@@ -179,13 +210,18 @@ export default {
       syncPortalIframeView(this.$store, route)
       this.$store.dispatch('tagsView/touchVisitedView', route)
     },
+    tabKey(tab) {
+      return portalTabKey(tab) || tab.path
+    },
     isActive(tab) {
-      return tab.path === this.$route.path
+      return portalTabsMatch(tab, this.$route)
     },
     tabIcon(tab) {
       return (tab.meta && tab.meta.icon) || 'component'
     },
     activateTab(tab) {
+      // 切换 tab 只切路由：iframe 帧由 IframeToggle 用 v-show 保活，保持现场不重载；
+      // 需要刷新时用户按浏览器 F5（打开/关闭详情子页时既有逻辑仍会刷新父列表）
       if (!this.isActive(tab)) {
         this.$router.push(tab.fullPath || tab.path)
       }
@@ -194,13 +230,19 @@ export default {
       this.$emit('collapse')
     },
     closeTab(tab) {
+      // 路径别名/子路径也算当前页：否则 isActive=false 时只 delView 再 sync，页签会被加回来（叉不掉）
+      const route = this.$route
+      const closingCurrent = this.isActive(tab)
+        || portalTabsMatch(tab, route)
+        || portalPathAliasKey(tab.path) === portalPathAliasKey(route.path)
+        || isPortalPathDescendant(route.path, tab.path)
       this.$store.dispatch('portal/closePortalTab', {
         tab,
-        active: this.isActive(tab)
+        active: closingCurrent
       }).catch(() => {})
     },
     goHome() {
-      if (this.isHome) return
+      // 与顶栏一致：走 navigateToPortalHome（会发 portal-explicit-home 关抽屉）
       this.$store.dispatch('portal/navigateToPortalHome').catch(err => {
         this.$message.error(typeof err === 'string' ? err : (err.message || '返回首页失败'))
       })
@@ -210,7 +252,12 @@ export default {
       if (!scroller) return
       const activeTab = scroller.querySelector('.business-tab.active')
       if (activeTab && typeof activeTab.scrollIntoView === 'function') {
-        activeTab.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+        const legacy = document.documentElement.classList.contains('legacy-anim')
+        activeTab.scrollIntoView({
+          behavior: legacy ? 'auto' : 'smooth',
+          block: 'nearest',
+          inline: 'nearest'
+        })
       }
     }
   }
@@ -299,12 +346,12 @@ $primary: #087ce5;
 }
 
 .fixed-entry:hover,
-.fixed-actions > button:hover {
+.fixed-actions > button:hover:not(.all-apps) {
   outline: none;
   background: #edf5fc;
 }
 .fixed-entry:focus,
-.fixed-actions > button:focus {
+.fixed-actions > button:focus:not(.all-apps) {
   outline: none;
   background: #edf5fc;
 }
@@ -352,43 +399,61 @@ $primary: #087ce5;
   flex: 0 0 72px;
   width: 72px;
   height: 66px;
-  padding: 0 4px;
   align-items: center;
   justify-content: center;
   border-radius: 13px;
-  background: transparent !important;
-  flex-direction: column;
+  color: #536a83;
+  background: transparent;
   transition: color .18s ease, background .18s ease, transform .18s ease;
 }
 
-.business-tab:hover {
-  outline: none;
-  color: #075eb5;
-  background: #edf5fc !important;
+.business-tab-main {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  padding: 0 4px;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 13px;
+  color: inherit !important;
+  background: transparent !important;
+  flex-direction: column;
+  cursor: pointer;
+  font: inherit;
 }
-.business-tab:focus {
+
+.business-tab:hover,
+.business-tab:focus-within {
   outline: none;
   color: #075eb5;
   background: #edf5fc !important;
 }
 
-.business-tab:active { transform: scale(.98); }
+.business-tab-main:active { transform: scale(.98); }
 
 .business-tab.active {
-  color: #fff;
+  color: #fff !important;
   background: $primary !important;
+}
+
+.business-tab.active .business-tab-main {
+  color: #fff !important;
 }
 
 .business-tab .svg-icon {
   flex: 0 0 23px;
   width: 23px;
   height: 23px;
+  color: inherit;
+  fill: currentColor;
 }
 
-.business-tab > span {
+.business-tab-main > span {
   width: 100%;
   margin: 5px 0 0;
   overflow: hidden;
+  color: inherit;
   font-size: 11px;
   font-weight: 500;
   line-height: 15px;
@@ -399,18 +464,26 @@ $primary: #087ce5;
 
 .close-tab {
   position: absolute;
-  top: 3px;
-  right: 3px;
+  top: 2px;
+  right: 2px;
+  z-index: 2;
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   place-items: center;
+  border: 0;
   border-radius: 50%;
   color: #61778e;
   background: #dce8f2;
-  font-size: 10px;
+  font-size: 12px;
+  cursor: pointer;
   opacity: 0;
   transition: opacity .16s ease, color .16s ease, background .16s ease;
+}
+.close-tab i {
+  font-size: 12px;
+  pointer-events: none;
 }
 
 .business-tab:hover .close-tab,
@@ -434,6 +507,11 @@ $primary: #087ce5;
 .fixed-actions .all-apps {
   color: #fff;
   background: #17263a;
+}
+.fixed-actions .all-apps:hover,
+.fixed-actions .all-apps:focus {
+  color: #fff;
+  background: #243447;
 }
 
 .taskbar-divider {
@@ -518,5 +596,11 @@ $primary: #087ce5;
     scroll-behavior: auto !important;
     transition-duration: .01ms !important;
   }
+}
+
+/* 旧 Chromium（<90）：dock 展开是 width/height/padding 布局动画，每帧全页 layout，
+   82 上卡顿明显；降级为瞬时展开。子元素 hover 之类的着色过渡不受影响 */
+:root.legacy-anim .portal-taskbar {
+  transition: none !important;
 }
 </style>

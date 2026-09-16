@@ -91,9 +91,11 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(list)) {
             return Collections.emptyList();
         }
+        // 对接用户名兜底用主用户工号（行上未存用户名时）
+        AdminUserDO mainUser = adminUserMapper.selectById(userId);
         return list.stream()
                 .filter(item -> !"1".equals(item.getStatus()))
-                .map(this::convertExternal)
+                .map(item -> convertExternal(item, mainUser))
                 .filter(Objects::nonNull)
                 .collect(Collectors.toList());
     }
@@ -105,14 +107,15 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         boolean onlyPortal = Boolean.TRUE.equals(portalOnly);
         return subSystems.stream()
-                .filter(subSystem -> !onlyPortal || subSystem.getOauth2ClientId() != null)
+                .filter(subSystem -> !onlyPortal || subSystem.isPortalBound())
                 .map(subSystem -> {
                     SubSystemClientSimpleRespVO vo = new SubSystemClientSimpleRespVO();
                     vo.setId(subSystem.getId());
                     OAuth2ClientDO oauth2Client = getOAuth2Client(subSystem);
-                    vo.setClientId(oauth2Client != null ? oauth2Client.getClientId() : null);
+                    vo.setClientId(subSystem.resolvePortalClientId(
+                            oauth2Client != null ? oauth2Client.getClientId() : null));
                     vo.setName(subSystem.getSystemName());
-                    vo.setPortalBound(subSystem.getOauth2ClientId() != null);
+                    vo.setPortalBound(subSystem.isPortalBound());
                     if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
                         vo.setLogo(subSystem.getSystemIcon());
                     } else if (oauth2Client != null) {
@@ -183,11 +186,59 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (StrUtil.isBlank(username)) {
             return null;
         }
-        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, username.trim());
+        SubSystemUsersDO user = selectByUsernameCompat(subSystemId, username.trim());
         if (user == null) {
             return null;
         }
         return buildRespList(Collections.singletonList(user)).get(0);
+    }
+
+    @Override
+    public String getMyCamstarUsername(Long userId) {
+        AdminUserDO mainUser = adminUserMapper.selectById(userId);
+        if (mainUser == null) {
+            return null;
+        }
+        // 未标记拼接车间的用户，Camstar 侧身份即主登录工号；
+        // 只认花名册 usernameWithWorkshop=1 + 有车间编号的行（与门户 Cookie 规则一致）
+        List<SubSystemUsersDO> rosters = subSystemUsersMapper.selectListByMainUserId(userId).stream()
+                .filter(item -> "1".equals(item.getUsernameWithWorkshop()))
+                .filter(item -> StrUtil.isNotBlank(item.getWorkshopId()))
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(rosters)) {
+            return mainUser.getUsername();
+        }
+        // 全局预取仅兜底：多车间时取最新一条；真正打开/切换系统以该系统 externalUsername 为准
+        SubSystemUsersDO roster = rosters.get(0);
+        String bare = StrUtil.isNotBlank(roster.getUsername()) ? roster.getUsername().trim() : mainUser.getUsername();
+        String workshopCode = roster.getWorkshopId().trim();
+        if (bare != null && bare.startsWith(workshopCode + "_")) {
+            return bare;
+        }
+        return workshopCode + "_" + bare;
+    }
+
+    /**
+     * 按用户名查子系统用户的兼容查询：子系统（Camstar）侧用户名为 车间编号_工号 时，
+     * 先按传入全名精确匹配；查不到且含 "_" 时按后缀工号回查，
+     * 命中行须已标记拼接车间（username_with_workshop=1）且车间编号与前缀一致才认。
+     */
+    private SubSystemUsersDO selectByUsernameCompat(Long subSystemId, String username) {
+        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, username);
+        if (user != null) {
+            return user;
+        }
+        int split = username.lastIndexOf('_');
+        if (split <= 0 || split >= username.length() - 1) {
+            return null;
+        }
+        String workshopCode = username.substring(0, split);
+        String bareUsername = username.substring(split + 1);
+        user = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, bareUsername);
+        if (user == null || !"1".equals(user.getUsernameWithWorkshop())) {
+            return null;
+        }
+        return workshopCode.equals(StrUtil.nullToEmpty(user.getWorkshopId()).trim()) ? user : null;
     }
 
     @Override
@@ -403,8 +454,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (StrUtil.isBlank(username)) {
             throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
         }
-        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(
-                subSystem.getId(), username.trim());
+        SubSystemUsersDO user = selectByUsernameCompat(subSystem.getId(), username.trim());
         if (user == null) {
             throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
         }
@@ -450,8 +500,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (StrUtil.isBlank(username)) {
             throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
         }
-        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndUsername(
-                subSystem.getId(), username.trim());
+        SubSystemUsersDO user = selectByUsernameCompat(subSystem.getId(), username.trim());
         if (user == null) {
             throw exception(SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS);
         }
@@ -619,7 +668,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             SubSystemDO subSystem = subSystemMap.get(item.getSubSystemId());
             if (subSystem != null) {
                 OAuth2ClientDO oauth2Client = getOAuth2Client(subSystem);
-                vo.setClientId(oauth2Client != null ? oauth2Client.getClientId() : null);
+                vo.setClientId(subSystem.resolvePortalClientId(
+                        oauth2Client != null ? oauth2Client.getClientId() : null));
                 vo.setClientName(subSystem.getSystemName());
             }
             // 身份字段以子系统用户表为准；仅在本地字段为空时用主用户兜底用户名/姓名
@@ -853,35 +903,56 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return mainUser;
     }
-    private UserExternalSystemRespVO convertExternal(SubSystemUsersDO item) {
+    private UserExternalSystemRespVO convertExternal(SubSystemUsersDO item, AdminUserDO mainUser) {
         SubSystemDO subSystem = subSystemMapper.selectById(item.getSubSystemId());
-        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus())) {
+        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus()) || !subSystem.isPortalBound()) {
             return null;
         }
         OAuth2ClientDO client = getOAuth2Client(subSystem);
-        if (client == null || CommonStatusEnum.isDisable(client.getStatus())) {
+        if (client != null && CommonStatusEnum.isDisable(client.getStatus())) {
+            return null;
+        }
+        String clientId = subSystem.resolvePortalClientId(client != null ? client.getClientId() : null);
+        if (StrUtil.isBlank(clientId)) {
             return null;
         }
         UserExternalSystemRespVO vo = new UserExternalSystemRespVO();
         vo.setId(item.getId());
         vo.setSubSystemId(subSystem.getId());
         vo.setSystemUrl(subSystem.getSystemUrl());
-        vo.setClientId(client.getClientId());
+        vo.setClientId(clientId);
         vo.setClientName(subSystem.getSystemName());
         if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
             vo.setLogo(subSystem.getSystemIcon());
-        } else {
+        } else if (client != null) {
             vo.setLogo(client.getLogo());
         }
         vo.setWorkshopId(item.getWorkshopId());
         vo.setTeamId(item.getTeamId());
+        // Cookie 身份只认花名册「关联车间编号」：是 → 车间_工号，否 → 工号（不再卡 registeredApiType）
+        String bareUsername = StrUtil.isNotBlank(item.getUsername()) ? item.getUsername().trim()
+                : (mainUser != null ? mainUser.getUsername() : null);
+        vo.setUsername(bareUsername);
+        vo.setUsernameWithWorkshop(StrUtil.blankToDefault(item.getUsernameWithWorkshop(), "0"));
+        if (bareUsername != null && "1".equals(item.getUsernameWithWorkshop())
+                && StrUtil.isNotBlank(item.getWorkshopId())) {
+            String workshopCode = item.getWorkshopId().trim();
+            // 用户名本身已是 车间_工号 时不再叠一层
+            if (bareUsername.startsWith(workshopCode + "_")) {
+                vo.setExternalUsername(bareUsername);
+            } else {
+                vo.setExternalUsername(workshopCode + "_" + bareUsername);
+            }
+        } else {
+            vo.setExternalUsername(bareUsername);
+        }
         vo.setHomeMenuId(item.getHomeMenuId());
         SubSystemHomePageDO homePage = subSystemHomePageMapper.selectBySubSystemId(subSystem.getId());
         if (homePage != null) {
             vo.setHomePageName(homePage.getHomePageName());
             vo.setHomePageUrl(homePage.getHomePageUrl());
         }
-        vo.setSsoUrl(buildSsoUrl(client));
+        vo.setSsoUrl(client != null ? buildSsoUrl(client) : null);
         return vo;
     }
     @Override
@@ -1111,16 +1182,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         vo.setManualUrl(menu.getManualUrl());
         vo.setChildren(children);
         if ("C".equals(menu.getType())) {
-            String path = menu.getPath();
-            boolean httpRoute = StrUtil.isNotBlank(path)
-                    && (StrUtil.startWithIgnoreCase(path, "http://")
-                    || StrUtil.startWithIgnoreCase(path, "https://"));
-            // 两类菜单：Camstar/外链认「路由地址」；若依认「组件路径」
-            if (httpRoute) {
-                vo.setComponent(null);
-            } else {
-                vo.setComponent(menu.getComponent());
-            }
+            // 业务菜单统一直开型：只认「路由地址」，组件路径（若依型）已废弃，不再下发
+            vo.setComponent(null);
             // 门户壳没有子系统 Vue 页，一律 iframe；真正打开地址在 link
             vo.setLink(buildIframeLink(subSystem, menu, menuMap));
         }
@@ -1132,31 +1195,18 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             return null;
         }
         String leafPath = menu.getPath();
-        String component = menu.getComponent();
-        boolean ruoyiComponent = StrUtil.isNotBlank(component)
-                && !"InnerLink".equalsIgnoreCase(component)
-                && !StrUtil.containsIgnoreCase(component, "empty")
-                && !StrUtil.containsIgnoreCase(component, "portal/");
 
-        // 若依：有组件路径 → 一律 systemUrl/#/路由（禁止再走 http 直链分支）
-        if (ruoyiComponent) {
-            String routePath = buildMenuRoutePath(menu.getId(), menuMap);
-            if (StrUtil.isBlank(routePath)) {
-                return baseUrl;
-            }
-            return baseUrl + "/#/" + routePath.replace(":", "/");
-        }
-
-        // Camstar/外链：路由地址 http → 直开
+        // 直开型：路由地址为完整 http(s) 地址 → 原样直开（含 /#/ hash 地址，不再被组件路径分支抢占）
         if (StrUtil.isNotBlank(leafPath)
                 && (leafPath.startsWith("http://") || leafPath.startsWith("https://"))) {
             return leafPath;
         }
+
+        // 兼容存量：无 http 前缀的 IP:端口编码登记（如 192.168.240.12794200/...）→ 还原为 http 直开
         String routePath = buildMenuRoutePath(menu.getId(), menuMap);
         if (StrUtil.isBlank(routePath)) {
             return baseUrl;
         }
-        // 无组件 + IP:port 编码 → Camstar/外链直链；还原失败则仍按若依 hash
         if (routePath.contains(":") || routePath.matches(".*\\d+[./]\\d+[./]\\d+[./]\\d+.*")
                 || routePath.matches(".*\\d+\\.\\d+\\.\\d+\\.\\d+9\\d{2,5}.*")) {
             String asHttp = slashIpPortPathToHttp(routePath);
@@ -1165,16 +1215,12 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 normalized = normalized.replaceAll("(?<=^|/)(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)(?=/)", "$1/$2/$3/$4");
                 asHttp = slashIpPortPathToHttp(normalized);
             }
-            if (asHttp != null && isCamstarPortalUrl(asHttp)) {
-                return asHttp;
-            }
             if (asHttp != null) {
-                // 其它业务机端口：同样直开
                 return asHttp;
             }
-            return baseUrl + "/#/" + routePath.replace(":", "/");
         }
-        return baseUrl + "/#/" + routePath.replace(":", "/");
+        // 相对路由为废弃的若依型登记：回退系统入口，不再拼接 /#/
+        return baseUrl;
     }
 
     /**
@@ -1207,29 +1253,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return "http://" + m.group(1) + "." + m.group(2) + "." + m.group(3) + "." + m.group(4)
                 + ":" + m.group(5) + "/" + m.group(6);
-    }
-
-    /** 与若依 SysMenuServiceImpl.innerLinkReplaceEach 对齐（含端口冒号→/） */
-    private static String innerLinkReplaceEach(String path) {
-        if (path == null) {
-            return "";
-        }
-        return path.replace("https://", "")
-                .replace("http://", "")
-                .replace("www.", "")
-                .replace(".", "/")
-                .replace(":", "/");
-    }
-
-    private static boolean isCamstarPortalUrl(String path) {
-        if (StrUtil.isBlank(path)) {
-            return false;
-        }
-        String p = path.toLowerCase();
-        return p.contains(":4200/") || p.contains(":4200?") || p.endsWith(":4200")
-                || p.contains("94200/") || p.endsWith("94200")
-                || p.contains("/4200/") || p.endsWith("/4200")
-                || p.contains("camstarportal") || p.contains("/camstar/");
     }
 
     private String buildParentRoutePrefix(Long menuId, Map<Long, SubSystemMenuDO> menuMap) {

@@ -28,6 +28,8 @@ import cn.jonhon.jump.module.system.dal.mysql.oauth2.OAuth2ClientMapper;
 
 import cn.jonhon.jump.module.system.dal.mysql.user.*;
 
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 
 import org.springframework.transaction.annotation.Transactional;
@@ -110,8 +112,6 @@ public class SubSystemServiceImpl implements SubSystemService {
 
     public PageResult<SubSystemRespVO> getSubSystemPage(SubSystemPageReqVO pageReqVO) {
 
-        resolveOauth2ClientIdFilter(pageReqVO);
-
         PageResult<SubSystemDO> pageResult = subSystemMapper.selectPage(pageReqVO);
 
         return new PageResult<>(buildRespList(pageResult.getList()), pageResult.getTotal());
@@ -133,21 +133,24 @@ public class SubSystemServiceImpl implements SubSystemService {
 
 
     @Override
-
+    @Transactional(rollbackFor = Exception.class)
     public Long createSubSystem(SubSystemSaveReqVO createReqVO) {
-
-        validateOAuth2ClientExists(createReqVO.getOauth2ClientId());
-
-        validateOauth2ClientDuplicate(createReqVO.getOauth2ClientId(), null);
-
-
+        String clientId = requireValidClientId(createReqVO.getClientId());
+        validateClientIdDuplicate(clientId, null);
+        validateSystemNameDuplicate(createReqVO.getSystemName(), null);
 
         SubSystemDO subSystem = BeanUtils.toBean(createReqVO, SubSystemDO.class);
-
-        subSystemMapper.insert(subSystem);
-
+        subSystem.setClientId(clientId);
+        // 打开页面已不走 OAuth，登记只写业务系统本身；图标可空。
+        subSystem.setOauth2ClientId(null);
+        try {
+            subSystemMapper.insert(subSystem);
+        } catch (DuplicateKeyException ex) {
+            throw exception(SUB_SYSTEM_CLIENT_ID_EXISTS, clientId);
+        } catch (DataIntegrityViolationException ex) {
+            throw exception(SUB_SYSTEM_SAVE_FAILED);
+        }
         return subSystem.getId();
-
     }
 
 
@@ -213,26 +216,24 @@ public class SubSystemServiceImpl implements SubSystemService {
 
 
     @Override
-
+    @Transactional(rollbackFor = Exception.class)
     public void updateSubSystem(SubSystemSaveReqVO updateReqVO) {
-
         validateSubSystemExists(updateReqVO.getId());
-
-        validateOAuth2ClientExists(updateReqVO.getOauth2ClientId());
-
-        validateOauth2ClientDuplicate(updateReqVO.getOauth2ClientId(), updateReqVO.getId());
-
-
+        String clientId = requireValidClientId(updateReqVO.getClientId());
+        validateClientIdDuplicate(clientId, updateReqVO.getId());
+        validateSystemNameDuplicate(updateReqVO.getSystemName(), updateReqVO.getId());
 
         SubSystemDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemDO.class);
-
-        subSystemMapper.updateById(updateObj);
-
-        // 停用或换绑 OAuth 客户端时，清权限包，避免子系统继续用旧缓存
-        if (updateReqVO.getStatus() != null || updateReqVO.getOauth2ClientId() != null) {
-            subSystemPermissionContextService.evictBySubSystemId(updateReqVO.getId());
+        updateObj.setClientId(clientId);
+        updateObj.setOauth2ClientId(null);
+        try {
+            subSystemMapper.updateById(updateObj);
+        } catch (DuplicateKeyException ex) {
+            throw exception(SUB_SYSTEM_CLIENT_ID_EXISTS, clientId);
+        } catch (DataIntegrityViolationException ex) {
+            throw exception(SUB_SYSTEM_SAVE_FAILED);
         }
-
+        subSystemPermissionContextService.evictBySubSystemId(updateReqVO.getId());
     }
 
 
@@ -331,22 +332,6 @@ public class SubSystemServiceImpl implements SubSystemService {
 
 
 
-    private void resolveOauth2ClientIdFilter(SubSystemPageReqVO pageReqVO) {
-
-        if (StrUtil.isBlank(pageReqVO.getClientId())) {
-
-            return;
-
-        }
-
-        OAuth2ClientDO client = oauth2ClientMapper.selectByClientId(pageReqVO.getClientId());
-
-        pageReqVO.setOauth2ClientId(client != null ? client.getId() : -1L);
-
-    }
-
-
-
     private List<SubSystemRespVO> buildRespList(List<SubSystemDO> list) {
 
         if (CollUtil.isEmpty(list)) {
@@ -396,10 +381,9 @@ public class SubSystemServiceImpl implements SubSystemService {
     private SubSystemRespVO convertToRespVO(SubSystemDO subSystem, OAuth2ClientDO client) {
 
         SubSystemRespVO vo = BeanUtils.toBean(subSystem, SubSystemRespVO.class);
+        vo.setClientId(subSystem.resolvePortalClientId(client != null ? client.getClientId() : null));
 
         if (client != null) {
-
-            vo.setClientId(client.getClientId());
 
             vo.setClientName(client.getName());
 
@@ -417,21 +401,23 @@ public class SubSystemServiceImpl implements SubSystemService {
 
 
 
-    private OAuth2ClientDO validateOAuth2ClientExists(Long oauth2ClientId) {
-
-        OAuth2ClientDO client = oauth2ClientMapper.selectById(oauth2ClientId);
-
-        if (client == null) {
-
-            throw exception(SUB_SYSTEM_OAUTH2_CLIENT_NOT_EXISTS);
-
+    private String requireValidClientId(String rawClientId) {
+        String clientId = StrUtil.trim(rawClientId);
+        if (StrUtil.isBlank(clientId)) {
+            throw exception(SUB_SYSTEM_CLIENT_ID_REQUIRED);
         }
-
-        return client;
-
+        if (!clientId.matches("^[a-zA-Z][a-zA-Z0-9_-]*$")) {
+            throw exception(SUB_SYSTEM_CLIENT_ID_INVALID);
+        }
+        return clientId;
     }
 
-
+    private void validateClientIdDuplicate(String clientId, Long id) {
+        SubSystemDO exists = subSystemMapper.selectByClientId(clientId);
+        if (exists != null && !ObjectUtil.equal(exists.getId(), id)) {
+            throw exception(SUB_SYSTEM_CLIENT_ID_EXISTS, clientId);
+        }
+    }
 
     private SubSystemDO validateSubSystemExists(Long id) {
 
@@ -444,30 +430,6 @@ public class SubSystemServiceImpl implements SubSystemService {
         }
 
         return subSystem;
-
-    }
-
-
-
-    private void validateOauth2ClientDuplicate(Long oauth2ClientId, Long id) {
-
-        if (oauth2ClientId == null) {
-
-            return;
-
-        }
-
-        SubSystemDO subSystem = subSystemMapper.selectByOauth2ClientId(oauth2ClientId);
-
-        if (subSystem != null && !ObjectUtil.equal(subSystem.getId(), id)) {
-
-            OAuth2ClientDO client = oauth2ClientMapper.selectById(oauth2ClientId);
-
-            String clientId = client != null ? client.getClientId() : String.valueOf(oauth2ClientId);
-
-            throw exception(SUB_SYSTEM_CLIENT_ID_DUPLICATE, clientId);
-
-        }
 
     }
 

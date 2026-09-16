@@ -17,7 +17,7 @@ public class SubSystemRoleSaveReqVO {
     private Long id;
 
     @Schema(description = "外部系统 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "1")
-    @NotNull(message = "外部系统不能为空")
+    @NotNull(message = "业务系统不能为空")
     private Long subSystemId;
 
     @Schema(description = "角色名称", requiredMode = Schema.RequiredMode.REQUIRED, example = "SCADA管理员")
@@ -48,5 +48,8 @@ public class SubSystemRoleSaveReqVO {
     @Schema(description = "车间编号（同步到外部系统时必填，同时作为角色名前缀）", example = "4200")
     @Size(max = 32, message = "车间编号长度不能超过 32 个字符")
     private String workshopCode;
+
+    @Schema(description = "接口注册状态（仅修改；0未注册 1已注册）", example = "0")
+    private String roleRegistered;
 
 }

@@ -12,7 +12,7 @@ import javax.validation.constraints.Size;
 public class SubSystemEmployeeSaveReqVO {
 
     @Schema(description = "外部系统 ID", requiredMode = Schema.RequiredMode.REQUIRED, example = "3")
-    @NotNull(message = "外部系统不能为空")
+    @NotNull(message = "业务系统不能为空")
     private Long subSystemId;
 
     @Schema(description = "工号", requiredMode = Schema.RequiredMode.REQUIRED, example = "00078")

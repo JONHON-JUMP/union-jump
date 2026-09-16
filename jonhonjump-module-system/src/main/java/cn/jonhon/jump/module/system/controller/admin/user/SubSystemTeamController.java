@@ -103,7 +103,7 @@ public class SubSystemTeamController {
                         .leaderUsername("")
                         .build()
         );
-        ExcelUtils.write(response, "外部系统班组导入模板.xls", "班组", SubSystemTeamImportExcelVO.class, list);
+        ExcelUtils.write(response, "业务系统班组导入模板.xls", "班组", SubSystemTeamImportExcelVO.class, list);
     }
 
     @PostMapping("/import")

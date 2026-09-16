@@ -57,6 +57,14 @@ public class SubSystemUsersDO extends BaseDO {
      */
     private String employeeRegistered;
     /**
+     * 注册时用户名是否拼接车间编号（0否 1是；为1时对接系统用户名与子系统访问身份均为 车间编号_工号）
+     */
+    private String usernameWithWorkshop;
+    /**
+     * 注册成功时所调「新增人员」接口的适配器类型（camstar/http；Camstar Cookie 身份预取只认 camstar）
+     */
+    private String registeredApiType;
+    /**
      * 备注
      */
     private String remark;

@@ -27,6 +27,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.util.LinkedMultiValueMap;
+import org.springframework.util.MultiValueMap;
 
 import javax.annotation.Resource;
 import java.nio.charset.StandardCharsets;
@@ -50,6 +52,8 @@ public class ProcessServiceImpl implements ProcessService{
     private TemporaryProcessTreeAssembler temporaryProcessTreeAssembler;
     @Resource
     private FormalProcessTreeAssembler formalProcessTreeAssembler;
+    @Resource
+    private PdmProcessStateService pdmProcessStateService;
 
     /**
      * 临时工艺信息查询接口地址
@@ -69,11 +73,8 @@ public class ProcessServiceImpl implements ProcessService{
     @Value("${jonhonjump.mes.process.formal-process-url}")
     private String formalProcessUrl;
 
-    /**
-     * MPM 正式工艺版本查询接口的 X-Access-Token
-     */
-    @Value("${jonhonjump.mes.process.mpm-access-token}")
-    private String mpmAccessToken;
+    @Resource
+    private MpmTokenService mpmTokenService;
 
     /**
      * MPM 工艺文件地址查询接口地址
@@ -114,9 +115,7 @@ public class ProcessServiceImpl implements ProcessService{
         if (document == null) {
             throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
         }
-        if (!CommonConstant.PUBLISHED.equals(document.getDocState())) {
-            throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
-        }
+        pdmProcessStateService.requirePublished(accno);
         String link = StringUtils.trimToEmpty(document.getDocLink());
         int queryIndex = link.indexOf('?');
         String query = queryIndex < 0 ? "" : link.substring(queryIndex + 1);
@@ -226,20 +225,19 @@ public class ProcessServiceImpl implements ProcessService{
             throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
         }
         log.info("caoeDocInfoDTO:{}", document);
-        if (!CommonConstant.PUBLISHED.equals(document.getDocState())) {
-            throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
-        }
+        pdmProcessStateService.requirePublished(docNumber);
         if (StringUtils.isBlank(document.getOid())) {
             throw exception(new ErrorCode(500, "临时工艺查看地址缺失"));
         }
         List<ProcessCardDetailsRespVO> cardDetails = temporaryProcessTreeAssembler
-                .assemble(details, document.getOid());
+                .assemble(details);
         return ProcessCardRespVO.builder()
                 .accno(accno)
                 .version(null)
                 .isFormal(YesOrNo.NO.getType())
                 .isFix(isFix)
                 .details(cardDetails)
+                .url(CommonConstant.VIEW_URL_PREFIX + document.getOid())
                 .build();
     }
 
@@ -309,20 +307,48 @@ public class ProcessServiceImpl implements ProcessService{
 
         String version = queryFormalVersion(request);
 
-        String state = caoeTableMapper.queryProcessState(accno, version);
-        if (!CommonConstant.PUBLISHED.equals(state)) {
-            throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
-        }
-
         boolean mpm = accno.startsWith(CommonConstant.MPM_FORMAL_ACCNO_PREFIX);
+        if (mpm) {
+            String state = caoeTableMapper.queryProcessState(accno, version);
+            if (!CommonConstant.PUBLISHED.equals(state)) {
+                throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
+            }
+        } else {
+            pdmProcessStateService.requirePublished(accno);
+        }
         List<ProcessCardDetailsRespVO> details = formalProcessTreeAssembler.assemble(accno, version, mpm);
         return ProcessCardRespVO.builder()
                 .accno(accno)
                 .version(version)
+                .url(queryFormalCardUrl(accno, version))
                 .isFormal(YesOrNo.YES.getType())
                 .isFix(YesOrNo.NO.getType())
                 .details(details)
                 .build();
+    }
+
+    private String queryFormalCardUrl(String accno, String version) {
+        String oid = caoeTableMapper.queryProcessOid(accno, version);
+        if (oid != null && oid.startsWith("ProcessEntity")) {
+            MultiValueMap<String, Object> request = new LinkedMultiValueMap<>();
+            // 整本工艺使用数据库中的完整oid，不能复用工序入口添加OperationEntity前缀。
+            request.add("oid", oid);
+            return queryProcessFileUrl(request).getUrl();
+        }
+        String link = StringUtils.trimToEmpty(caoeTableMapper.queryProcessLink(accno, version));
+        int queryIndex = link.indexOf('?');
+        String query = queryIndex < 0 ? "" : link.substring(queryIndex + 1);
+        int fragmentIndex = query.indexOf('#');
+        if (fragmentIndex >= 0) {
+            query = query.substring(0, fragmentIndex);
+        }
+        for (String parameter : query.split("&")) {
+            if (parameter.startsWith("oid=") && StringUtils.isNotBlank(parameter.substring(4))) {
+                return CommonConstant.PDM_VIEW_URL_PREFIX + query;
+            }
+        }
+        log.warn("正式工艺整本链接缺少oid, accno: {}, version: {}", accno, version);
+        return null;
     }
 
     /**
@@ -346,12 +372,13 @@ public class ProcessServiceImpl implements ProcessService{
     private HttpHeaders buildMpmHeaders() {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(new MediaType(MediaType.APPLICATION_JSON, StandardCharsets.UTF_8));
-        headers.set("X-Access-Token", mpmAccessToken);
+        headers.set("X-Access-Token", mpmTokenService.getToken());
         headers.set("Accept-User", CommonConstant.MPM_VIEW_USER);
         return headers;
     }
 
     private String parseFormalVersionResponse(String body) {
+        log.info(body);
         if (StringUtils.isBlank(body)) {
             throw exception(new ErrorCode(500, "工艺版本信息查询失败"));
         }
@@ -392,19 +419,21 @@ public class ProcessServiceImpl implements ProcessService{
         if (reqVO == null || StringUtils.isBlank(reqVO.getOid())) {
             throw exception(new ErrorCode(500, "工序oid不能为空"));
         }
-        JSONObject request = new JSONObject();
-        request.put("oid", "OperationEntity:" + reqVO.getOid());
-        return queryProcessFileUrl(request.toJSONString());
+        MultiValueMap<String, Object> request = new LinkedMultiValueMap<>();
+        request.add("oid", "OperationEntity:" + reqVO.getOid());
+        return queryProcessFileUrl(request);
     }
 
     /**
      * 直连 MPM 平台接口查询工艺文件地址
      */
-    private ProcessFileUrlRespVO queryProcessFileUrl(String reqParam) {
+    private ProcessFileUrlRespVO queryProcessFileUrl(MultiValueMap<String, Object> reqParam) {
+        HttpHeaders headers = buildMpmHeaders();
+        headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         ResponseEntity<String> response;
         try {
             response = restTemplate.postForEntity(processFileUrl,
-                    new HttpEntity<>(reqParam, buildMpmHeaders()), String.class);
+                    new HttpEntity<>(reqParam, headers), String.class);
         } catch (RestClientException requestException) {
             log.error("调用工艺文件地址接口失败, url: {}", processFileUrl, requestException);
             throw exception(new ErrorCode(500, "工艺文件地址获取失败"));

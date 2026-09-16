@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <el-row :gutter="20">
-      <!-- 外部系统列表 -->
+      <!-- 业务系统列表 -->
       <el-col :span="4" :xs="24">
         <div class="head-container">
           <el-input
@@ -27,7 +27,7 @@
               <el-tag size="mini" type="info">{{ item.roleCount || 0 }} 角色</el-tag>
             </div>
           </div>
-          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无业务系统" :image-size="60" />
         </div>
       </el-col>
 
@@ -35,7 +35,7 @@
       <el-col :span="20" :xs="24" v-loading="clientsLoading">
         <el-alert
           v-if="showSubSystemBindHint"
-          title="请先在左侧选择已登记的外部系统；关联系统信息后，才可新增/维护该系统下的角色与权限"
+          title="请先在左侧选择已登记的业务系统；关联系统信息后，才可新增/维护该系统下的角色与权限"
           type="warning"
           :closable="false"
           show-icon
@@ -158,7 +158,7 @@
     <!-- 新增/修改 -->
     <el-dialog :title="title" :visible.sync="open" width="560px" append-to-body>
       <el-form ref="form" :model="form" :rules="formRules" label-width="110px">
-        <el-form-item label="外部系统">
+        <el-form-item label="业务系统">
           <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
         </el-form-item>
         <el-form-item label="角色名称" prop="name">
@@ -175,12 +175,22 @@
             <el-radio v-for="dict in statusDictDatas" :key="parseInt(dict.value)" :label="parseInt(dict.value)">{{ dict.label }}</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item v-if="form.id" label="接口注册" prop="roleRegistered">
+          <el-radio-group v-model="form.roleRegistered">
+            <el-radio label="0">未注册</el-radio>
+            <el-radio label="1">已注册</el-radio>
+          </el-radio-group>
+          <div class="form-tip">
+            仅修改本地标记。真正推送到对方系统请用列表「注册」；人工已在对方系统建过角色可标已注册，改回未注册后可重新推送
+          </div>
+        </el-form-item>
         <template v-if="!form.id">
           <el-form-item label="同步外部">
             <el-checkbox
               v-model="form.syncToExternal"
               :disabled="!roleCreateApiReady"
-            >同步到外部系统（调「角色新增」接口）</el-checkbox>
+              @change="handleSyncToExternalChange"
+            >同步到业务系统（调「角色新增」接口）</el-checkbox>
             <div class="form-tip">
               <span v-if="roleCreateApiReady" style="color:#67c23a">可选接口目标：与花名册系统解耦（如 Camstar人员管理）</span>
               <span v-else style="color:#e6a23c">未找到已启用的「角色新增」接口。请到「人员接口接入」配置并启用；若已配在 Camstar人员管理，刷新后应能勾选</span>
@@ -197,7 +207,13 @@
             </el-select>
           </el-form-item>
           <el-form-item v-if="form.syncToExternal" label="车间" prop="workshopCode">
-            <el-select v-model="form.workshopCode" placeholder="请从车间对照中选择" filterable style="width: 100%">
+            <el-select
+              v-model="form.workshopCode"
+              placeholder="按花名册系统自动带出，如 MES4200 → 4200"
+              filterable
+              allow-create
+              style="width: 100%"
+            >
               <el-option
                 v-for="item in workshopOptions"
                 :key="item.workshopCode"
@@ -205,7 +221,7 @@
                 :value="item.workshopCode"
               />
             </el-select>
-            <div v-if="!workshopOptions.length" class="form-tip">暂无车间对照，请先在「车间对照」中维护</div>
+            <div class="form-tip">花名册系统 MES4200 会自动带出车间 4200</div>
             <div v-if="syncRoleNamePreview" class="form-tip">将同步角色名：<b>{{ syncRoleNamePreview }}</b></div>
           </el-form-item>
         </template>
@@ -217,7 +233,7 @@
     </el-dialog>
 
     <!-- 补注册：选接口目标；角色名无车间前缀时再选车间 -->
-    <el-dialog title="注册到外部系统" :visible.sync="registerOpen" width="520px" append-to-body>
+    <el-dialog title="注册到业务系统" :visible.sync="registerOpen" width="520px" append-to-body>
       <el-form ref="registerForm" :model="registerForm" :rules="registerRules" label-width="90px">
         <el-form-item label="角色名称">
           <el-input :value="registerForm.name" disabled />
@@ -233,7 +249,13 @@
           </el-select>
         </el-form-item>
         <el-form-item v-if="registerNeedWorkshop" label="车间" prop="workshopCode">
-          <el-select v-model="registerForm.workshopCode" placeholder="请选择车间" filterable style="width: 100%">
+          <el-select
+            v-model="registerForm.workshopCode"
+            placeholder="按花名册系统自动带出，如 MES4200 → 4200"
+            filterable
+            allow-create
+            style="width: 100%"
+          >
             <el-option
               v-for="item in workshopOptions"
               :key="item.workshopCode"
@@ -241,7 +263,7 @@
               :value="item.workshopCode"
             />
           </el-select>
-          <div class="form-tip">角色名无车间前缀，需选择车间后按 车间编号_角色名称 同步</div>
+          <div class="form-tip">角色名无车间前缀时，用花名册系统带出的车间（MES4200 → 4200），同步为 车间编号_角色名称</div>
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
@@ -250,7 +272,7 @@
       </div>
     </el-dialog>
 
-    <!-- 分配菜单权限（含目录/页面/按钮；数据范围在子系统本地配置） -->
+    <!-- 分配菜单权限（含目录/页面/按钮；数据范围在业务系统本地配置） -->
     <el-dialog title="分配菜单权限" :visible.sync="openMenu" width="500px" append-to-body>
       <el-form :model="menuForm" label-width="80px">
         <el-form-item label="角色名称">
@@ -260,7 +282,7 @@
           <el-input v-model="menuForm.code" disabled />
         </el-form-item>
         <el-form-item label="菜单权限">
-          <div style="margin-bottom: 8px; color: #909399; font-size: 12px;">可勾选目录、页面及按钮权限；勾选页面时也会自动带上该页按钮。数据范围请在子系统本地配置。</div>
+          <div style="margin-bottom: 8px; color: #909399; font-size: 12px;">可勾选目录、页面及按钮权限；勾选页面时也会自动带上该页按钮。数据范围请在业务系统本地配置。</div>
           <el-checkbox v-model="menuExpand" @change="handleCheckedTreeExpand($event, 'menu')">展开/折叠</el-checkbox>
           <el-checkbox v-model="menuNodeAll" @change="handleCheckedTreeNodeAll($event, 'menu')">全选/全不选</el-checkbox>
           <el-tree
@@ -318,7 +340,7 @@
           <div class="el-upload__tip">
             <el-checkbox v-model="upload.updateSupport" /> 是否更新已存在的角色（按角色标识）
           </div>
-          <span>仅允许 xls/xlsx。须先选择并确认关联外部系统。</span>
+          <span>仅允许 xls/xlsx。须先选择并确认关联业务系统。</span>
           <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
         </div>
       </el-upload>
@@ -498,6 +520,32 @@ export default {
       const name = item.workshopName || item.deptName || ''
       return name ? (item.workshopCode + ' / ' + name) : item.workshopCode
     },
+    /** MES4200 / mes4200 → 4200 */
+    inferWorkshopFromClient() {
+      const c = this.selectedClient
+      if (!c) {
+        return undefined
+      }
+      const text = [c.name, c.clientId].filter(Boolean).join(' ')
+      const m = String(text).match(/(\d{3,})/g)
+      return m && m.length ? m[m.length - 1] : undefined
+    },
+    defaultWorkshopCode() {
+      if ((this.workshopOptions || []).length === 1) {
+        return this.workshopOptions[0].workshopCode
+      }
+      const inferred = this.inferWorkshopFromClient()
+      if (!inferred) {
+        return undefined
+      }
+      const hit = (this.workshopOptions || []).find(w => String(w.workshopCode) === String(inferred))
+      return hit ? hit.workshopCode : inferred
+    },
+    handleSyncToExternalChange(val) {
+      if (val && !this.form.workshopCode) {
+        this.form.workshopCode = this.defaultWorkshopCode()
+      }
+    },
     loadRoleCreateApis() {
       return getSubSystemRoleCreateApis().then(res => {
         this.roleCreateApis = res.data || []
@@ -560,6 +608,10 @@ export default {
       }).then(res => {
         this.roleList = res.data.list || []
         this.total = res.data.total || 0
+      }).catch(() => {
+        this.roleList = []
+        this.total = 0
+        this.$modal.msgError('加载角色列表失败，请重试')
       }).finally(() => {
         this.loading = false
       })
@@ -581,6 +633,7 @@ export default {
         code: undefined,
         sort: 0,
         status: CommonStatusEnum.ENABLE,
+        roleRegistered: '0',
         syncToExternal: false,
         apiSubSystemId: undefined,
         workshopCode: undefined,
@@ -599,24 +652,27 @@ export default {
         this.resetFormData()
         this.form.apiSubSystemId = this.defaultApiSubSystemId()
         this.open = true
-        this.title = '添加外部系统角色'
+        this.title = '添加业务系统角色'
         Promise.all([this.loadRoleCreateApis(), this.loadWorkshopOptions()]).then(() => {
           if (!this.form.apiSubSystemId) {
             this.form.apiSubSystemId = this.defaultApiSubSystemId()
+          }
+          if (!this.form.workshopCode) {
+            this.form.workshopCode = this.defaultWorkshopCode()
           }
         })
       }).catch(() => {})
     },
     handleImport() {
       this.ensureSubSystemBoundBeforeAction('导入').then(() => {
-        this.upload.title = '导入外部系统角色 — ' + (this.selectedClient.name || '')
+        this.upload.title = '导入业务系统角色 — ' + (this.selectedClient.name || '')
         this.upload.open = true
         this.upload.headers = getBaseHeader()
       }).catch(() => {})
     },
     importTemplate() {
       importSubSystemRoleTemplate().then(response => {
-        this.$download.excel(response, '外部系统角色导入模板.xls')
+        this.$download.excel(response, '业务系统角色导入模板.xls')
       })
     },
     handleFileUploadProgress() {
@@ -658,11 +714,14 @@ export default {
           code: res.data.code,
           sort: res.data.sort,
           status: res.data.status,
+          roleRegistered: res.data.roleRegistered || '0',
           syncToExternal: false,
           workshopCode: undefined
         }
         this.open = true
-        this.title = '修改外部系统角色'
+        this.title = '修改业务系统角色'
+      }).catch(() => {
+        this.$modal.msgError('加载角色信息失败，请重试')
       })
     },
     submitForm() {
@@ -678,10 +737,12 @@ export default {
           sort: this.form.sort,
           status: this.form.status
         }
-        if (!this.form.id) {
+        if (this.form.id) {
+          payload.roleRegistered = this.form.roleRegistered
+        } else {
           payload.syncToExternal = !!this.form.syncToExternal
           if (payload.syncToExternal) {
-            payload.workshopCode = this.form.workshopCode
+            payload.workshopCode = this.form.workshopCode || this.defaultWorkshopCode()
             payload.apiSubSystemId = this.form.apiSubSystemId
           }
         }
@@ -692,6 +753,8 @@ export default {
           this.open = false
           this.getList()
           this.loadClientList()
+        }).catch(() => {
+          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
         }).finally(() => {
           this.submitting = false
         })
@@ -724,7 +787,7 @@ export default {
           id: row.id,
           name,
           apiSubSystemId: this.defaultApiSubSystemId(),
-          workshopCode: parsedWorkshop || undefined
+          workshopCode: parsedWorkshop || this.defaultWorkshopCode()
         }
         this.registerOpen = true
         this.$nextTick(() => {
@@ -742,7 +805,7 @@ export default {
         this.registerSubmitting = true
         registerSubSystemRole(this.registerForm.id, {
           apiSubSystemId: this.registerForm.apiSubSystemId,
-          workshopCode: this.registerForm.workshopCode
+          workshopCode: this.registerForm.workshopCode || this.defaultWorkshopCode()
         }).then(() => {
           this.$modal.msgSuccess('注册成功')
           this.registerOpen = false
@@ -762,7 +825,7 @@ export default {
       }).catch(() => {})
     },
     handleDeleteBatch() {
-      this.$modal.confirm('是否确认批量删除选中的外部系统角色？').then(() => {
+      this.$modal.confirm('是否确认批量删除选中的业务系统角色？').then(() => {
         return deleteSubSystemRoleList(this.checkedIds)
       }).then(() => {
         this.$modal.msgSuccess('删除成功')

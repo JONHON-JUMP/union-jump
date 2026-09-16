@@ -90,7 +90,7 @@ public class SubSystemPostController {
         List<SubSystemPostImportExcelVO> list = Arrays.asList(
                 SubSystemPostImportExcelVO.builder().name("普通岗位").code("common").sort(1).status(0).build()
         );
-        ExcelUtils.write(response, "外部系统岗位导入模板.xls", "岗位", SubSystemPostImportExcelVO.class, list);
+        ExcelUtils.write(response, "业务系统岗位导入模板.xls", "岗位", SubSystemPostImportExcelVO.class, list);
     }
 
     @PostMapping("/import")

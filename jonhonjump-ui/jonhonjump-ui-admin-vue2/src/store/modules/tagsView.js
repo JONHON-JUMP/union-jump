@@ -1,7 +1,23 @@
-import { isPortalSubSystemHomePath, isGenericPortalTitle, resolvePortalMenuTitle } from '@/utils/portalRoute'
+import {
+  isPortalSubSystemHomePath,
+  isGenericPortalTitle,
+  resolvePortalMenuTitle,
+  portalTabsMatch,
+  portalTabKey,
+  portalQueryBucket,
+  isPortalPathDescendant
+} from '@/utils/portalRoute'
 
 /** Camstar 关页保温上限（只缓存页面壳，不缓存业务数据） */
 const MAX_WARM_CAMSTAR_IFRAMES = 8
+
+function maxWarmCamstarIframes() {
+  // Chrome <90：隐藏保温帧越多，切系统/收 dock 时主线程卸 DOM 越卡
+  if (typeof document !== 'undefined' && document.documentElement.classList.contains('legacy-anim')) {
+    return 2
+  }
+  return MAX_WARM_CAMSTAR_IFRAMES
+}
 
 const state = {
   visitedViews: [],
@@ -25,27 +41,31 @@ function portalPathAliasKey(path) {
   return String(path || '').replace(/\/index\/?$/, '').replace(/\/$/, '')
 }
 
-function findViewIndexByPathAlias(list, path) {
-  if (!path || !list || !list.length) {
+function asViewRef(viewOrPath) {
+  if (viewOrPath && typeof viewOrPath === 'object') {
+    return viewOrPath
+  }
+  return { path: viewOrPath, query: {}, hash: '' }
+}
+
+function findViewIndexByPortalTab(list, view) {
+  if (!view || !list || !list.length) {
     return -1
   }
-  const exact = list.findIndex(v => v && v.path === path)
-  if (exact >= 0) {
-    return exact
-  }
-  const key = portalPathAliasKey(path)
-  return list.findIndex(v => v && portalPathAliasKey(v.path) === key)
+  return list.findIndex(v => v && portalTabsMatch(v, view))
 }
 
 /** Camstar 关页：挪入保温池；若依：直接删除 */
-function parkOrRemoveIframe(state, path) {
-  if (!path) {
+function parkOrRemoveIframe(state, viewOrPath) {
+  const ref = asViewRef(viewOrPath)
+  if (!ref.path) {
     return
   }
-  const idx = findViewIndexByPathAlias(state.iframeViews, path)
+  const idx = findViewIndexByPortalTab(state.iframeViews, ref)
   if (idx < 0) {
+    const dropKey = portalTabKey(ref)
     state.warmIframeViews = (state.warmIframeViews || []).filter(
-      v => portalPathAliasKey(v.path) !== portalPathAliasKey(path)
+      v => portalTabKey(v) !== dropKey
     )
     return
   }
@@ -54,19 +74,28 @@ function parkOrRemoveIframe(state, path) {
   if (!isCamstarIframeView(item)) {
     return
   }
-  const keepKey = portalPathAliasKey(item.path)
+  // 详情子页签关掉即销毁，保温会继续 postMessage，把已关页签又同步回来
+  if (portalQueryBucket(item) === 'child' || (item.meta && item.meta.portalChild)) {
+    const dropKey = portalTabKey(item)
+    state.warmIframeViews = (state.warmIframeViews || []).filter(
+      v => portalTabKey(v) !== dropKey
+    )
+    return
+  }
+  const keepKey = portalTabKey(item)
   state.warmIframeViews = (state.warmIframeViews || []).filter(
-    v => portalPathAliasKey(v.path) !== keepKey
+    v => portalTabKey(v) !== keepKey
   )
   state.warmIframeViews.push(item)
-  while (state.warmIframeViews.length > MAX_WARM_CAMSTAR_IFRAMES) {
+  while (state.warmIframeViews.length > maxWarmCamstarIframes()) {
     state.warmIframeViews.shift()
   }
 }
 
-function reviveCamstarIframe(state, path) {
+function reviveCamstarIframe(state, view) {
+  const ref = asViewRef(view)
   const warm = state.warmIframeViews || []
-  const w = findViewIndexByPathAlias(warm, path)
+  const w = findViewIndexByPortalTab(warm, ref)
   if (w < 0) {
     return null
   }
@@ -78,62 +107,86 @@ const mutations = {
   ADD_IFRAME_VIEW: (state, view) => {
     const title = resolveViewTitle(view)
     const nextLink = (view.meta && view.meta.link) || ''
-    // 保温命中：挪回活跃，冻结原 path + link（禁止换 :key / 改 src）
-    const revived = reviveCamstarIframe(state, view.path)
+    const isChild = portalQueryBucket(view) === 'child' || !!(view.meta && view.meta.portalChild)
+    // 保温命中：挪回活跃；子页不冻结 link，否则看不到 ? 参数页
+    const revived = reviveCamstarIframe(state, view)
     if (revived) {
       const prevLink = (revived.meta && revived.meta.link) || ''
-      const keepLink = isCamstarIframeView(revived) ? (prevLink || nextLink) : (nextLink || prevLink)
-      const merged = Object.assign({}, revived, {
+      const homeLink = (revived.meta && revived.meta.portalHomeLink) || (!isChild ? (prevLink || nextLink) : '')
+      const keepLink = (!isChild && isCamstarIframeView(revived))
+        ? (homeLink || prevLink || nextLink)
+        : (nextLink || prevLink)
+      const merged = Object.assign({}, revived, view, {
         title,
         path: revived.path,
-        meta: { ...(revived.meta || {}), ...(view.meta || {}), link: keepLink }
+        meta: { ...(revived.meta || {}), ...(view.meta || {}), link: keepLink, portalHomeLink: homeLink || keepLink }
       })
-      const activeIdx = findViewIndexByPathAlias(state.iframeViews, revived.path)
+      const activeIdx = findViewIndexByPortalTab(state.iframeViews, revived)
       if (activeIdx > -1) {
         return
       }
       state.iframeViews.push(merged)
       return
     }
-    // 活跃判重：只认 path / /index 别名
-    const index = findViewIndexByPathAlias(state.iframeViews, view.path)
+    const index = findViewIndexByPortalTab(state.iframeViews, view)
     if (index > -1) {
       const prev = state.iframeViews[index]
       const prevLink = (prev.meta && prev.meta.link) || ''
-      // Camstar：同 path 已挂过则冻结，禁止 pathLinkMap 回填改 src
-      if (isCamstarIframeView(prev)) {
-        if (prev.title !== title && title && title !== 'no-name') {
-          state.iframeViews.splice(index, 1, Object.assign({}, prev, { title }))
+      const homeLink = (prev.meta && prev.meta.portalHomeLink) || (!isChild ? (prevLink || nextLink) : '')
+      // 主菜单 Camstar：同页签冻结 src；子页允许换成带 ? 的地址
+      if (!isChild && isCamstarIframeView(prev)) {
+        const frozen = Object.assign({}, prev, {
+          title: (title && title !== 'no-name') ? title : prev.title,
+          meta: { ...(prev.meta || {}), portalHomeLink: homeLink || prevLink }
+        })
+        if (frozen.title !== prev.title || !(prev.meta && prev.meta.portalHomeLink)) {
+          state.iframeViews.splice(index, 1, frozen)
         }
         return
       }
       if (prevLink === nextLink && prev.title === title) {
         return
       }
-      if (prevLink === nextLink) {
-        state.iframeViews.splice(index, 1, Object.assign({}, prev, {
-          title,
-          meta: { ...prev.meta, ...(view.meta || {}), link: prevLink }
-        }))
-        return
-      }
-      state.iframeViews.splice(index, 1, Object.assign({}, prev, view, { title }))
+      state.iframeViews.splice(index, 1, Object.assign({}, prev, view, {
+        title,
+        meta: { ...(prev.meta || {}), ...(view.meta || {}), portalHomeLink: homeLink || (view.meta && view.meta.portalHomeLink) }
+      }))
       return
     }
-    state.iframeViews.push(Object.assign({}, view, { title }))
+    state.iframeViews.push(Object.assign({}, view, {
+      title,
+      meta: {
+        ...(view.meta || {}),
+        portalHomeLink: isChild
+          ? (view.meta && view.meta.portalHomeLink)
+          : ((view.meta && view.meta.portalHomeLink) || nextLink)
+      }
+    }))
   },
   ADD_VISITED_VIEW: (state, view) => {
     let title = resolveViewTitle(view)
-    const index = state.visitedViews.findIndex(v => v.path === view.path)
+    const index = state.visitedViews.findIndex(v => portalTabsMatch(v, view))
     if (index > -1) {
       const prev = state.visitedViews[index]
       // 泛化标题不得覆盖已有真实菜单名（Camstar 静态 PortalFrame 常见）
       if (isGenericPortalTitle(title) && prev && !isGenericPortalTitle(prev.title)) {
         title = prev.title
       }
+      const childTitle = (view.meta && view.meta.portalChildTitle)
+        || (prev.meta && prev.meta.portalChildTitle)
+        || ((prev.meta && prev.meta.portalChild) || (view.meta && view.meta.portalChild)
+          ? (title !== prev.title && !isGenericPortalTitle(title) ? title : prev.title)
+          : '')
+      const nextTitle = childTitle || title
       state.visitedViews.splice(index, 1, Object.assign({}, prev, view, {
-        title,
-        meta: { ...(prev.meta || {}), ...(view.meta || {}), title, menuTitle: title }
+        title: nextTitle,
+        meta: {
+          ...(prev.meta || {}),
+          ...(view.meta || {}),
+          title: nextTitle,
+          menuTitle: nextTitle,
+          portalChildTitle: childTitle || (view.meta && view.meta.portalChildTitle) || (prev.meta && prev.meta.portalChildTitle)
+        }
       }))
       return
     }
@@ -151,17 +204,17 @@ const mutations = {
   },
   DEL_VISITED_VIEW: (state, view) => {
     for (const [i, v] of state.visitedViews.entries()) {
-      if (v.path === view.path) {
+      if (portalTabsMatch(v, view)) {
         state.visitedViews.splice(i, 1)
         break
       }
     }
     // Camstar 进保温；若依直接删
-    parkOrRemoveIframe(state, view.path)
+    parkOrRemoveIframe(state, view)
     state.recentViewPaths = state.recentViewPaths.filter(path => path !== view.path)
   },
   DEL_IFRAME_VIEW: (state, view) => {
-    parkOrRemoveIframe(state, view && view.path)
+    parkOrRemoveIframe(state, view)
   },
   CLEAR_WARM_IFRAME_VIEWS: (state) => {
     state.warmIframeViews = []
@@ -170,6 +223,57 @@ const mutations = {
   CLEAR_ALL_IFRAME_FRAMES: (state) => {
     state.iframeViews = []
     state.warmIframeViews = []
+  },
+  /** 子页从列表 iframe 点开后，把列表帧重新加载回原菜单地址 */
+  BUMP_COVERING_PORTAL_IFRAME: (state, childLoc) => {
+    if (!childLoc || !childLoc.path) {
+      return
+    }
+    const views = state.iframeViews || []
+    let best = -1
+    let bestLen = -1
+    for (let i = 0; i < views.length; i++) {
+      const v = views[i]
+      if (!v || portalQueryBucket(v) !== 'root') {
+        continue
+      }
+      if (portalPathAliasKey(v.path) !== portalPathAliasKey(childLoc.path)
+        && !isPortalPathDescendant(childLoc.path, v.path)) {
+        continue
+      }
+      const len = portalPathAliasKey(v.path).length
+      if (len > bestLen) {
+        best = i
+        bestLen = len
+      }
+    }
+    if (best < 0) {
+      return
+    }
+    const prev = views[best]
+    views.splice(best, 1, Object.assign({}, prev, {
+      meta: { ...(prev.meta || {}), portalSrcNonce: Date.now() }
+    }))
+  },
+  /** 点回叶子菜单：iframe src 拉回原菜单地址并重建，避免仍停在详情 */
+  RESTORE_PORTAL_IFRAME: (state, tab) => {
+    const index = findViewIndexByPortalTab(state.iframeViews, tab)
+    if (index < 0) {
+      return
+    }
+    const prev = state.iframeViews[index]
+    const home = (prev.meta && (prev.meta.portalHomeLink || prev.meta.link)) || ''
+    if (!home) {
+      return
+    }
+    state.iframeViews.splice(index, 1, Object.assign({}, prev, {
+      meta: {
+        ...(prev.meta || {}),
+        link: home,
+        portalHomeLink: home,
+        portalSrcNonce: Date.now()
+      }
+    }))
   },
   /** 打开前丢掉该 path 的保温壳，避免复用已缓存的 Camstar 登录页 */
   EVICT_WARM_IFRAME_PATH: (state, path) => {
@@ -190,12 +294,11 @@ const mutations = {
 
   DEL_OTHERS_VISITED_VIEWS: (state, view) => {
     state.visitedViews = state.visitedViews.filter(v => {
-      return v.meta.affix || v.path === view.path
+      return (v.meta && v.meta.affix) || portalTabsMatch(v, view)
     })
-    const keepKey = portalPathAliasKey(view.path)
     ;(state.iframeViews || []).slice().forEach(item => {
-      if (portalPathAliasKey(item.path) !== keepKey) {
-        parkOrRemoveIframe(state, item.path)
+      if (!portalTabsMatch(item, view)) {
+        parkOrRemoveIframe(state, item)
       }
     })
     state.recentViewPaths = state.recentViewPaths.filter(path => path === view.path)
@@ -220,7 +323,7 @@ const mutations = {
     state.cachedViews = []
   },
   UPDATE_VISITED_VIEW: (state, view) => {
-    const index = state.visitedViews.findIndex(v => v.path === view.path)
+    const index = state.visitedViews.findIndex(v => portalTabsMatch(v, view))
     if (index === -1) {
       return
     }
@@ -232,19 +335,21 @@ const mutations = {
     const prevVisitLink = (prev.meta && prev.meta.link) || ''
     const nextVisitLink = (view.meta && view.meta.link) || ''
     const prevVisitHttp = /^https?:\/\//i.test(prevVisitLink) && prevVisitLink.indexOf('#') < 0
-    // Camstar：页签 meta.link 也冻结，避免二次打开被 sync 改写
-    const visitLink = prevVisitHttp ? prevVisitLink : (nextVisitLink || prevVisitLink)
+    const isChild = portalQueryBucket(view) === 'child' || !!(view.meta && view.meta.portalChild)
+    // 主菜单 Camstar：冻结 link；子页必须换成带 ? 的地址
+    const visitLink = (prevVisitHttp && !isChild)
+      ? prevVisitLink
+      : (nextVisitLink || prevVisitLink)
     state.visitedViews.splice(index, 1, Object.assign({}, prev, view, {
       title,
       meta: { ...(prev.meta || {}), ...(view.meta || {}), title, menuTitle: title, link: visitLink || undefined }
     }))
-    const iframeIndex = findViewIndexByPathAlias(state.iframeViews, view.path)
+    const iframeIndex = findViewIndexByPortalTab(state.iframeViews, view)
     if (iframeIndex > -1) {
       const iframePrev = state.iframeViews[iframeIndex]
       const prevLink = (iframePrev.meta && iframePrev.meta.link) || ''
       const nextLink = (view.meta && view.meta.link) || ''
-      // Camstar / 已有 http 直链：永远不换 link
-      if (isCamstarIframeView(iframePrev) || (prevLink && (!nextLink || nextLink === prevLink))) {
+      if (!isChild && (isCamstarIframeView(iframePrev) || (prevLink && (!nextLink || nextLink === prevLink)))) {
         if (iframePrev.title !== title) {
           state.iframeViews.splice(iframeIndex, 1, Object.assign({}, iframePrev, { title }))
         }
@@ -254,7 +359,7 @@ const mutations = {
     }
   },
   DEL_RIGHT_VIEWS: (state, view) => {
-    const index = state.visitedViews.findIndex(v => v.path === view.path)
+    const index = state.visitedViews.findIndex(v => portalTabsMatch(v, view))
     if (index === -1) {
       return
     }
@@ -267,13 +372,13 @@ const mutations = {
         state.cachedViews.splice(i, 1)
       }
       if (item.meta && item.meta.link) {
-        parkOrRemoveIframe(state, item.path)
+        parkOrRemoveIframe(state, item)
       }
       return false
     })
   },
   DEL_LEFT_VIEWS: (state, view) => {
-    const index = state.visitedViews.findIndex(v => v.path === view.path)
+    const index = state.visitedViews.findIndex(v => portalTabsMatch(v, view))
     if (index === -1) {
       return
     }
@@ -286,7 +391,7 @@ const mutations = {
         state.cachedViews.splice(i, 1)
       }
       if (item.meta && item.meta.link) {
-        parkOrRemoveIframe(state, item.path)
+        parkOrRemoveIframe(state, item)
       }
       return false
     })
@@ -295,7 +400,7 @@ const mutations = {
     const removed = state.visitedViews.filter(view => !keepFn(view))
     state.visitedViews = state.visitedViews.filter(keepFn)
     removed.forEach(view => {
-      parkOrRemoveIframe(state, view.path)
+      parkOrRemoveIframe(state, view)
       state.recentViewPaths = state.recentViewPaths.filter(path => path !== view.path)
       if (view.name) {
         const index = state.cachedViews.indexOf(view.name)
@@ -439,6 +544,38 @@ const actions = {
   },
   /** 门户回首页 / 切换系统：dock 仅保留首页，并清掉全部业务 iframe（含 Camstar 保温） */
   clearDockBusinessTabs({ commit, state }) {
+    const legacy = typeof document !== 'undefined'
+      && document.documentElement.classList.contains('legacy-anim')
+
+    if (legacy) {
+      // Chrome <90：PRUNE 会先 park Camstar→warm 再 CLEAR 全删，等于两次卸 DOM。
+      // 切系统本来就要清空，单次 prune 页签 + 直接 CLEAR，避免中间态重绘。
+      // 不可把 CLEAR 拖到 rAF 之后：skipNavigate 紧接着 push 新页时会误删新 iframe。
+      const removed = []
+      state.visitedViews = state.visitedViews.filter(view => {
+        if (view.path === '/index' || view.path === '/') {
+          return true
+        }
+        if (view.meta && view.meta.affix) {
+          return true
+        }
+        removed.push(view)
+        return false
+      })
+      removed.forEach(view => {
+        if (!view || !view.name) {
+          return
+        }
+        const index = state.cachedViews.indexOf(view.name)
+        if (index > -1) {
+          state.cachedViews.splice(index, 1)
+        }
+      })
+      commit('CLEAR_ALL_IFRAME_FRAMES')
+      state.recentViewPaths = []
+      return Promise.resolve([...state.visitedViews])
+    }
+
     commit('PRUNE_VIEWS', view => {
       if (view.path === '/index' || view.path === '/') {
         return true

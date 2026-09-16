@@ -16,16 +16,21 @@ public interface SubSystemMapper extends BaseMapperX<SubSystemDO> {
     default PageResult<SubSystemDO> selectPage(SubSystemPageReqVO reqVO) {
         return selectPage(reqVO, new LambdaQueryWrapperX<SubSystemDO>()
                 .likeIfPresent(SubSystemDO::getSystemName, reqVO.getSystemName())
-                .eqIfPresent(SubSystemDO::getOauth2ClientId, reqVO.getOauth2ClientId())
+                .likeIfPresent(SubSystemDO::getClientId, reqVO.getClientId())
                 .eqIfPresent(SubSystemDO::getStatus, reqVO.getStatus())
                 .betweenIfPresent(SubSystemDO::getCreateTime, reqVO.getCreateTime())
-                .orderByAsc(SubSystemDO::getOauth2ClientId)
+                .orderByAsc(SubSystemDO::getClientId)
                 .orderByDesc(SubSystemDO::getId));
     }
 
     default List<SubSystemDO> selectListOrderByOauth2ClientId() {
         return selectList(new LambdaQueryWrapperX<SubSystemDO>()
+                .orderByAsc(SubSystemDO::getClientId)
                 .orderByAsc(SubSystemDO::getOauth2ClientId));
+    }
+
+    default SubSystemDO selectByClientId(String clientId) {
+        return selectOne(SubSystemDO::getClientId, clientId);
     }
 
     default SubSystemDO selectByOauth2ClientId(Long oauth2ClientId) {

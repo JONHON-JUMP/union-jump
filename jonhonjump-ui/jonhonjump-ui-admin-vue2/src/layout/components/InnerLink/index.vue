@@ -61,12 +61,12 @@
         <div v-if="showStageBOverlay" class="inner-link__overlay" :class="'is-' + overlayPhase">
           <template v-if="overlayPhase === 'loading'">
             <i class="el-icon-loading" />
-            <p>子系统加载中：正在打开业务页面…</p>
-            <small>仅等待页面文档到达；业务内容由子系统自行渲染</small>
+            <p>业务系统加载中：正在打开业务页面…</p>
+            <small>仅等待页面文档到达；业务内容由业务系统自行渲染</small>
           </template>
           <template v-else-if="overlayPhase === 'slow'">
             <i class="el-icon-warning-outline" />
-            <p>子系统响应较慢：页面文档尚未打开</p>
+            <p>业务系统响应较慢：页面文档尚未打开</p>
             <small>可继续等待，或重试打开</small>
             <div class="inner-link__actions">
               <el-button size="small" type="primary" @click="reloadIframe">重试</el-button>
@@ -75,8 +75,8 @@
           </template>
           <template v-else>
             <i class="el-icon-circle-close" />
-            <p>子系统不可用：未能加载页面文档</p>
-            <small>请检查子系统服务是否在线，或点击重试</small>
+            <p>业务系统不可用：未能加载页面文档</p>
+            <small>请检查业务系统服务是否在线，或点击重试</small>
             <div class="inner-link__actions">
               <el-button size="small" type="primary" @click="reloadIframe">重试</el-button>
               <el-button size="small" @click="goPortalHome">返回门户</el-button>
@@ -90,7 +90,8 @@
 
 <script>
 import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
-import { markCamstarOpen } from '@/utils/camstarOpenDiag'
+import { applyIframeHrefToJump } from '@/utils/portalIframeNav'
+import { parsePortalClientId } from '@/utils/portalRoute'
 
 const SOFT_TIMEOUT_MS = 15000
 const HARD_TIMEOUT_MS = 30000
@@ -109,11 +110,12 @@ function sameCamstarDocument(a, b) {
       const parsed = new URL(String(u), window.location.href)
       parsed.searchParams.delete('_portal_t')
       parsed.searchParams.delete('_jump_camstar_warm')
+      parsed.searchParams.sort()
       let path = parsed.pathname || '/'
       if (path.length > 1 && path.endsWith('/')) {
         path = path.slice(0, -1)
       }
-      return `${parsed.origin}${path}`.toLowerCase()
+      return `${parsed.origin}${path}${parsed.search}${parsed.hash}`.toLowerCase()
     } catch (e) {
       return String(u || '').replace(/\/+$/, '').toLowerCase()
     }
@@ -144,8 +146,10 @@ export default {
       hardTimer: null,
       holdTimer: null,
       slowDismissed: false,
-      _diagLoadStart: 0,
-      _reloadSeq: 0
+      _reloadSeq: 0,
+      _navPollTimer: null,
+      _lastReportedHref: '',
+      _lastReportedTitle: ''
     }
   },
   computed: {
@@ -205,6 +209,11 @@ export default {
         if (visible && !this.directLoaded && this.directSrc && this.directSrc !== '/') {
           this.armDirectTimeouts()
         }
+        if (visible) {
+          this.startNavSync()
+        } else {
+          this.stopNavSync()
+        }
         return
       }
       if (visible) {
@@ -222,6 +231,9 @@ export default {
     }
   },
   mounted() {
+    if (this.active) {
+      this.startNavSync()
+    }
     if (this.isDirectHttp) {
       return
     }
@@ -238,6 +250,7 @@ export default {
   beforeDestroy() {
     this.clearTimers()
     this.clearDirectTimers()
+    this.stopNavSync()
   },
   methods: {
     bindDirectSrc(url) {
@@ -253,19 +266,15 @@ export default {
       if (this.directSrc && sameCamstarDocument(this.directSrc, n) && this.directPhase === 'loading') {
         return
       }
-      ensureLocalCamstarCookie()
-      seedCamstarCookieForUrlInBackground(n)
+      // 按"当前选择的系统"取该用户的对接身份（clientId 精确匹配，优于 URL 推断）
+      const portalClientId = parsePortalClientId(this.$route.path)
+      ensureLocalCamstarCookie(n, portalClientId)
+      seedCamstarCookieForUrlInBackground(n, portalClientId)
       this.directLoaded = false
       this.directSlowDismissed = false
       this.directPhase = 'loading'
       this.directSrc = n
-      this._diagLoadStart = Date.now()
       this.armDirectTimeouts()
-      let tid = 0
-      try {
-        tid = Number(sessionStorage.getItem('JUMP_CAMSTAR_TRACE') || 0)
-      } catch (e) { /* ignore */ }
-      markCamstarOpen(tid, 'iframe-mount', { src: n, mode: 'camstar-stable' })
     },
     armDirectTimeouts() {
       this.clearDirectTimers()
@@ -305,16 +314,9 @@ export default {
       this.clearDirectTimers()
       this.directLoaded = true
       this.directPhase = 'idle'
-      const cost = this._diagLoadStart ? (Date.now() - this._diagLoadStart) : -1
-      let tid = 0
-      try {
-        tid = Number(sessionStorage.getItem('JUMP_CAMSTAR_TRACE') || 0)
-      } catch (e) { /* ignore */ }
-      markCamstarOpen(tid, 'iframe-load', {
-        src: this.directSrc,
-        docCostMs: cost,
-        note: 'onload 收遮罩；之后变慢多半是 Camstar 页内接口'
-      })
+      this.captureIframeHref()
+      this.hookIframeHistory()
+      this.tryInjectJumpSync()
     },
     continueDirectWaiting() {
       this.directSlowDismissed = true
@@ -329,7 +331,6 @@ export default {
       this.clearTimers()
       this.phase = 'loading'
       this.slowDismissed = false
-      this._diagLoadStart = Date.now()
       this.softTimer = setTimeout(() => {
         if (!this.active || this.hasLoaded || this.phase === 'failed') {
           return
@@ -356,6 +357,9 @@ export default {
         this.hasLoaded = true
         this.phase = 'idle'
         this.holdTimer = null
+        this.captureIframeHref()
+        this.hookIframeHistory()
+        this.tryInjectJumpSync()
       }, OVERLAY_HOLD_MS)
     },
     continueWaiting() {
@@ -367,14 +371,14 @@ export default {
     reloadIframe() {
       if (this.isDirectHttp) {
         const base = this.src || '/'
-        ensureLocalCamstarCookie()
-        seedCamstarCookieForUrlInBackground(base)
+        const portalClientId = parsePortalClientId(this.$route.path)
+        ensureLocalCamstarCookie(base, portalClientId)
+        seedCamstarCookieForUrlInBackground(base, portalClientId)
         this.directLoaded = false
         this.directSlowDismissed = false
         this.directPhase = 'loading'
         const sep = base.indexOf('?') >= 0 ? '&' : '?'
         this.directSrc = `${base}${sep}_portal_t=${Date.now()}`
-        this._diagLoadStart = Date.now()
         this.armDirectTimeouts()
         return
       }
@@ -397,7 +401,111 @@ export default {
       })
     },
     goPortalHome() {
-      this.$router.push({ path: '/index' }).catch(() => {})
+      this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
+    },
+    getFrameEl() {
+      if (this.iframeId) {
+        return document.getElementById(this.iframeId)
+      }
+      return this.$refs.frame || this.$el.querySelector('iframe')
+    },
+    reportHref(href, title) {
+      if (!this.active || !href) {
+        return
+      }
+      if (href === this._lastReportedHref && title === this._lastReportedTitle) {
+        return
+      }
+      this._lastReportedHref = href
+      this._lastReportedTitle = title || ''
+      applyIframeHrefToJump(this.$router, href, this.clientId, title)
+    },
+    captureIframeHref() {
+      const el = this.getFrameEl()
+      if (!el) {
+        return
+      }
+      try {
+        const href = el.contentWindow && el.contentWindow.location && el.contentWindow.location.href
+        if (href && href.indexOf('about:blank') < 0) {
+          let title = ''
+          try {
+            title = (el.contentDocument && el.contentDocument.title) || ''
+          } catch (e2) { /* ignore */ }
+          this.reportHref(href, title)
+        }
+      } catch (e) { /* 跨域读不到，靠 postMessage */ }
+    },
+    hookIframeHistory() {
+      const el = this.getFrameEl()
+      if (!el) {
+        return
+      }
+      try {
+        const w = el.contentWindow
+        if (!w || w.__jumpPortalNavHook) {
+          return
+        }
+        w.__jumpPortalNavHook = true
+        const self = this
+        const report = function () {
+          try {
+            let title = ''
+            try {
+              title = w.document && w.document.title
+            } catch (e2) { /* ignore */ }
+            self.reportHref(w.location.href, title)
+          } catch (e) { /* ignore */ }
+        }
+        w.addEventListener('hashchange', report)
+        w.addEventListener('popstate', report)
+        const push = w.history.pushState
+        const replace = w.history.replaceState
+        w.history.pushState = function () {
+          const ret = push.apply(this, arguments)
+          report()
+          return ret
+        }
+        w.history.replaceState = function () {
+          const ret = replace.apply(this, arguments)
+          report()
+          return ret
+        }
+        report()
+      } catch (e) { /* 跨域 */ }
+    },
+    tryInjectJumpSync() {
+      const el = this.getFrameEl()
+      if (!el) {
+        return
+      }
+      try {
+        const doc = el.contentDocument
+        if (!doc || doc.getElementById('jump-portal-sync')) {
+          return
+        }
+        const s = doc.createElement('script')
+        s.id = 'jump-portal-sync'
+        s.src = `${window.location.origin}/jump-portal-sync.js`
+        ;(doc.head || doc.documentElement).appendChild(s)
+      } catch (e) { /* 跨域：靠 9100 nginx 注入 */ }
+    },
+    startNavSync() {
+      this.stopNavSync()
+      this.captureIframeHref()
+      this.hookIframeHistory()
+      this._navPollTimer = setInterval(() => {
+        if (!this.active) {
+          return
+        }
+        this.captureIframeHref()
+      }, 400)
+    },
+    stopNavSync() {
+      if (this._navPollTimer) {
+        clearInterval(this._navPollTimer)
+        this._navPollTimer = null
+      }
     },
     resetLoadState() {
       this.hasLoaded = false
@@ -441,7 +549,10 @@ export default {
   display: block;
   background: #f5f7fb;
   &.is-hidden-doc {
-    visibility: hidden;
+    /* 勿用 visibility:hidden：82 上会露出 iframe 空白文档（黑/白闪一下）；
+       用透明叠在浅底上，等 onload 再显示，底下始终是 #f5f7fb */
+    opacity: 0;
+    pointer-events: none;
   }
 }
 .inner-link__overlay {
@@ -491,5 +602,18 @@ export default {
 .inner-link-fade-enter,
 .inner-link-fade-leave-to {
   opacity: 0;
+}
+</style>
+
+<style lang="scss">
+/* Chrome <90：iframe 占位淡入淡出会在切换瞬间露出底层空白，感知成闪一下 */
+html.legacy-anim {
+  .inner-link-fade-enter-active,
+  .inner-link-fade-leave-active,
+  .inner-link-fade-enter,
+  .inner-link-fade-leave-to {
+    transition: none !important;
+    opacity: 1 !important;
+  }
 }
 </style>

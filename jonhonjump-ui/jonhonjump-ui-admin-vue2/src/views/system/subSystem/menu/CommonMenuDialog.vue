@@ -1,7 +1,7 @@
 <template>
   <el-dialog title="通用菜单管理" :visible.sync="visible" width="860px" append-to-body @open="loadList">
     <el-alert type="info" :closable="false" style="margin-bottom: 12px"
-      title="通用菜单只需定义一次，勾选挂载的子系统后自动同步到各系统；各子系统的显示位置、角色授权由各系统单独调整。" />
+      title="通用菜单只需定义一次，勾选挂载的业务系统后自动同步到各系统；各业务系统的显示位置、角色授权由各系统单独调整。" />
 
     <el-row :gutter="10" class="mb8">
       <el-col :span="24">
@@ -17,7 +17,7 @@
         </template>
       </el-table-column>
       <el-table-column label="路由地址" prop="path" min-width="160" :show-overflow-tooltip="true" />
-      <el-table-column label="已挂载子系统" min-width="200">
+      <el-table-column label="已挂载业务系统" min-width="200">
         <template v-slot="scope">
           <template v-if="scope.row.subSystemNames && scope.row.subSystemNames.length">
             <el-tag v-for="(name, i) in scope.row.subSystemNames" :key="i" size="mini" style="margin: 0 4px 4px 0">
@@ -50,8 +50,8 @@
         <el-form-item label="路由地址" prop="path">
           <el-input v-model="form.path" placeholder="如 /common/help，外链则以 http(s):// 开头" />
         </el-form-item>
-        <el-form-item label="挂载子系统" prop="subSystemIds">
-          <el-select v-model="form.subSystemIds" multiple filterable placeholder="选择要挂载的子系统（可多选）" style="width: 100%">
+        <el-form-item label="挂载业务系统" prop="subSystemIds">
+          <el-select v-model="form.subSystemIds" multiple filterable placeholder="选择要挂载的业务系统（可多选）" style="width: 100%">
             <el-option v-for="sys in subSystemOptions" :key="sys.id" :label="sys.name" :value="sys.id" />
           </el-select>
         </el-form-item>
@@ -106,7 +106,7 @@ export default {
     },
     loadList() {
       this.loading = true
-      // 模板列表与子系统选项分开加载：子系统接口异常不连累模板列表展示
+      // 模板列表与业务系统选项分开加载：业务系统接口异常不连累模板列表展示
       getCommonMenuList().then(res => {
         this.list = res.data || []
       }).finally(() => {
@@ -154,14 +154,14 @@ export default {
         if (!valid) {
           return
         }
-        // 编辑时把挂载清空 = 删除所有子系统副本，需二次确认防误操作
+        // 编辑时把挂载清空 = 删除所有业务系统副本，需二次确认防误操作
         const willUnmountAll = this.form.id
           && this.originalSubSystemIds && this.originalSubSystemIds.length > 0
           && (!this.form.subSystemIds || this.form.subSystemIds.length === 0)
         const doSubmit = () => {
           const action = this.form.id ? updateCommonMenu(this.form) : createCommonMenu(this.form)
           action.then(() => {
-            this.$modal.msgSuccess(this.form.id ? '修改成功，已同步到各挂载子系统' : '新增成功')
+            this.$modal.msgSuccess(this.form.id ? '修改成功，已同步到各挂载业务系统' : '新增成功')
             this.formOpen = false
             this.loadList()
             const ids = [...(this.form.subSystemIds || []), ...(this.originalSubSystemIds || [])]
@@ -171,7 +171,7 @@ export default {
           })
         }
         if (willUnmountAll) {
-          this.$modal.confirm('已取消全部子系统挂载，保存后各子系统的菜单副本将被删除（同时解除角色授权与快捷导航引用），确定继续吗？')
+          this.$modal.confirm('已取消全部业务系统挂载，保存后各业务系统的菜单副本将被删除（同时解除角色授权与快捷导航引用），确定继续吗？')
             .then(doSubmit)
             .catch(() => {})
           return
@@ -180,7 +180,7 @@ export default {
       })
     },
     handleDelete(row) {
-      this.$modal.confirm(`确定删除通用菜单「${row.name}」吗？将同时删除各子系统副本，并解除角色授权与快捷导航引用。`)
+      this.$modal.confirm(`确定删除通用菜单「${row.name}」吗？将同时删除各业务系统副本，并解除角色授权与快捷导航引用。`)
         .then(() => deleteCommonMenu(row.id))
         .then(() => {
           this.$modal.msgSuccess('删除成功')

@@ -5,6 +5,7 @@ export const PORTAL_CLIENT_ID_RE = '[a-zA-Z][a-zA-Z0-9_-]*'
 const GENERIC_PORTAL_TITLES = {
   '业务页': true,
   '外部系统': true,
+  '业务系统': true,
   'no-name': true
 }
 
@@ -20,6 +21,148 @@ export function isGenericPortalTitle(title) {
   return /^SubMenu\d+_/i.test(t) || /Sub\d+_\d+$/i.test(t)
 }
 
+/** 子页签标题：优先识别「查看参数 / 新增版本」等动作，不用站点 title（如「接口管理平台」） */
+const CHILD_ACTION_TITLE = {
+  param: '查看参数',
+  params: '查看参数',
+  parameter: '查看参数',
+  parameters: '查看参数',
+  preview: '预览',
+  detail: '详情',
+  version: '新增版本',
+  versions: '新增版本',
+  addversion: '新增版本',
+  newversion: '新增版本',
+  createversion: '新增版本'
+}
+
+const CHILD_SEGMENT_IGNORE = {
+  api: true,
+  apply: true,
+  index: true,
+  list: true,
+  html: true
+}
+
+function normalizeActionKey(s) {
+  return String(s || '').toLowerCase().replace(/[_-]/g, '')
+}
+
+function titleFromActionKey(raw) {
+  const k = normalizeActionKey(raw)
+  if (!k || CHILD_SEGMENT_IGNORE[k]) {
+    return ''
+  }
+  if (CHILD_ACTION_TITLE[k]) {
+    return CHILD_ACTION_TITLE[k]
+  }
+  if (/version|版本/.test(k)) {
+    return '新增版本'
+  }
+  if (/param|参数/.test(k)) {
+    return '查看参数'
+  }
+  if (k === 'add' || k === 'create' || k === 'new') {
+    return '新增'
+  }
+  return ''
+}
+
+function siteTitlesOf(systemList, parentTitle) {
+  const names = [parentTitle, '接口管理平台']
+  ;(systemList || []).forEach(sys => {
+    if (sys && sys.name) {
+      names.push(sys.name)
+    }
+    if (sys && sys.systemName) {
+      names.push(sys.systemName)
+    }
+  })
+  return names.filter(Boolean)
+}
+
+function usableIframeDocTitle(docTitle, parentTitle, systemList) {
+  let t = String(docTitle || '').trim()
+  if (!t) {
+    return ''
+  }
+  siteTitlesOf(systemList, parentTitle).forEach(name => {
+    const n = String(name || '').trim()
+    if (!n) {
+      return
+    }
+    const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    t = t.replace(new RegExp('^' + esc + '\\s*[-_|/]+\\s*', 'i'), '')
+    t = t.replace(new RegExp('\\s*[-_|/]+\\s*' + esc + '$', 'i'), '')
+    if (t === n) {
+      t = ''
+    }
+  })
+  t = String(t || '').trim()
+  if (!t || t === parentTitle || isGenericPortalTitle(t)) {
+    return ''
+  }
+  return t
+}
+
+function inferChildActionTitle(routeLike) {
+  if (!routeLike) {
+    return ''
+  }
+  const hashSegs = String(routeLike.hash || '').replace(/^#\/?/, '').split('?')[0].split('/').filter(Boolean)
+  const clientId = parsePortalClientId(routeLike.path)
+  const rest = extractPortalMenuRest(routeLike.path, clientId)
+  const parts = String(rest || '').split('/').filter(Boolean)
+  let start = 0
+  if (parts.length >= 5
+    && parts.slice(0, 4).every(p => /^\d{1,3}$/.test(p))
+    && /^\d{2,5}$/.test(parts[4])) {
+    start = 5
+  }
+  const pathSegs = parts.slice(start)
+  const segs = hashSegs.concat(pathSegs)
+  for (let i = segs.length - 1; i >= 0; i--) {
+    const mapped = titleFromActionKey(segs[i])
+    if (mapped) {
+      return mapped
+    }
+  }
+  const query = routeLike.query || {}
+  const blob = Object.keys(query).concat(Object.values(query)).join('|')
+  return titleFromActionKey(blob)
+}
+
+export function buildPortalChildTabTitle(parentTitle, routeLike, systemList) {
+  const parent = String(parentTitle || '').trim()
+  const stored = String(
+    (routeLike && routeLike.meta && (routeLike.meta.portalChildTitle || routeLike.meta.menuTitle))
+    || (routeLike && routeLike.title)
+    || ''
+  ).trim()
+  if (stored && stored !== parent && !isGenericPortalTitle(stored) && stored !== `${parent}详情`) {
+    const fromStored = usableIframeDocTitle(stored, parent, systemList)
+    if (fromStored) {
+      return fromStored
+    }
+  }
+  const pending = peekPendingPortalIframeTitle(routeLike)
+  const fromDoc = usableIframeDocTitle(pending, parent, systemList)
+  if (fromDoc) {
+    return fromDoc
+  }
+  const fromUrl = inferChildActionTitle(routeLike)
+  if (fromUrl) {
+    return fromUrl
+  }
+  if (!parent || isGenericPortalTitle(parent)) {
+    return '详情'
+  }
+  if (/详情$/.test(parent)) {
+    return parent
+  }
+  return `${parent}详情`
+}
+
 /** 从 pathLinkMap entry / route.meta 取真实菜单名 */
 export function resolvePortalMenuTitle(...candidates) {
   for (let i = 0; i < candidates.length; i++) {
@@ -29,6 +172,48 @@ export function resolvePortalMenuTitle(...candidates) {
     }
   }
   return ''
+}
+
+const PORTAL_INTERNAL_QUERY = {
+  _portal_t: true,
+  _jump_camstar_warm: true,
+  _jump_child: true
+}
+
+let pendingPortalIframeTitle = ''
+let pendingPortalIframeTabKey = ''
+let pendingPortalParentPath = ''
+let pendingPortalForceChild = false
+
+export function setPendingPortalIframeTitle(routeLike, title) {
+  pendingPortalIframeTitle = String(title || '').trim()
+  pendingPortalIframeTabKey = routeLike ? portalTabKey(routeLike) : ''
+}
+
+export function peekPendingPortalIframeTitle(routeLike) {
+  if (!pendingPortalIframeTitle) {
+    return ''
+  }
+  if (routeLike && pendingPortalIframeTabKey && portalTabKey(routeLike) !== pendingPortalIframeTabKey) {
+    return ''
+  }
+  return pendingPortalIframeTitle
+}
+
+export function setPendingPortalParent(routeLike, parentPath, forceChild) {
+  pendingPortalParentPath = String(parentPath || '').trim()
+  pendingPortalForceChild = !!forceChild
+  pendingPortalIframeTabKey = routeLike ? portalTabKey(routeLike) : pendingPortalIframeTabKey
+}
+
+export function peekPendingPortalParent(routeLike) {
+  if (routeLike && pendingPortalIframeTabKey && portalTabKey(routeLike) !== pendingPortalIframeTabKey) {
+    return { parentPath: '', forceChild: false }
+  }
+  return {
+    parentPath: pendingPortalParentPath,
+    forceChild: pendingPortalForceChild
+  }
 }
 
 export const PORTAL_PATH_PREFIX_RE = new RegExp(`^/portal/${PORTAL_CLIENT_ID_RE}(?:/|$)`)
@@ -188,24 +373,27 @@ export function resolvePortalFrameRoute(route, pathLinkMap, systemList) {
     route.meta && route.meta.title,
     route.title
   )
-  const entry = lookupPathLinkEntry(route.path, pathLinkMap)
-  if (entry) {
-    const title = resolvePortalMenuTitle(entry.title, entry.menuTitle, existingTitle) || '业务页'
+  const exactEntry = lookupPathLinkExact(route.path, pathLinkMap)
+  const pendingParent = peekPendingPortalParent(route)
+  const isQueryChild = portalQueryBucket(route) === 'child' || pendingParent.forceChild
+  // 叶子菜单本身：精确路径且无 ?/#。子页（带参数或更深路径）不能套用菜单 link，否则 iframe 停在列表页
+  if (exactEntry && !isQueryChild) {
+    const title = resolvePortalMenuTitle(exactEntry.title, exactEntry.menuTitle, existingTitle) || '业务页'
     return plainPortalView(route, {
       title,
       meta: {
         title,
         menuTitle: title,
-        link: normalizeSubsystemIframeLink(entry.link, clientId),
-        icon: entry.icon || (route.meta && route.meta.icon),
-        // Camstar：主系统直开能力，与子系统 OAuth 无关
-        portalKind: entry.kind || (route.meta && route.meta.portalKind)
+        link: normalizeSubsystemIframeLink(exactEntry.link, clientId),
+        icon: exactEntry.icon || (route.meta && route.meta.icon),
+        portalKind: exactEntry.kind || (route.meta && route.meta.portalKind),
+        portalChild: false
       }
     })
   }
   let rest = extractPortalMenuRest(route.path, clientId)
   const systemUrl = resolveSystemUrl(systemList, clientId)
-  if (!rest || !systemUrl) {
+  if (!rest) {
     if (existingTitle) {
       return plainPortalView(route, {
         title: existingTitle,
@@ -219,46 +407,77 @@ export function resolvePortalFrameRoute(route, pathLinkMap, systemList) {
   }
 
   // 错误壳 path：…/129/8088/mes4200 — 是门户自己，不是业务机
-  if (isEncodedSystemUrlRest(rest, systemUrl)) {
+  if (systemUrl && isEncodedSystemUrlRest(rest, systemUrl)) {
     return plainPortalView(route)
   }
 
-  // Camstar：IP:port 编码 → http 直链；若依：systemUrl/#/
+  // 壳 path → 业务 http（含 __hash__/ → #/）；pathLinkMap 有完整 link 时优先（尤其旧壳无 __hash__）
   const directHttp = slashIpPortRestToHttp(rest)
-  // 直链拼出后，再按 link 反查菜单名（壳 path 带/不带 15 都能命中）
-  const byLink = directHttp ? lookupPathLinkEntry(route.path, pathLinkMap, directHttp) : null
-  let link
-  if (directHttp
-    && !isEncodedSystemUrlRest(encodePureHttpToShell(directHttp), systemUrl)
-    && encodePureHttpToShell(directHttp) !== encodePureHttpToShell(systemUrl)) {
-    link = directHttp
-  } else {
-    link = `${systemUrl}/#/${String(rest).replace(/:/g, '/')}`
+  const prefixEntry = exactEntry || (directHttp
+    ? lookupPathLinkEntry(route.path, pathLinkMap, directHttp)
+    : lookupPathLinkEntry(route.path, pathLinkMap))
+  let link = ''
+  const mapLink = prefixEntry && prefixEntry.link ? String(prefixEntry.link) : ''
+  if (directHttp && String(directHttp).indexOf('#') >= 0) {
+    // 壳上已带 SPA 路由，以壳为准
+    link = mergeRouteQueryHash(directHttp, route)
+  } else if (mapLink && mapLink.indexOf('#') >= 0) {
+    link = mergeRouteQueryHash(mapLink, route)
+  } else if (directHttp
+    && !(systemUrl && isEncodedSystemUrlRest(encodePureHttpToShell(directHttp), systemUrl))
+    && !(systemUrl && encodePureHttpToShell(directHttp) === encodePureHttpToShell(systemUrl))) {
+    link = mergeRouteQueryHash(directHttp, route)
+  } else if (mapLink) {
+    link = mergeRouteQueryHash(mapLink, route)
+  } else if (directHttp) {
+    // 菜单未加载时仍直开壳还原地址，避免「未挂载」白屏
+    link = mergeRouteQueryHash(directHttp, route)
   }
-  const title = resolvePortalMenuTitle(
-    byLink && byLink.title,
-    byLink && byLink.menuTitle,
-    existingTitle
-  ) || '业务页'
-  const kind = (byLink && byLink.kind)
-    || (directHttp ? 'camstar' : 'ruoyi')
+  if (!link) {
+    if (existingTitle) {
+      return plainPortalView(route, {
+        title: existingTitle,
+        meta: { title: existingTitle, menuTitle: existingTitle }
+      })
+    }
+    return plainPortalView(route)
+  }
+  const parentEntry = (pendingParent.parentPath && pathLinkMap && pathLinkMap[pendingParent.parentPath])
+    || prefixEntry
+  const parentTitle = resolvePortalMenuTitle(
+    parentEntry && parentEntry.title,
+    parentEntry && parentEntry.menuTitle,
+    prefixEntry && prefixEntry.title,
+    prefixEntry && prefixEntry.menuTitle
+  )
+  const isChild = isQueryChild || pendingParent.forceChild || !!(prefixEntry && !exactEntry)
+  const clickTitle = peekPendingPortalIframeTitle(route)
+  const title = isChild
+    ? (usableIframeDocTitle(clickTitle, parentTitle || existingTitle, systemList)
+      || buildPortalChildTabTitle(parentTitle || existingTitle, route, systemList))
+    : (resolvePortalMenuTitle(parentTitle, existingTitle) || '业务页')
+  const kind = (prefixEntry && prefixEntry.kind) || 'camstar'
   return plainPortalView(route, {
     title,
     meta: {
       title,
       menuTitle: title,
-      link: normalizeSubsystemIframeLink((byLink && byLink.link) || link, clientId),
-      icon: (byLink && byLink.icon) || (route.meta && route.meta.icon),
+      portalChild: isChild,
+      portalChildTitle: isChild ? title : undefined,
+      portalParentPath: isChild
+        ? (pendingParent.parentPath || (route.meta && route.meta.portalParentPath) || undefined)
+        : undefined,
+      link: normalizeSubsystemIframeLink(link || (prefixEntry && prefixEntry.link), clientId),
+      icon: (prefixEntry && prefixEntry.icon) || (route.meta && route.meta.icon) || (parentEntry && parentEntry.icon),
       portalKind: kind
     }
   })
 }
 
 /**
- * pathLinkMap 命中：精确路径、/index 别名、去掉一层数字目录后再精确比。
- * 禁止 endsWith 模糊匹配（会把若依页误挂成 Camstar 直链 → 跳过 SSO → 全白屏）。
+ * 精确菜单路径（不含「子路径算同一菜单」的前缀命中）。
  */
-export function lookupPathLinkEntry(path, pathLinkMap, linkHint) {
+export function lookupPathLinkExact(path, pathLinkMap, linkHint) {
   if (!path || !pathLinkMap) {
     return null
   }
@@ -297,6 +516,197 @@ export function lookupPathLinkEntry(path, pathLinkMap, linkHint) {
     }
   }
   return linkHint ? findPathLinkByHttp(pathLinkMap, linkHint) : null
+}
+
+/**
+ * pathLinkMap 命中：精确路径、/index 别名、去掉一层数字目录后再精确比；
+ * 未命中时才用最长 http 前缀（子页归到叶子菜单，仅用于父标题/图标）。
+ * 禁止 endsWith 模糊匹配（会把若依页误挂成 Camstar 直链 → 跳过 SSO → 全白屏）。
+ */
+export function lookupPathLinkEntry(path, pathLinkMap, linkHint) {
+  const exact = lookupPathLinkExact(path, pathLinkMap, linkHint)
+  if (exact) {
+    return exact
+  }
+  const clientId = parsePortalClientId(path)
+  const rest = extractPortalMenuRest(path, clientId)
+  if (rest) {
+    const prefixHit = findLongestEncodedHttpPrefix(pathLinkMap, clientId, rest)
+    if (prefixHit && prefixHit.entry) {
+      return prefixHit.entry
+    }
+  }
+  return null
+}
+
+function restWithoutQuery(rest) {
+  return String(rest || '')
+    .split('#')[0]
+    .split('?')[0]
+    .replace(/\/__hash__\/.*$/i, '')
+    .replace(/\/index$/, '')
+    .replace(/\/$/, '')
+}
+
+function isEncodedHttpRest(rest) {
+  return /^\d{1,3}\/\d{1,3}\/\d{1,3}\/\d{1,3}\/\d{2,5}(\/|$)/.test(String(rest || ''))
+}
+
+/** 接口申请子页（同机同端口、路径更深或带 ?）仍归到叶子菜单 */
+function findLongestEncodedHttpPrefix(pathLinkMap, clientId, rest) {
+  const restNorm = restWithoutQuery(rest)
+  if (!clientId || !isEncodedHttpRest(restNorm)) {
+    return null
+  }
+  let best = null
+  let bestLen = -1
+  const keys = Object.keys(pathLinkMap)
+  for (let i = 0; i < keys.length; i++) {
+    const key = keys[i]
+    const entry = pathLinkMap[key]
+    if (!entry || parsePortalClientId(key) !== clientId) {
+      continue
+    }
+    const kr = restWithoutQuery(extractPortalMenuRest(key, clientId))
+    if (!kr || !isEncodedHttpRest(kr)) {
+      continue
+    }
+    if (restNorm === kr || restNorm.startsWith(kr + '/')) {
+      if (kr.length > bestLen) {
+        best = { key, entry }
+        bestLen = kr.length
+      }
+    }
+  }
+  return best
+}
+
+/** 当前壳 path 归属的叶子菜单（最长 http 前缀；iframe 内跳转不得换成别的叶子） */
+export function resolveCoveringLeaf(path, pathLinkMap) {
+  const clientId = parsePortalClientId(path)
+  const rest = extractPortalMenuRest(path, clientId)
+  if (rest) {
+    const prefixHit = findLongestEncodedHttpPrefix(pathLinkMap, clientId, rest)
+    if (prefixHit && prefixHit.key) {
+      return prefixHit
+    }
+  }
+  const exact = lookupPathLinkExact(path, pathLinkMap)
+  if (!exact || !pathLinkMap) {
+    return null
+  }
+  const keys = Object.keys(pathLinkMap)
+  for (let i = 0; i < keys.length; i++) {
+    if (pathLinkMap[keys[i]] === exact) {
+      return { key: keys[i], entry: exact }
+    }
+  }
+  return { key: path, entry: exact }
+}
+
+/** 关掉详情子页签时回到打开它的叶子菜单，而不是底栏最后一个陌生页签 */
+export function findPortalCloseTarget(visitedViews, tab) {
+  const list = visitedViews || []
+  const matchRoot = (path) => list.find(v =>
+    v
+    && portalQueryBucket(v) === 'root'
+    && portalPathAliasKey(v.path) === portalPathAliasKey(path)
+  )
+  const parentPath = tab && tab.meta && tab.meta.portalParentPath
+  if (parentPath) {
+    const hit = matchRoot(parentPath)
+    if (hit && !portalTabsMatch(hit, tab)) {
+      return hit
+    }
+  }
+  if (!tab || portalQueryBucket(tab) !== 'child') {
+    return null
+  }
+  const samePathRoot = matchRoot(tab.path)
+  if (samePathRoot && !portalTabsMatch(samePathRoot, tab)) {
+    return samePathRoot
+  }
+  let best = null
+  let bestLen = -1
+  for (let i = 0; i < list.length; i++) {
+    const v = list[i]
+    if (!v || portalQueryBucket(v) !== 'root' || portalTabsMatch(v, tab)) {
+      continue
+    }
+    if (!isPortalPathDescendant(tab.path, v.path)
+      && portalPathAliasKey(v.path) !== portalPathAliasKey(tab.path)) {
+      continue
+    }
+    const len = portalPathAliasKey(v.path).length
+    if (len > bestLen) {
+      best = v
+      bestLen = len
+    }
+  }
+  return best
+}
+
+export function portalPathAliasKey(path) {
+  return String(path || '').replace(/\/index\/?$/, '').replace(/\/$/, '')
+}
+
+/** 列表 vs 带 ?/# 的子页：同一 path 拆成两个底栏页签（对齐通知公告 / 通知详情） */
+export function portalQueryBucket(view) {
+  if (view && view.meta && view.meta.portalChild) {
+    return 'child'
+  }
+  const query = (view && view.query) || {}
+  if (query._jump_child) {
+    return 'child'
+  }
+  const keys = Object.keys(query).filter(k => {
+    if (PORTAL_INTERNAL_QUERY[k]) {
+      return false
+    }
+    const val = query[k]
+    return val != null && val !== ''
+  })
+  const hash = String((view && view.hash) || '').replace(/^#/, '')
+  return (keys.length || hash) ? 'child' : 'root'
+}
+
+export function portalTabKey(view) {
+  const p = portalPathAliasKey(view && view.path)
+  if (!/^\/portal\//.test(p)) {
+    return p
+  }
+  const hashPath = String((view && view.hash) || '').replace(/^#/, '').split('?')[0]
+  if (hashPath) {
+    return p + '#' + hashPath
+  }
+  return p + (portalQueryBucket(view) === 'child' ? '?*' : '')
+}
+
+export function portalTabsMatch(a, b) {
+  if (!a || !b) {
+    return false
+  }
+  if (!/^\/portal\//.test(a.path || '')) {
+    return portalPathAliasKey(a.path) === portalPathAliasKey(b.path)
+  }
+  return portalTabKey(a) === portalTabKey(b)
+}
+
+/** 子路径（含查询参数页）仍算同一菜单：/api/apply/detail 属于 /api/apply */
+export function isPortalPathDescendant(childPath, parentPath) {
+  const child = portalPathAliasKey(childPath)
+  const parent = portalPathAliasKey(parentPath)
+  if (!child || !parent) {
+    return false
+  }
+  if (child === parent) {
+    return true
+  }
+  const childClient = parsePortalClientId(child)
+  if (!childClient || childClient !== parsePortalClientId(parent)) {
+    return false
+  }
+  return child.startsWith(parent + '/')
 }
 
 function findPathLinkByHttp(pathLinkMap, httpUrl) {
@@ -352,6 +762,32 @@ function pathnameOnly(httpUrl) {
  * - 旧：15/192/168/240/126/43061/... 或 192/168/.../127/4200/...
  */
 export function slashIpPortRestToHttp(rest) {
+  const raw0 = String(rest || '').replace(/^\/+/, '')
+  // 壳内 SPA：.../__hash__/d3OtherDept/d2AlterRecord → #/d3OtherDept/d2AlterRecord
+  const hashMarker = '__hash__/'
+  let spaHash = ''
+  let work = raw0
+  const markerAt = work.indexOf(hashMarker)
+  if (markerAt >= 0) {
+    const before = work.substring(0, markerAt).replace(/\/$/, '')
+    spaHash = '#/' + work.substring(markerAt + hashMarker.length).replace(/^\/+/, '')
+    work = before
+  }
+  const hashIdx = work.indexOf('#')
+  const hashPart = hashIdx >= 0 ? work.substring(hashIdx) : ''
+  const noHash = hashIdx >= 0 ? work.substring(0, hashIdx) : work
+  const qIdx = noHash.indexOf('?')
+  const searchPart = qIdx >= 0 ? noHash.substring(qIdx) : ''
+  const pathPart = qIdx >= 0 ? noHash.substring(0, qIdx) : noHash
+  const built = slashIpPortRestToHttpPath(pathPart)
+  if (!built) {
+    return ''
+  }
+  // SPA hash 前补 /，保证还原为规范的 http://host:port[/path]/#/... 形式
+  return built.replace(/\/$/, '') + (spaHash ? '/' : '') + searchPart + (spaHash || hashPart)
+}
+
+function slashIpPortRestToHttpPath(rest) {
   const raw0 = String(rest || '').replace(/^\/+/, '')
   // 先认点分 IP9port（勿先把点改成 /）
   {
@@ -421,12 +857,46 @@ export function unwrapDirectHttpIframeLink(link) {
   return asHttp || s
 }
 
+function mergeRouteQueryHash(httpUrl, route) {
+  if (!httpUrl || !route) {
+    return httpUrl
+  }
+  try {
+    const u = new URL(httpUrl)
+    const query = route.query || {}
+    Object.keys(query).forEach(key => {
+      if (PORTAL_INTERNAL_QUERY[key]) {
+        return
+      }
+      const val = query[key]
+      if (val == null || val === '') {
+        return
+      }
+      u.searchParams.set(key, Array.isArray(val) ? String(val[0]) : String(val))
+    })
+    if (route.hash) {
+      u.hash = String(route.hash).indexOf('#') === 0 ? String(route.hash).slice(1) : String(route.hash)
+    }
+    return u.toString()
+  } catch (e) {
+    return httpUrl
+  }
+}
+
 function encodePureHttpToShell(httpUrl) {
   let s = String(httpUrl || '').trim()
+  // SPA hash（#/xxx）编进壳 path：.../__hash__/xxx，否则地址栏/回退都会丢路由
+  let spaHash = ''
   const hashPos = s.indexOf('#')
   if (hashPos >= 0) {
+    spaHash = s.substring(hashPos + 1).replace(/^\/+/, '')
     s = s.substring(0, hashPos)
   }
+  const qPos = s.indexOf('?')
+  if (qPos >= 0) {
+    s = s.substring(0, qPos)
+  }
+  let shell = ''
   // 点分 IP + 显式端口 → 192/168/240/127/4200[/path]（纯斜杠，避免壳 path 里出现 :4200 触发 Vue Router 动态参数）
   try {
     const withProto = /^https?:\/\//i.test(s) ? s : (/^\d{1,3}(\.\d{1,3}){3}(:\d+)?(\/|$)/.test(s) ? `http://${s}` : '')
@@ -435,18 +905,23 @@ function encodePureHttpToShell(httpUrl) {
       if (/^\d{1,3}(\.\d{1,3}){3}$/.test(u.hostname) && u.port) {
         const hostSlash = u.hostname.replace(/\./g, '/')
         const path = (u.pathname || '/').replace(/^\/+/, '').replace(/\/$/, '')
-        const q = u.search || ''
-        return `${hostSlash}/${u.port}${path ? `/${path}` : ''}${q}`
+        shell = `${hostSlash}/${u.port}${path ? `/${path}` : ''}`
       }
     }
   } catch (e) { /* fallback */ }
-  return s
-    .replace(/^https?:\/\//i, '')
-    .replace(/^www\./i, '')
-    .replace(/\./g, '/')
-    .replace(/:/g, '/')
-    .replace(/\/+/g, '/')
-    .replace(/\/$/, '')
+  if (!shell) {
+    shell = s
+      .replace(/^https?:\/\//i, '')
+      .replace(/^www\./i, '')
+      .replace(/\./g, '/')
+      .replace(/:/g, '/')
+      .replace(/\/+/g, '/')
+      .replace(/\/$/, '')
+  }
+  if (spaHash) {
+    shell = `${shell.replace(/\/$/, '')}/__hash__/${spaHash.replace(/^\/+/, '')}`
+  }
+  return shell
 }
 
 /** 门户壳 path：业务直链 http → 192/168/240/127/4200/...（纯斜杠；旧 点+9 编码仍可解码） */
@@ -457,6 +932,41 @@ export function encodeHttpToMesPath(httpUrl) {
     return encodePureHttpToShell(unwrapped)
   }
   return encodePureHttpToShell(raw)
+}
+
+/** 业务页 http（含子路径、?、#）→ JUMP 地址栏 location；SPA # 编进 path 的 __hash__/，不依赖 Vue hash */
+export function httpUrlToPortalLocation(clientId, httpUrl) {
+  if (!clientId || !httpUrl) {
+    return null
+  }
+  try {
+    const shell = encodePureHttpToShell(String(httpUrl))
+    if (!shell) {
+      return null
+    }
+    const u = new URL(String(httpUrl))
+    const query = {}
+    const search = String(u.search || '').replace(/^\?/, '')
+    if (search) {
+      search.split('&').forEach(pair => {
+        if (!pair) {
+          return
+        }
+        const i = pair.indexOf('=')
+        const k = decodeURIComponent(i < 0 ? pair : pair.slice(0, i).replace(/\+/g, ' '))
+        const v = i < 0 ? '' : decodeURIComponent(pair.slice(i + 1).replace(/\+/g, ' '))
+        if (k && !PORTAL_INTERNAL_QUERY[k]) {
+          query[k] = v
+        }
+      })
+    }
+    return {
+      path: (`/portal/${clientId}/${shell}`).replace(/\/{2,}/g, '/'),
+      query
+    }
+  } catch (e) {
+    return null
+  }
 }
 
 /** rest 是否其实是 systemUrl 自己被点改斜杠（错误书签） */
@@ -472,7 +982,7 @@ export function isEncodedSystemUrlRest(rest, systemUrl) {
   return r === enc || r.startsWith(enc + '/')
 }
 
-function extractPortalMenuRest(path, clientId) {
+export function extractPortalMenuRest(path, clientId) {
   if (!path || !clientId) {
     return ''
   }

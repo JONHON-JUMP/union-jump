@@ -1,5 +1,6 @@
 import router, { constantRoutes } from '@/router'
 import { getMyExternalSystemList, getMyPortalMenus, getMyPortalMenusVersion } from '@/api/system/subSystemUsers'
+import { registerExternalUsernames, refreshCamstarCookieForSystem, ensureLocalCamstarCookie, resetCamstarCookieToLoginUser } from '@/utils/camstarCookie'
 import { getUserPortalDefault } from '@/api/system/user/portalDefault'
 import { getUserQuickNavList } from '@/api/system/user/quickNav'
 import { getSubSystemUserQuickNavList } from '@/api/system/user/subSystemQuickNav'
@@ -9,13 +10,19 @@ import {
   parsePortalClientId,
   normalizeSubsystemIframeLink,
   isGenericPortalTitle,
-  resolvePortalMenuTitle
+  resolvePortalMenuTitle,
+  findPortalCloseTarget,
+  portalPathAliasKey,
+  portalQueryBucket,
+  portalTabsMatch,
+  isPortalPathDescendant
 } from '@/utils/portalRoute'
 import {
   loadPersistedPortalCache,
   persistPortalCache,
   clearPersistedPortalCache
 } from '@/utils/portalMenuCache'
+import { syncPortalIframeView } from '@/utils/portalIframe'
 import { resolveRuleBasedPortalDefault } from '@/utils/portalSubsystem'
 import {
   buildQuickNavScopeKey,
@@ -240,6 +247,9 @@ const actions = {
   loadSystemList({ commit }) {
     return getMyExternalSystemList().then(res => {
       commit('SET_SYSTEM_LIST', res.data || [])
+      // 注册各子系统对接用户名（clientId/subSystemId 主键 + origin/host 兜底）：
+      // 切换系统时按"选择的系统"种对应身份的 Camstar Cookie（车间_工号 或 工号）
+      registerExternalUsernames(res.data)
       return res.data || []
     })
   },
@@ -489,7 +499,6 @@ const actions = {
    * 打开前比对 rbac 版本；Redis 已清则走库重建。
    */
   ensureAllAppsMenusReady({ dispatch, state, rootState, commit }) {
-    const { syncPortalMenusBeforeAllApps } = require('@/utils/portalPermWatch')
     const afterPermSync = () => {
       const current = state.currentSystem || 'main'
       if (current === 'main') {
@@ -531,9 +540,9 @@ const actions = {
     if (!hasMainMenuRoutes(state, rootState) && (state.currentSystem || 'main') === 'main') {
       commit('SET_ALL_APPS_MENUS_LOADING', true)
     }
-    return Promise.resolve(syncPortalMenusBeforeAllApps())
-      .catch(() => false)
-      .then(() => afterPermSync())
+    // 打开抽屉不再做 rbac 版本比对（后端 cache-aside：改数据删 Redis，刷新/重登自动从库重建；
+    // 抽屉有树直接展示，无树走 LoadMainMenus 的 Redis→库 兜底）
+    return afterPermSync()
   },
 
   /** 菜单管理 CRUD 后强制重建门户菜单树 + 快捷导航（绕过内存短路；不重复 addRoutes） */
@@ -649,6 +658,15 @@ const actions = {
     if (cachedLinks) {
       commit('SET_PORTAL_PATH_LINKS', sanitizePathLinkMap(cachedLinks))
     }
+    // 切换系统立刻按该系统花名册身份重写 Camstar Cookie（拼接车间 → 车间_工号；不拼接 → 工号）
+    const sys = (state.systemList || []).find(item =>
+      item && (item.clientId === key || String(item.subSystemId) === String(key))
+    )
+    if (sys) {
+      refreshCamstarCookieForSystem(sys)
+    } else {
+      ensureLocalCamstarCookie(undefined, key)
+    }
     // 主系统侧栏快照后台做，绝不挡本次打开
     dispatch('cacheMainSidebar').catch(() => {})
     return Promise.resolve(key)
@@ -761,11 +779,11 @@ const actions = {
         }
         commit('SET_IFRAME_SYNC_SUSPENDED', true)
         return dispatch('tagsView/clearDockBusinessTabs', null, { root: true }).then(() => {
-          return enter().finally(() => {
-            commit('SET_IFRAME_SYNC_SUSPENDED', false)
-          })
+          return enter()
         }).then(() => {
           schedulePortalBootstrap(() => dispatch('warmMainSystemInBackground'))
+        }).finally(() => {
+          commit('SET_IFRAME_SYNC_SUSPENDED', false)
         })
       })
     }
@@ -775,7 +793,7 @@ const actions = {
     return ensureList.then(() => {
       const ref = resolveSystemRef(state, system)
       if (!ref) {
-        return Promise.reject(new Error('无效的外部系统'))
+        return Promise.reject(new Error('无效的业务系统'))
       }
       const targetSystem = ref.clientId
       const currentSystem = state.currentSystem
@@ -808,13 +826,12 @@ const actions = {
               )
             )
             if (skipNavigate) {
-              commit('SET_IFRAME_SYNC_SUSPENDED', false)
               return Promise.resolve()
             }
-            return dispatch('navigateToPortalHome', { clearDock: true }).finally(() => {
-              commit('SET_IFRAME_SYNC_SUSPENDED', false)
-            })
+            return dispatch('navigateToPortalHome', { clearDock: true })
           })
+        }).finally(() => {
+          commit('SET_IFRAME_SYNC_SUSPENDED', false)
         })
       })
     })
@@ -839,6 +856,8 @@ const actions = {
     return ensureMainMenus().then(() => {
       commit('SET_CURRENT_SYSTEM', 'main')
       commit('SET_PORTAL_PATH_LINKS', {})
+      // 回主系统：本域 Cookie 恢复主登录工号，清掉上一子系统的「车间_工号」身份
+      resetCamstarCookieToLoginUser()
       if (state.mainSidebarRouters && state.mainSidebarRouters.length) {
         commit('SET_SIDEBAR_ROUTERS', state.mainSidebarRouters, { root: true })
       } else if (rootState.permission.defaultRoutes && rootState.permission.defaultRoutes.length) {
@@ -863,6 +882,7 @@ const actions = {
   /** 回到门户 /index。clearDock=true：切系统场景，不保留上一系统页签 */
   navigateToPortalHome({ commit, dispatch, state }, payload) {
     const clearDock = payload && payload.clearDock === true
+    const keepWorkbench = payload && payload.keepWorkbench === true
     if (state.currentSystem) {
       persistPortalSystemChoice(state.currentSystem)
     }
@@ -881,7 +901,7 @@ const actions = {
       ? dispatch('tagsView/clearDockBusinessTabs', null, { root: true })
       : dispatch('tagsView/prunePortalHomeViews', null, { root: true })
     return prune.then(() => {
-      return goPortalIndex().finally(() => {
+      return goPortalIndex({ keepWorkbench }).finally(() => {
         if (clearDock) {
           // 路由已到首页后再清一次，杜绝旧 path 的 TagsView.addTags 回写
           return dispatch('tagsView/clearDockBusinessTabs', null, { root: true }).finally(() => {
@@ -891,6 +911,10 @@ const actions = {
         }
         commit('SET_PRESERVE_DOCK_TABS', false)
       })
+    }).catch(err => {
+      commit('SET_IFRAME_SYNC_SUSPENDED', false)
+      commit('SET_PRESERVE_DOCK_TABS', false)
+      return Promise.reject(err)
     })
   },
 
@@ -912,32 +936,69 @@ const actions = {
         commit('SET_IFRAME_SYNC_SUSPENDED', false)
         commit('SET_PRESERVE_DOCK_TABS', false)
       })
+    }).catch(err => {
+      commit('SET_IFRAME_SYNC_SUSPENDED', false)
+      commit('SET_PRESERVE_DOCK_TABS', false)
+      return Promise.reject(err)
     })
   },
 
   closePortalTab({ commit, dispatch, rootState }, { tab, active }) {
     commit('SET_IFRAME_SYNC_SUSPENDED', true)
+    const parent = findPortalCloseTarget(rootState.tagsView.visitedViews, tab)
+    const route = router.currentRoute
+    // 与 Dock 一致：别名/子路径也视为关闭当前页，避免 sync 把页签加回
+    const closingCurrent = !!active
+      || portalTabsMatch(tab, route)
+      || portalPathAliasKey(tab.path) === portalPathAliasKey(route.path)
+      || isPortalPathDescendant(route.path, tab.path)
+    const resumeSync = () => {
+      commit('SET_IFRAME_SYNC_SUSPENDED', false)
+      const vuexStore = router.app && router.app.$store
+      if (vuexStore && router.currentRoute) {
+        // 仍停在被关页签对应路由时，禁止 sync 把页签加回来
+        const cur = router.currentRoute
+        const stillOnClosed = portalTabsMatch(tab, cur)
+          || portalPathAliasKey(tab.path) === portalPathAliasKey(cur.path)
+          || isPortalPathDescendant(cur.path, tab.path)
+        if (stillOnClosed) {
+          return
+        }
+        syncPortalIframeView(vuexStore, cur)
+      }
+    }
     return dispatch('tagsView/delView', tab, { root: true }).then(() => {
-      if (!active) {
-        commit('SET_IFRAME_SYNC_SUSPENDED', false)
+      if (!closingCurrent) {
+        resumeSync()
         return
       }
       const remaining = rootState.tagsView.visitedViews.filter(view => {
         if (view.path === '/index' || view.path === '/') return false
         if (!view.title || !view.name) return false
-        if (view.title === '外部系统') return false
+        if (view.title === '外部系统' || view.title === '业务系统') return false
         if (view.meta && view.meta.portalHome) return false
         if (isPortalSubSystemHomePath(view.path)) return false
+        // 刚删的别名页不再当作“下一个”
+        if (portalTabsMatch(view, tab)
+          || portalPathAliasKey(view.path) === portalPathAliasKey(tab.path)) {
+          return false
+        }
         return true
       })
-      if (remaining.length > 0) {
-        commit('SET_IFRAME_SYNC_SUSPENDED', false)
-        const nextTab = remaining[remaining.length - 1]
-        return router.push(nextTab.fullPath || nextTab.path)
+      const parentRoot = parent && remaining.find(v =>
+        portalQueryBucket(v) === 'root'
+        && portalPathAliasKey(v.path) === portalPathAliasKey(parent.path)
+      )
+      const nextTab = parentRoot || (remaining.length > 0 ? remaining[remaining.length - 1] : null)
+      if (nextTab) {
+        if (parentRoot) {
+          commit('tagsView/RESTORE_PORTAL_IFRAME', parentRoot, { root: true })
+        }
+        return router.push(nextTab.fullPath || nextTab.path).catch(() => {}).finally(resumeSync)
       }
-      return dispatch('returnToPortalHome')
+      return dispatch('returnToPortalHome').finally(resumeSync)
     }).catch(err => {
-      commit('SET_IFRAME_SYNC_SUSPENDED', false)
+      resumeSync()
       return Promise.reject(err)
     })
   },
@@ -945,7 +1006,7 @@ const actions = {
   goPortal({ state, dispatch }, payload) {
     const clientId = resolvePortalClientId(state, payload)
     if (!clientId) {
-      return Promise.reject(new Error('无效的外部系统'))
+      return Promise.reject(new Error('无效的业务系统'))
     }
     const path = (typeof payload === 'object' && payload.path)
       || state.subSystemEntryPaths[clientId]
@@ -1021,13 +1082,13 @@ const actions = {
     return ensureList.then(() => {
       const target = findSystemByClientId(state, key)
       if (!target) {
-        return Promise.reject(new Error('无权访问该外部系统'))
+        return Promise.reject(new Error('无权访问该业务系统'))
       }
       const subSystemId = Number(target.subSystemId)
       return getMyPortalMenus(subSystemId).then(res => {
         const menus = res.data || []
         if (menus.length === 0) {
-          return Promise.reject(new Error('该外部系统暂无可用菜单'))
+          return Promise.reject(new Error('该业务系统暂无可用菜单'))
         }
         const portalHome = null
         const signature = buildMenuSignature(menus, portalHome)
@@ -1045,7 +1106,7 @@ const actions = {
           const sidebarRouters = sidebarRoutes || []
           const pathLinkMap = sanitizePathLinkMap(buildPortalPathLinkMap(sidebarRouters))
           if (Object.keys(pathLinkMap).length === 0) {
-            return Promise.reject(new Error('外部系统菜单未配置有效链接'))
+            return Promise.reject(new Error('业务系统菜单未配置有效链接'))
           }
           const entryPath = '/index'
           const rbacVersion = Number(versionRes && versionRes.data)
@@ -1079,11 +1140,11 @@ const actions = {
    */
   prefetchCamstarShells(_ctx, { clientId, pathLinkMap, limit }) {
     const map = pathLinkMap || {}
-    const entries = collectCamstarPrefetchEntries(map, limit == null ? 6 : limit)
+    const entries = collectCamstarPrefetchEntries(map, limit == null ? 6 : limit, clientId)
     if (!entries.length) {
       return Promise.resolve(0)
     }
-    return prepareCamstarSessionFromEntries(entries).then(count => {
+    return prepareCamstarSessionFromEntries(entries, clientId).then(count => {
       if (typeof console !== 'undefined' && console.log) {
         console.log(
           `%c[camstar-prefetch] cookie+origin client=${clientId || '-'} count=${count}`,
@@ -1134,7 +1195,7 @@ const actions = {
     return ensureList.then(() => {
       const ref = resolveSystemRef(state, parsed.clientId || parsed.subSystemId)
       if (!ref) {
-        return Promise.reject(new Error('无效的外部系统'))
+        return Promise.reject(new Error('无效的业务系统'))
       }
       const clientId = ref.clientId
       // 停在门户首页：只切壳，不拉 my-menus / OAuth
@@ -1225,11 +1286,34 @@ function isNavigationFailure(err) {
     message.indexOf('Avoided redundant navigation') >= 0
 }
 
-function goPortalIndex() {
+function goPortalIndex(options) {
+  emitPortalHomeCleanup(options)
+  const keepWorkbench = !!(options && options.keepWorkbench)
   if (isPortalIndexPath(router.currentRoute.path)) {
+    if (!keepWorkbench && router.currentRoute.query && router.currentRoute.query.workbench) {
+      return router.replace({ path: '/index' }).catch(err => {
+        if (isNavigationFailure(err)) {
+          return Promise.resolve(router.currentRoute)
+        }
+        return Promise.reject(err)
+      })
+    }
     return Promise.resolve(router.currentRoute)
   }
   return navigateReplace('/index')
+}
+
+/** 显式回门户首页时的统一清理：关「全部应用」、清残留标记；业务页通过事件关抽屉 */
+function emitPortalHomeCleanup(options) {
+  try {
+    sessionStorage.removeItem('JUMP_ALLAPPS_RETURN')
+  } catch (e) { /* ignore */ }
+  try {
+    const root = router.app && router.app.$root
+    if (root && typeof root.$emit === 'function') {
+      root.$emit('portal-explicit-home', options || {})
+    }
+  } catch (e) { /* ignore */ }
 }
 
 function navigateReplace(path) {
@@ -1278,7 +1362,7 @@ function buildPortalPathLinkMap(routes, parentPath = '', map = {}) {
         title,
         menuTitle: title,
         icon: route.meta.icon,
-        // camstar=主系统直开（无 SSO）；ruoyi=子系统 OAuth
+        // camstar=http 直开；ruoyi=/#/ URL 形态。打开页一律 Cookie，无 OAuth
         kind: route.meta.portalKind || (String(route.meta.link).indexOf('#') >= 0 ? 'ruoyi' : 'camstar')
       }
       map[currentPath] = entry

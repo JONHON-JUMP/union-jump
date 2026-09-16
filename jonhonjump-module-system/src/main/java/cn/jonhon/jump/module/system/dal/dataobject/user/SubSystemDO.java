@@ -22,6 +22,10 @@ public class SubSystemDO extends BaseDO {
     @TableId
     private Long id;
     /**
+     * 业务系统编号，门户路由 /portal/{clientId}。旧数据可从 OAuth2 客户端回填。
+     */
+    private String clientId;
+    /**
      * OAuth2 客户端编号；人员接口专用系统可为空（不绑门户）
      *
      * 关联 {@link OAuth2ClientDO#getId()}
@@ -47,5 +51,22 @@ public class SubSystemDO extends BaseDO {
      * 系统状态（0正常 1停用）
      */
     private Integer status;
+
+    /**
+     * 门户路由用的系统编号：优先本表 client_id，否则用已绑定的 OAuth2 client_id。
+     */
+    public String resolvePortalClientId(String oauthClientId) {
+        if (clientId != null && !clientId.trim().isEmpty()) {
+            return clientId.trim();
+        }
+        return oauthClientId;
+    }
+
+    /**
+     * 是否门户业务系统（有系统编号，或仍绑着旧 OAuth2 客户端）。仅接口目标为 false。
+     */
+    public boolean isPortalBound() {
+        return (clientId != null && !clientId.trim().isEmpty()) || oauth2ClientId != null;
+    }
 
 }

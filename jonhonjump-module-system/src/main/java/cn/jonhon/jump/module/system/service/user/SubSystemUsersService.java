@@ -63,6 +63,11 @@ public interface SubSystemUsersService {
     List<UserExternalSystemRespVO> getMyExternalSystemList(Long userId);
 
     /**
+     * 当前登录用户在 Camstar 侧的登录用户名（注册时标记拼接车间则为 车间编号_工号，否则为主登录工号）
+     */
+    String getMyCamstarUsername(Long userId);
+
+    /**
      * 获得当前登录用户在指定外部系统下的门户菜单（Iframe 嵌入）
      */
     List<SubSystemPortalMenuRespVO> getMyPortalMenus(Long userId, Long subSystemId);

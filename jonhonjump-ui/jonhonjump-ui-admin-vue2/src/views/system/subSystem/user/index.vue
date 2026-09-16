@@ -152,6 +152,21 @@
                 </el-tag>
               </template>
             </el-table-column>
+            <el-table-column label="关联车间编号" align="center" width="110">
+              <template v-slot="scope">
+                <el-tag
+                  v-if="scope.row.employeeRegistered === '1' && scope.row.usernameWithWorkshop === '1'"
+                  type="success"
+                  size="mini"
+                >车间_工号</el-tag>
+                <el-tag
+                  v-else-if="scope.row.employeeRegistered === '1'"
+                  type="info"
+                  size="mini"
+                >工号</el-tag>
+                <span v-else>-</span>
+              </template>
+            </el-table-column>
             <el-table-column label="备注" prop="remark" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="创建时间" align="center" prop="createTime" width="180">
               <template v-slot="scope">
@@ -163,9 +178,13 @@
                 <el-button size="mini" type="text" icon="el-icon-position" @click="handleRegister(scope.row)"
                            :disabled="scope.row.employeeRegistered === '1'"
                            v-hasPermi="['sub-system:employee:create', 'sub-system:user:update']">注册</el-button>
-                <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
+                <el-button size="mini" type="text" icon="el-icon-edit"
+                           :loading="openingKey === 'update:' + scope.row.id"
+                           @click="handleUpdate(scope.row)"
                            v-hasPermi="['sub-system:user:update']">修改</el-button>
-                <el-button size="mini" type="text" icon="el-icon-circle-check" @click="handleRole(scope.row)"
+                <el-button size="mini" type="text" icon="el-icon-circle-check"
+                           :loading="openingKey === 'role:' + scope.row.id"
+                           @click="handleRole(scope.row)"
                            v-hasPermi="['sub-system:user:update']">分配角色</el-button>
                 <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)"
                            v-hasPermi="['sub-system:user:delete']">删除</el-button>
@@ -178,8 +197,8 @@
       </el-col>
     </el-row>
 
-    <!-- 新增/修改 -->
-    <el-dialog :title="title" :visible.sync="open" width="760px" append-to-body>
+    <!-- 新增/修改：关闭销毁表单，避免下次 resetFields 踩到上次残留字段 -->
+    <el-dialog :title="title" :visible.sync="open" width="760px" append-to-body destroy-on-close>
       <el-form ref="form" :model="form" :rules="rules" label-width="110px">
         <el-form-item label="业务系统">
           <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
@@ -263,12 +282,54 @@
           </div>
         </el-form-item>
         <el-form-item label="接口注册" prop="employeeRegistered">
-          <el-radio-group v-model="form.employeeRegistered">
+          <el-radio-group v-model="form.employeeRegistered" @change="handleEmployeeRegisteredChange">
             <el-radio label="0">未注册</el-radio>
             <el-radio label="1">已注册</el-radio>
           </el-radio-group>
           <div class="form-tip">
-            标记是否已在对方系统建人（正常由「注册」调接口成功后自动置已注册）；人工在对方系统建过人可标已注册，改回未注册后可在列表重新推送
+            <template v-if="!form.id">
+              选「未注册」时请选择接口目标，保存会调用「新增人员」接口；选「已注册」仅本地标记（对方已建人）
+            </template>
+            <template v-else>
+              标记是否已在对方系统建人（正常由「注册」调接口成功后自动置已注册）；人工在对方系统建过人可标已注册，改回未注册后可在列表重新推送
+            </template>
+          </div>
+        </el-form-item>
+        <el-form-item
+          v-if="!form.id && form.employeeRegistered === '0'"
+          label="接口目标"
+          prop="apiSubSystemId"
+        >
+          <el-select
+            v-model="form.apiSubSystemId"
+            placeholder="请选择要调用的新增人员接口"
+            filterable
+            style="width: 100%"
+            @change="resetUsernameWithWorkshop"
+          >
+            <el-option
+              v-for="item in registerApis"
+              :key="item.subSystemId"
+              :label="item.systemName"
+              :value="item.subSystemId"
+            />
+          </el-select>
+          <div v-if="!registerApis.length" class="form-tip" style="color:#f56c6c">
+            没有已启用「新增人员」的接口目标，请先在【接口管理】接入并启用；仍可先保存到本地花名册
+          </div>
+          <div v-else class="form-tip">接口来自【接口管理】中「新增」用途已启用的系统，可与左侧花名册系统不同</div>
+        </el-form-item>
+        <el-form-item v-if="!form.id && form.employeeRegistered === '0'" label="拼接车间">
+          <el-checkbox v-model="form.usernameWithWorkshop">注册为 车间编号_工号</el-checkbox>
+          <div class="form-tip">
+            对接系统用户名全局唯一时勾选（如多个车间 MES 共用一套用户中心），以 车间编号_工号 注册（如 4200_10086），同一工号可登录不同车间系统
+          </div>
+        </el-form-item>
+        <el-form-item v-if="form.id" label="关联车间编号">
+          <el-tag v-if="form.usernameWithWorkshop === '1'" type="success" size="mini">是（{{ form.workshopId ? (form.workshopId + '_' + form.username) : '车间编号_工号' }}）</el-tag>
+          <el-tag v-else type="info" size="mini">否（用工号注册）</el-tag>
+          <div class="form-tip">
+            调「新增人员」接口注册时按弹窗勾选写入；是否拼接决定对接系统侧的用户名形态{{ form.registeredApiType ? '（注册接口：' + form.registeredApiType + '）' : '' }}
           </div>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
@@ -276,7 +337,7 @@
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
@@ -304,7 +365,7 @@
       </div>
     </el-dialog>
 
-    <!-- 子系统用户导入（须先选择并确认已关联的外部系统） -->
+    <!-- 业务系统用户导入（须先选择并确认已关联的业务系统） -->
     <el-dialog :title="upload.title" :visible.sync="upload.open" width="460px" append-to-body>
       <el-alert
         :title="'当前系统：' + (selectedClient ? (selectedClient.name + ' (' + selectedClient.clientId + ')') : '未选择')"
@@ -331,7 +392,7 @@
           <div class="el-upload__tip">
             <el-checkbox v-model="upload.updateSupport" /> 是否更新已存在的用户名数据
           </div>
-          <span>仅允许 xls/xlsx。按用户名写入子系统花名册，可不关联主系统用户。</span>
+          <span>仅允许 xls/xlsx。按用户名写入业务系统花名册，可不关联主系统用户。</span>
           <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
         </div>
       </el-upload>
@@ -360,6 +421,7 @@
             filterable
             style="width: 100%"
             :disabled="registerSubmitting || registerResults.length > 0"
+            @change="resetUsernameWithWorkshop"
           >
             <el-option
               v-for="item in registerApis"
@@ -373,10 +435,40 @@
           </div>
           <div v-else class="form-tip">接口来自【接口管理】中「新增」用途已启用的系统，可与左侧花名册系统不同</div>
         </el-form-item>
+        <el-form-item label="拼接车间">
+          <el-checkbox
+            v-model="registerForm.usernameWithWorkshop"
+            :disabled="registerSubmitting || registerResults.length > 0"
+          >用户名拼接车间编号</el-checkbox>
+          <div class="form-tip">
+            可选：对接系统用户名全局唯一时勾选，以 车间编号_工号 注册（如 4200_10086），同一工号可登录不同车间系统；Camstar 类目标访问子系统也使用该用户名
+          </div>
+        </el-form-item>
+        <el-form-item label="车间">
+          <el-select
+            v-model="registerForm.workshopCode"
+            placeholder="按花名册系统自动带出，如 MES4200 → 4200"
+            filterable
+            allow-create
+            style="width: 100%"
+            :disabled="registerSubmitting || registerResults.length > 0"
+          >
+            <el-option
+              v-for="item in workshopOptions"
+              :key="item.workshopCode"
+              :label="workshopOptionLabel(item)"
+              :value="item.workshopCode"
+            />
+          </el-select>
+          <div class="form-tip">花名册系统 MES4200 会自动带出车间 4200；用户已填车间时优先用用户自己的</div>
+        </el-form-item>
         <el-form-item label="待注册用户">
           <div class="register-users">
             <div v-for="u in registerForm.users" :key="u.id" class="register-user-row">
               <span>{{ u.username }}（{{ u.nickname || '-' }}）</span>
+              <el-tag v-if="u.workshopId" size="mini">车间 {{ u.workshopId }}</el-tag>
+              <el-tag v-else-if="registerForm.workshopCode" size="mini" type="success">将用车间 {{ registerForm.workshopCode }}</el-tag>
+              <el-tag v-else size="mini" type="warning">未填车间</el-tag>
               <el-tag v-if="u.employeeRegistered === '1'" size="mini" type="info">已注册，将跳过</el-tag>
             </div>
           </div>
@@ -457,6 +549,7 @@ export default {
       workshopDeptId: undefined,
       title: '',
       open: false,
+      submitting: false,
       openRole: false,
       form: {},
       roleForm: {},
@@ -486,12 +579,44 @@ export default {
       registerSubmitting: false,
       registerApis: [],
       registerResults: [],
+      // 按行锁定打开中状态；勿用全局 boolean，否则一挂全表「修改」点不动，关页重进才恢复
+      openingKey: '',
       registerForm: {
         apiSubSystemId: undefined,
+        workshopCode: undefined,
+        usernameWithWorkshop: false,
         users: []
       },
       rules: {
-        username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }]
+        username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }],
+        apiSubSystemId: [{
+          validator: (rule, value, callback) => {
+            if (this.form.id || this.form.employeeRegistered !== '0') {
+              callback()
+              return
+            }
+            if ((this.registerApis || []).length && !value) {
+              callback(new Error('请选择接口目标'))
+              return
+            }
+            callback()
+          },
+          trigger: 'change'
+        }],
+        workshopId: [{
+          validator: (rule, value, callback) => {
+            if (this.form.id || this.form.employeeRegistered !== '0' || !this.form.apiSubSystemId) {
+              callback()
+              return
+            }
+            if (!value) {
+              callback(new Error('注册到对方系统必须选择车间'))
+              return
+            }
+            callback()
+          },
+          trigger: 'change'
+        }]
       }
     }
   },
@@ -517,6 +642,12 @@ export default {
   created() {
     this.loadClientList()
     this.loadRegisterableApis()
+  },
+  activated() {
+    this.openingKey = ''
+  },
+  deactivated() {
+    this.openingKey = ''
   },
   methods: {
     formatErpNos(erpNos) {
@@ -581,11 +712,12 @@ export default {
         this.workshopDeptId = undefined
         return Promise.resolve()
       }
+      // 单项失败不影响其它下拉；对齐主系统用户管理：选项后台加载，不堵弹窗
       return Promise.all([
-        getSubSystemRoleSimpleList(id).then(res => { this.roleOptions = res.data || [] }),
-        getSubSystemPostSimpleList(id).then(res => { this.postOptions = res.data || [] }),
-        getSubSystemWorkshopSimpleList(id).then(res => { this.workshopOptions = res.data || [] })
-      ]).then(() => this.reloadTeams(id))
+        getSubSystemRoleSimpleList(id).then(res => { this.roleOptions = res.data || [] }).catch(() => { this.roleOptions = [] }),
+        getSubSystemPostSimpleList(id).then(res => { this.postOptions = res.data || [] }).catch(() => { this.postOptions = [] }),
+        getSubSystemWorkshopSimpleList(id).then(res => { this.workshopOptions = res.data || [] }).catch(() => { this.workshopOptions = [] })
+      ]).then(() => this.reloadTeams(id).catch(() => { this.teamOptions = [] }))
     },
     workshopOptionLabel(item) {
       const name = item.workshopName || '车间'
@@ -615,6 +747,8 @@ export default {
         return getSubSystemTeamSimpleList(subSystemId).then(allRes => {
           this.teamOptions = allRes.data || []
         })
+      }).catch(() => {
+        this.teamOptions = []
       })
     },
     homeMenuNormalizer(node) {
@@ -636,6 +770,8 @@ export default {
       }
       return getSubSystemUserHomeMenuTree(subSystemId, roleIds).then(res => {
         this.menuPageOptions = res.data || []
+      }).catch(() => {
+        this.menuPageOptions = []
       })
     },
     handleRoleIdsChange() {
@@ -683,6 +819,10 @@ export default {
       getSubSystemUserPage(params).then(res => {
         this.userList = res.data.list || []
         this.total = res.data.total || 0
+      }).catch(() => {
+        this.userList = []
+        this.total = 0
+        this.$modal.msgError('加载用户列表失败，请重试')
       }).finally(() => {
         this.loading = false
       })
@@ -714,12 +854,20 @@ export default {
         homeMenuId: undefined,
         status: '0',
         employeeRegistered: '0',
+        apiSubSystemId: undefined,
+        usernameWithWorkshop: false,
         remark: undefined,
         roleIds: [],
         postIds: []
       }
       this.workshopDeptId = undefined
-      this.resetForm('form')
+      // 弹窗未打开时不要 resetFields：ElementUI 会对 undefined 调 indexOf 直接炸
+      // 整表单已赋默认值，只需清校验；打开后再 nextTick 清一次更稳
+      this.$nextTick(() => {
+        if (this.$refs.form && typeof this.$refs.form.clearValidate === 'function') {
+          this.$refs.form.clearValidate()
+        }
+      })
     },
     cancel() {
       this.open = false
@@ -728,23 +876,34 @@ export default {
     handleAdd() {
       this.ensureSubSystemBoundBeforeAction('新增', { requireConfirm: false }).then(() => {
         this.resetFormData()
+        this.menuPageOptions = []
+        this.open = true
+        this.title = '添加业务系统用户'
+        this.$nextTick(() => {
+          if (this.$refs.form && typeof this.$refs.form.clearValidate === 'function') {
+            this.$refs.form.clearValidate()
+          }
+        })
         this.loadSubOptions().then(() => {
-          this.menuPageOptions = []
-          this.open = true
-          this.title = '添加业务系统用户'
+          if (!this.form.workshopId) {
+            this.form.workshopId = this.defaultRegisterWorkshop([])
+          }
+        })
+        this.loadRegisterableApis().then(() => {
+          this.applyDefaultAddRegisterApi()
         })
       }).catch(() => {})
     },
     handleImport() {
       this.ensureSubSystemBoundBeforeAction('导入').then(() => {
-        this.upload.title = '导入子系统用户 — ' + (this.selectedClient.name || '')
+        this.upload.title = '导入业务系统用户 — ' + (this.selectedClient.name || '')
         this.upload.open = true
         this.upload.headers = getBaseHeader()
       }).catch(() => {})
     },
     importTemplate() {
       importSubSystemUserTemplate().then(response => {
-        this.$download.excel(response, '子系统用户导入模板.xls')
+        this.$download.excel(response, '业务系统用户导入模板.xls')
       })
     },
     handleFileUploadProgress() {
@@ -778,23 +937,36 @@ export default {
     },
     handleUpdate(row) {
       this.resetFormData()
-      this.loadSubOptions(row.subSystemId).then(() => {
-        getSubSystemUser(row.id).then(res => {
-          this.form = {
-            id: res.data.id,
-            subSystemId: res.data.subSystemId,
-            mainUserId: res.data.mainUserId,
-            username: res.data.username,
-            nickname: res.data.nickname,
-            workshopId: res.data.workshopId,
-            teamId: res.data.teamId,
-            homeMenuId: res.data.homeMenuId,
-            status: res.data.status || '0',
-            employeeRegistered: res.data.employeeRegistered || '0',
-            remark: res.data.remark,
-            roleIds: res.data.roleIds || [],
-            postIds: res.data.postIds || []
+      this.openingKey = 'update:' + row.id
+      // 只等详情 → 立刻开弹窗；下拉后台补。禁止在未打开时 resetFields（会 indexOf undefined）
+      getSubSystemUser(row.id).then(res => {
+        this.form = {
+          id: res.data.id,
+          subSystemId: res.data.subSystemId,
+          mainUserId: res.data.mainUserId,
+          username: res.data.username,
+          nickname: res.data.nickname,
+          workshopId: res.data.workshopId,
+          teamId: res.data.teamId,
+          homeMenuId: res.data.homeMenuId,
+          status: res.data.status || '0',
+          employeeRegistered: res.data.employeeRegistered || '0',
+          usernameWithWorkshop: res.data.usernameWithWorkshop || '0',
+          registeredApiType: res.data.registeredApiType,
+          remark: res.data.remark,
+          roleIds: res.data.roleIds || [],
+          postIds: res.data.postIds || [],
+          apiSubSystemId: undefined
+        }
+        this.open = true
+        this.title = '修改业务系统用户'
+        this.openingKey = ''
+        this.$nextTick(() => {
+          if (this.$refs.form && typeof this.$refs.form.clearValidate === 'function') {
+            this.$refs.form.clearValidate()
           }
+        })
+        return this.loadSubOptions(row.subSystemId || res.data.subSystemId).then(() => {
           if (this.form.workshopId && !(this.workshopOptions || []).some(w => w.workshopCode === this.form.workshopId)) {
             this.workshopOptions = (this.workshopOptions || []).concat([{
               workshopCode: this.form.workshopId,
@@ -806,10 +978,10 @@ export default {
           const hit = (this.workshopOptions || []).find(w => w.workshopCode === this.form.workshopId)
           this.workshopDeptId = hit ? hit.deptId : undefined
           return this.reloadTeams(this.form.subSystemId).then(() => this.loadHomeMenuOptions())
-        }).then(() => {
-          this.open = true
-          this.title = '修改业务系统用户'
         })
+      }).catch(() => {
+        this.$modal.msgError('加载用户信息失败，请重试')
+        this.openingKey = ''
       })
     },
     submitForm() {
@@ -817,12 +989,46 @@ export default {
         if (!valid) {
           return
         }
-        const request = this.form.id ? updateSubSystemUser : createSubSystemUser
-        request(this.form).then(() => {
-          this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
-          this.open = false
-          this.getList()
-          this.loadClientList()
+        const isAdd = !this.form.id
+        const payload = Object.assign({}, this.form)
+        const apiSubSystemId = payload.apiSubSystemId
+        delete payload.apiSubSystemId
+        // 内联注册仅新增路径可走，checkbox 绑定为 boolean
+        const usernameWithWorkshop = !!payload.usernameWithWorkshop
+        delete payload.usernameWithWorkshop
+        delete payload.registeredApiType
+        const shouldRegister = isAdd && payload.employeeRegistered === '0' && !!apiSubSystemId
+        this.submitting = true
+        const request = isAdd ? createSubSystemUser : updateSubSystemUser
+        request(payload).then(res => {
+          if (!shouldRegister) {
+            this.$modal.msgSuccess(isAdd ? '新增成功' : '修改成功')
+            this.open = false
+            this.getList()
+            this.loadClientList()
+            return
+          }
+          return registerSubSystemEmployee({
+            apiSubSystemId,
+            workshopCode: payload.workshopId,
+            usernameWithWorkshop,
+            ids: [res.data]
+          }).then(regRes => {
+            const results = regRes.data || []
+            const fail = results.filter(r => !r.success)
+            if (fail.length) {
+              this.$modal.msgError('用户已保存，但接口注册失败：' + (fail[0].message || '未知错误'))
+            } else {
+              this.$modal.msgSuccess('新增并注册成功')
+            }
+            this.open = false
+            this.getList()
+            this.loadClientList()
+          })
+        }).catch(() => {
+          this.$modal.msgError(isAdd ? '新增失败，请重试' : '修改失败，请重试')
+        }).finally(() => {
+          this.submitting = false
         })
       })
     },
@@ -858,16 +1064,22 @@ export default {
       return row.status === '1' ? 'danger' : 'success'
     },
     handleRole(row) {
-      this.loadSubOptions(row.subSystemId).then(() => {
-        this.roleForm = {
-          id: row.id,
-          nickname: row.nickname,
-          roleIds: []
-        }
-        getSubSystemUserRoleIds(row.id).then(res => {
-          this.roleForm.roleIds = res.data || []
-          this.openRole = true
+      // 对齐主系统：先开弹窗再拉角色，不堵在 loadSubOptions 上
+      this.roleForm = {
+        id: row.id,
+        nickname: row.nickname,
+        roleIds: []
+      }
+      this.openRole = true
+      this.openingKey = 'role:' + row.id
+      const sid = row.subSystemId
+      Promise.all([
+        getSubSystemRoleSimpleList(sid).then(res => { this.roleOptions = res.data || [] }).catch(() => { this.roleOptions = [] }),
+        getSubSystemUserRoleIds(row.id).then(res => { this.roleForm.roleIds = res.data || [] }).catch(() => {
+          this.$modal.msgError('加载已分配角色失败，请重试')
         })
+      ]).finally(() => {
+        this.openingKey = ''
       })
     },
     submitRole() {
@@ -878,6 +1090,8 @@ export default {
         this.$modal.msgSuccess('分配成功')
         this.openRole = false
         this.getList()
+      }).catch(() => {
+        this.$modal.msgError('分配角色失败，请重试')
       })
     },
     handleRowCheckboxChange(selection) {
@@ -890,8 +1104,29 @@ export default {
         if (!this.registerForm.apiSubSystemId && this.registerApis.length === 1) {
           this.registerForm.apiSubSystemId = this.registerApis[0].subSystemId
         }
+        this.applyDefaultAddRegisterApi()
       }).catch(() => {
         this.registerApis = []
+      })
+    },
+    applyDefaultAddRegisterApi() {
+      if (this.form.id || this.form.employeeRegistered !== '0' || this.form.apiSubSystemId) {
+        return
+      }
+      if (this.registerApis.length === 1) {
+        this.form.apiSubSystemId = this.registerApis[0].subSystemId
+      }
+    },
+    handleEmployeeRegisteredChange(val) {
+      if (val !== '0') {
+        this.form.apiSubSystemId = undefined
+        return
+      }
+      if (this.form.id) {
+        return
+      }
+      this.loadRegisterableApis().then(() => {
+        this.applyDefaultAddRegisterApi()
       })
     },
     /** 列表内点击切换 已注册/未注册（人工修正标记用） */
@@ -928,16 +1163,57 @@ export default {
       }
       this.registerResults = []
       this.registerForm.users = rows
+      this.registerForm.workshopCode = this.defaultRegisterWorkshop(rows)
       this.registerOpen = true
+      const sid = (this.selectedClient && this.selectedClient.id) || (rows[0] && rows[0].subSystemId)
+      this.loadSubOptions(sid).then(() => {
+        if (!this.registerForm.workshopCode) {
+          this.registerForm.workshopCode = this.defaultRegisterWorkshop(rows)
+        }
+      })
+    },
+    defaultRegisterWorkshop(rows) {
+      const codes = (rows || []).map(u => u.workshopId).filter(c => !!c)
+      const unique = Array.from(new Set(codes))
+      if (unique.length === 1) {
+        return unique[0]
+      }
+      if ((this.workshopOptions || []).length === 1) {
+        return this.workshopOptions[0].workshopCode
+      }
+      const inferred = this.inferWorkshopFromClient()
+      if (!inferred) {
+        return undefined
+      }
+      const hit = (this.workshopOptions || []).find(w => String(w.workshopCode) === String(inferred))
+      return hit ? hit.workshopCode : inferred
+    },
+    /** MES4200 / mes4200 → 4200 */
+    inferWorkshopFromClient() {
+      const c = this.selectedClient
+      if (!c) {
+        return undefined
+      }
+      const text = [c.name, c.clientId].filter(Boolean).join(' ')
+      const m = String(text).match(/(\d{3,})/g)
+      return m && m.length ? m[m.length - 1] : undefined
+    },
+    /** 切换接口目标时重置拼接车间勾选（避免带脏状态） */
+    resetUsernameWithWorkshop() {
+      this.registerForm.usernameWithWorkshop = false
+      this.form.usernameWithWorkshop = false
     },
     submitRegister() {
       if (!this.registerForm.apiSubSystemId) {
         this.$modal.msgWarning('请选择「新增人员」接口目标')
         return
       }
+      const workshopCode = this.registerForm.workshopCode || this.inferWorkshopFromClient()
       this.registerSubmitting = true
       registerSubSystemEmployee({
         apiSubSystemId: this.registerForm.apiSubSystemId,
+        workshopCode,
+        usernameWithWorkshop: !!this.registerForm.usernameWithWorkshop,
         ids: this.registerForm.users.map(u => u.id)
       }).then(res => {
         this.registerResults = res.data || []
@@ -981,7 +1257,8 @@ export default {
 .register-user-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+  > :not(:last-child) { margin-right: 8px; }
   min-height: 28px;
   font-size: 13px;
   color: #303133;

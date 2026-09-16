@@ -32,7 +32,7 @@ public class SubSystemMenuSaveReqVO {
 
     @Schema(description = "外部系统 ID", requiredMode = Schema.RequiredMode.REQUIRED)
 
-    @NotNull(message = "外部系统不能为空")
+    @NotNull(message = "业务系统不能为空")
 
     private Long subSystemId;
 

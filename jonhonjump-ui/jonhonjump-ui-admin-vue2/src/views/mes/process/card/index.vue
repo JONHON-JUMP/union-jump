@@ -474,27 +474,36 @@ export default {
   }
 }
 .query-hints {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+  display: flex; align-items: center; flex-wrap: wrap;
   margin-top: 16px; color: #64748b; font-size: 14px;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+  > :not(:last-child) { margin-right: 8px; }
   .enter-tip { margin-left: 8px; }
   strong { color: #46566f; }
 }
 .recent-query {
   padding: 5px 13px; border: 1px solid #e4eaf2; border-radius: 16px; outline: none;
   color: #60708a; background: #f7f9fc; cursor: pointer;
-  &:hover, &:focus-visible { border-color: #b9d4fb; color: #2f80ed; background: #eef5ff; }
+  /* Chrome 82 无 :focus-visible(86+)，同组连坐会连 :hover 一起丢弃，故用 :focus */
+  &:hover, &:focus { border-color: #b9d4fb; color: #2f80ed; background: #eef5ff; }
 }
 .result-summary {
-  display: flex; align-items: center; justify-content: space-between; gap: 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+  > :not(:last-child) { margin-right: 24px; }
   padding: 24px 28px 22px; border-bottom: 1px solid #e7edf4;
 }
 .summary-title {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 10px;
+  display: flex; align-items: center; flex-wrap: wrap;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+  > :not(:last-child) { margin-right: 10px; }
   h2 { margin: 0 6px 0 0; color: #152843; font-size: 24px; line-height: 32px; }
 }
 .summary-meta {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 16px 28px; margin: 15px 0 0;
-  div { display: flex; align-items: center; gap: 8px; }
+  display: flex; align-items: center; flex-wrap: wrap; margin: 15px 0 0;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距（原 gap: 16px 28px） */
+  > div:not(:last-child) { margin-right: 28px; margin-bottom: 16px; }
+  div { display: flex; align-items: center; dt { margin-right: 8px; } }
   dt { color: #718096; }
   dd { margin: 0; color: #31445f; font-weight: 600; }
 }
@@ -532,7 +541,9 @@ export default {
 }
 .name-cell { display: flex; align-items: center; min-width: 0; padding: 10px 0; }
 .name-content {
-  display: flex; min-width: 0; flex-direction: column; gap: 5px;
+  display: flex; min-width: 0; flex-direction: column;
+  /* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+  > :not(:last-child) { margin-bottom: 5px; }
   strong, small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   strong { color: #263852; font-size: 15px; line-height: 21px; }
   small { color: #96a3b5; font-size: 13px; line-height: 18px; }

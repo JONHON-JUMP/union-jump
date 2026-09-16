@@ -93,7 +93,7 @@ public class SubSystemEmployeeController {
 
     @PostMapping("/register-employee")
     @Operation(summary = "花名册人员手动调「新增人员」接口注册（成功自动置已注册；逐项返回结果）")
-    @PreAuthorize("@ss.hasAnyPermissions('sub-system:employee:create', 'sub-system:user:update')")
+    @PreAuthorize("@ss.hasAnyPermissions('sub-system:employee:create', 'sub-system:user:create', 'sub-system:user:update')")
     public CommonResult<List<SubSystemUserRegisterRespVO>> registerEmployee(@Valid @RequestBody SubSystemUserRegisterReqVO reqVO) {
         return success(subSystemEmployeeService.registerEmployees(reqVO));
     }

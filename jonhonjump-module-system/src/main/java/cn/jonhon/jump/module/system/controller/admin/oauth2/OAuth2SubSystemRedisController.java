@@ -230,11 +230,15 @@ public class OAuth2SubSystemRedisController {
     }
 
     private SubSystemDO requireSubSystemByClientId(String clientId) {
+        SubSystemDO subSystem = subSystemMapper.selectByClientId(clientId);
+        if (subSystem != null) {
+            return subSystem;
+        }
         OAuth2ClientDO client = oauth2ClientService.getOAuth2ClientFromCache(clientId);
         if (client == null) {
-            throw exception(SUB_SYSTEM_OAUTH2_CLIENT_NOT_EXISTS);
+            throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
-        SubSystemDO subSystem = subSystemMapper.selectByOauth2ClientId(client.getId());
+        subSystem = subSystemMapper.selectByOauth2ClientId(client.getId());
         if (subSystem == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }

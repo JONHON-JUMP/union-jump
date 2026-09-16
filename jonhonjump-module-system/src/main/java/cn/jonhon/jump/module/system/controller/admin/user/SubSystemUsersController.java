@@ -337,6 +337,12 @@ public class SubSystemUsersController {
 
     }
 
+    @GetMapping("/my-camstar-username")
+    @Operation(summary = "当前用户在 Camstar 侧的登录用户名（注册时标记拼接车间则为 车间编号_工号，否则为主登录工号）")
+    public CommonResult<String> getMyCamstarUsername() {
+        return success(subSystemUsersService.getMyCamstarUsername(getLoginUserId()));
+    }
+
     @GetMapping("/my-menus")
     @Operation(summary = "获得当前用户在指定外部系统下的门户菜单")
     public CommonResult<List<SubSystemPortalMenuRespVO>> getMyPortalMenus(
@@ -365,7 +371,7 @@ public class SubSystemUsersController {
                         .remark("示例：按用户名导入子系统花名册，可不关联主系统用户")
                         .build()
         );
-        ExcelUtils.write(response, "子系统用户导入模板.xls", "用户花名册", SubSystemUserImportExcelVO.class, list);
+        ExcelUtils.write(response, "业务系统用户导入模板.xls", "用户花名册", SubSystemUserImportExcelVO.class, list);
     }
 
     @PostMapping("/import")

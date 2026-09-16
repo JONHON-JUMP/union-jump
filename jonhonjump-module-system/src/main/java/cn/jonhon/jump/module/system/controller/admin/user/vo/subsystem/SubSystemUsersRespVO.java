@@ -52,6 +52,12 @@ public class SubSystemUsersRespVO {
     @Schema(description = "人员接口注册状态（0未注册 1已注册）")
     private String employeeRegistered;
 
+    @Schema(description = "注册时用户名是否拼接车间编号（0否 1是；为1时对接系统用户名为 车间编号_工号）")
+    private String usernameWithWorkshop;
+
+    @Schema(description = "注册成功时所调「新增人员」接口的适配器类型（camstar/http）")
+    private String registeredApiType;
+
     @Schema(description = "备注")
     private String remark;
 

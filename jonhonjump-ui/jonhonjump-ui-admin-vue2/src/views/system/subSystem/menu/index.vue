@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <el-row :gutter="20">
-      <!-- 外部系统列表 -->
+      <!-- 业务系统列表 -->
       <el-col :span="4" :xs="24">
         <div class="head-container">
           <el-input
@@ -27,7 +27,7 @@
               <el-tag size="mini" type="info">{{ item.menuCount || 0 }} 菜单</el-tag>
             </div>
           </div>
-          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无外部系统" :image-size="60" />
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无业务系统" :image-size="60" />
         </div>
       </el-col>
 
@@ -35,7 +35,7 @@
       <el-col :span="20" :xs="24" v-loading="clientsLoading">
         <el-alert
           v-if="showSubSystemBindHint"
-          title="请先在左侧选择已登记的外部系统；关联系统信息后，才可新增/维护该系统下的菜单"
+          title="请先在左侧选择已登记的业务系统；关联系统信息后，才可新增/维护该系统下的菜单"
           type="warning"
           :closable="false"
           show-icon
@@ -114,7 +114,6 @@
           <el-table-column prop="sort" label="排序" width="60"/>
           <el-table-column prop="path" label="路由地址" :show-overflow-tooltip="true" min-width="160"/>
           <el-table-column prop="permission" label="权限标识" :show-overflow-tooltip="true" />
-          <el-table-column prop="component" label="组件路径" :show-overflow-tooltip="true" min-width="120"/>
           <el-table-column prop="status" label="状态" width="80">
             <template v-slot="scope">
               <dict-tag :type="DICT_TYPE.COMMON_STATUS" :value="scope.row.status"/>
@@ -139,7 +138,7 @@
       <el-form ref="form" :model="form" :rules="rules" label-width="100px">
         <el-row>
           <el-col :span="24">
-            <el-form-item label="外部系统">
+            <el-form-item label="业务系统">
               <el-input :value="formSubSystemLabel" disabled />
             </el-form-item>
           </el-col>
@@ -190,14 +189,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item v-if="form.type !== MenuTypeEnum.BUTTON" label="路由地址" prop="path">
-              <el-input v-model="form.path" placeholder="与4200 SYS_MENU.PATH 一致：Camstar 填完整 http 地址" />
-              <div v-if="form.type === MenuTypeEnum.MENU" style="line-height: 18px; margin-top: 4px; color: #909399; font-size: 12px;">
-                对齐 4200：PATH 填 Camstar 业务完整 http（iframe 直开，不经 4221）。
-                推荐：http://192.168.240.127:4200/Process/...（门户壳会编成 192.168.240.12794200/...）；
-                若只填壳 path、不要冒号：写成 192.168.240.12794200/Process/...。
-                若门户机已用 nginx 监听 4200 反代到 Camstar：可填 http://192.168.240.129:4200/Process/...（勿填 /camstar- 路径）。
-                组件路径留空。上方「访问地址」填 MES，只给若依页用。
-              </div>
+              <el-input v-model="form.path" placeholder="完整 http 地址；hash 路由连同 # 一起填，如 http://192.168.240.123:8080/#/pageA" />
             </el-form-item>
           </el-col>
           <el-col :span="24" v-if="form.type !== MenuTypeEnum.BUTTON">
@@ -208,23 +200,6 @@
           <el-col :span="12">
             <el-form-item v-if="form.type !== MenuTypeEnum.DIR" label="权限标识">
               <el-input v-model="form.permission" placeholder="请输入权限标识" maxlength="100" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12" v-if="form.type === MenuTypeEnum.MENU || (form.type === MenuTypeEnum.DIR && form.component)">
-            <el-form-item label="组件路径" prop="component">
-              <el-input
-                v-model="form.component"
-                :placeholder="form.type === MenuTypeEnum.DIR ? '目录一般为空；若误填可清空后保存' : '例如说：system/user/index'"
-                clearable
-              />
-              <div v-if="form.type === MenuTypeEnum.DIR" style="line-height: 18px; margin-top: 4px; color: #909399; font-size: 12px;">
-                目录不需要组件路径。「15」应填在上方「路由地址」（对齐 4200 工艺管理 path），不要填在组件路径。
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12" v-if="form.type === MenuTypeEnum.MENU">
-            <el-form-item label="组件名称" prop="componentName">
-              <el-input v-model="form.componentName" placeholder="例如说：SystemUser" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -324,7 +299,7 @@ import {
   updateSubSystemMenu
 } from '@/api/system/subSystemMenu'
 import { SystemMenuTypeEnum, CommonStatusEnum } from '@/utils/constants'
-import { DICT_TYPE, getDictDatas } from '@/utils/dict'
+import { DICT_TYPE, ensureDictDatas, getDictDatas } from '@/utils/dict'
 import { isExternal } from '@/utils/validate'
 import { flattenMenuTree, inheritedStyleId as resolveInheritedStyleId, isFirstLevelMenu as checkFirstLevelMenu } from '@/utils/menuStyleInherit'
 import { getBaseHeader } from '@/utils/request'
@@ -367,12 +342,16 @@ export default {
         sort: [{ required: true, message: '菜单顺序不能为空', trigger: 'blur' }],
         status: [{ required: true, message: '状态不能为空', trigger: 'blur' }]
       },
-      MenuTypeEnum: SystemMenuTypeEnum,
-      menuTypeDictDatas: getDictDatas(DICT_TYPE.SYSTEM_MENU_TYPE),
-      statusDictDatas: getDictDatas(DICT_TYPE.COMMON_STATUS)
+      MenuTypeEnum: SystemMenuTypeEnum
     }
   },
   computed: {
+    menuTypeDictDatas() {
+      return getDictDatas(DICT_TYPE.SYSTEM_MENU_TYPE)
+    },
+    statusDictDatas() {
+      return getDictDatas(DICT_TYPE.COMMON_STATUS)
+    },
     uploadAction() {
       const id = this.selectedClient && this.selectedClient.id
       const update = this.upload.updateSupport ? 'true' : 'false'
@@ -404,7 +383,11 @@ export default {
     }
   },
   created() {
-    this.loadClientList()
+    // 字典按需加载（本项目无全局字典预载，不加载时 dict-tag/下拉全空）
+    ensureDictDatas(DICT_TYPE.SYSTEM_MENU_TYPE)
+    ensureDictDatas(DICT_TYPE.COMMON_STATUS).finally(() => {
+      this.loadClientList()
+    })
   },
   methods: {
     refreshSubPortalMenus(extra = {}) {
@@ -458,6 +441,9 @@ export default {
         status: this.queryParams.status
       }).then(res => {
         this.menuList = this.handleTree(res.data || [], 'id')
+      }).catch(() => {
+        this.menuList = []
+        this.$modal.msgError('加载菜单列表失败，请重试')
       }).finally(() => {
         this.loading = false
       })
@@ -508,8 +494,6 @@ export default {
         sort: 0,
         path: undefined,
         permission: undefined,
-        component: undefined,
-        componentName: undefined,
         status: CommonStatusEnum.ENABLE,
         visible: true,
         keepAlive: true,
@@ -535,20 +519,20 @@ export default {
             this.form.parentId = 0
           }
           this.open = true
-          this.title = '添加外部系统菜单'
+          this.title = '添加业务系统菜单'
         })
       }).catch(() => {})
     },
     handleImport() {
       this.ensureSubSystemBoundBeforeAction('导入').then(() => {
-        this.upload.title = '导入外部系统菜单 — ' + (this.selectedClient.name || '')
+        this.upload.title = '导入业务系统菜单 — ' + (this.selectedClient.name || '')
         this.upload.open = true
         this.upload.headers = getBaseHeader()
       }).catch(() => {})
     },
     importTemplate() {
       importSubSystemMenuTemplate().then(response => {
-        this.$download.excel(response, '外部系统菜单导入模板.xls')
+        this.$download.excel(response, '业务系统菜单导入模板.xls')
       })
     },
     handleFileUploadProgress() {
@@ -584,28 +568,28 @@ export default {
       this.resetFormData()
       const subSystemId = row.subSystemId || (this.selectedClient ? this.selectedClient.id : null)
       this.getTreeselect(subSystemId).then(() => {
-        getSubSystemMenu(row.id).then(res => {
-          this.form = {
-            id: res.data.id,
-            subSystemId: res.data.subSystemId,
-            parentId: res.data.parentId,
-            name: res.data.name,
-            icon: res.data.icon,
-            type: res.data.type,
-            sort: res.data.sort,
-            path: res.data.path,
-            permission: res.data.permission,
-            component: res.data.component,
-            componentName: res.data.componentName,
-            status: res.data.status,
-            visible: res.data.visible,
-            keepAlive: res.data.keepAlive,
-            alwaysShow: res.data.alwaysShow,
-            styleId: res.data.styleId
-          }
-          this.open = true
-          this.title = '修改外部系统菜单'
-        })
+        return getSubSystemMenu(row.id)
+      }).then(res => {
+        this.form = {
+          id: res.data.id,
+          subSystemId: res.data.subSystemId,
+          parentId: res.data.parentId,
+          name: res.data.name,
+          icon: res.data.icon,
+          type: res.data.type,
+          sort: res.data.sort,
+          path: res.data.path,
+          permission: res.data.permission,
+          status: res.data.status,
+          visible: res.data.visible,
+          keepAlive: res.data.keepAlive,
+          alwaysShow: res.data.alwaysShow,
+          styleId: res.data.styleId
+        }
+        this.open = true
+        this.title = '修改业务系统菜单'
+      }).catch(() => {
+        this.$modal.msgError('加载菜单信息失败，请重试')
       })
     },
     submitForm() {
@@ -617,7 +601,7 @@ export default {
           let path = this.form.path
           // 子系统菜单路由由前端拼接为 /portal/{clientId}/...，path 应为相对段，不能以 / 开头
           if (path && !isExternal(path) && path.charAt(0) === '/') {
-            this.$modal.msgError('子系统菜单路由地址不能以 / 开头')
+            this.$modal.msgError('业务系统菜单路由地址不能以 / 开头')
             return
           }
           // Camstar 内链：点分 IP:端口 → IP9端口（如 192.168.240.12794200）；http(s) 完整 URL 不要改
@@ -642,11 +626,6 @@ export default {
         }
         this.warnDuplicateMenuName()
         const payload = { ...this.form }
-        // 目录不需要组件；列表曾把误填的「15」显示在组件路径且无法编辑，保存时清空
-        if (payload.type === SystemMenuTypeEnum.DIR) {
-          payload.component = ''
-          payload.componentName = ''
-        }
         if (!checkFirstLevelMenu(payload.parentId)) {
           payload.styleId = null
         }
@@ -657,6 +636,8 @@ export default {
           this.getList()
           this.loadClientList()
           this.refreshSubPortalMenus()
+        }).catch(() => {
+          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
         })
       })
     },
@@ -697,7 +678,7 @@ export default {
     },
     handleClearPortalCache() {
       if (!this.selectedClient || !this.selectedClient.id) {
-        this.$modal.msgWarning('请先选择外部系统')
+        this.$modal.msgWarning('请先选择业务系统')
         return
       }
       this.$modal.confirm('将清除该系统门户菜单 Redis 缓存，用户下次进入会重新从数据库加载。是否继续？').then(() => {

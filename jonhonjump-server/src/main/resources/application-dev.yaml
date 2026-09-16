@@ -74,9 +74,9 @@ spring:
         oracle:
           lazy: true
           driver-class-name: oracle.jdbc.OracleDriver
-          url: jdbc:oracle:thin:@192.168.240.105:1521:orclv71
-          username: mesdb1
-          password: mesdb
+          url: jdbc:oracle:thin:@192.168.119.55:1521:erporcl1
+          username: mes
+          password: mes
           druid:
             validation-query: SELECT 1 FROM DUAL
 

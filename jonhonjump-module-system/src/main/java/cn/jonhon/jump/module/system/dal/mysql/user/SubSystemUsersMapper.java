@@ -36,6 +36,13 @@ public interface SubSystemUsersMapper extends BaseMapperX<SubSystemUsersDO> {
                 .eq(SubSystemUsersDO::getUsername, username));
     }
 
+    default List<SubSystemUsersDO> selectListByUsernameAndUsernameWithWorkshop(String username) {
+        return selectList(new LambdaQueryWrapperX<SubSystemUsersDO>()
+                .eq(SubSystemUsersDO::getUsername, username)
+                .eq(SubSystemUsersDO::getUsernameWithWorkshop, "1")
+                .orderByDesc(SubSystemUsersDO::getId));
+    }
+
     default PageResult<SubSystemUsersDO> selectPage(SubSystemUsersPageReqVO reqVO, Collection<String> teamCodes) {
         LambdaQueryWrapperX<SubSystemUsersDO> wrapper = new LambdaQueryWrapperX<SubSystemUsersDO>()
                 .eqIfPresent(SubSystemUsersDO::getSubSystemId, reqVO.getSubSystemId())

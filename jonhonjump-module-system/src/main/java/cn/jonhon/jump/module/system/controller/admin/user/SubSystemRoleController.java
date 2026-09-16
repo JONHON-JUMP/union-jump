@@ -148,7 +148,7 @@ public class SubSystemRoleController {
         List<SubSystemRoleImportExcelVO> list = Arrays.asList(
                 SubSystemRoleImportExcelVO.builder().name("普通角色").code("common").sort(1).status(0).build()
         );
-        ExcelUtils.write(response, "外部系统角色导入模板.xls", "角色", SubSystemRoleImportExcelVO.class, list);
+        ExcelUtils.write(response, "业务系统角色导入模板.xls", "角色", SubSystemRoleImportExcelVO.class, list);
     }
 
     @PostMapping("/import")

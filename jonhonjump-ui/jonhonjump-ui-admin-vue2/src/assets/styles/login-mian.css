@@ -29,7 +29,10 @@
     width: 100%;
     overflow: hidden;
     position: fixed;
-    inset: 0;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
     z-index: 2000;
     -webkit-font-smoothing: antialiased;
 }
@@ -85,7 +88,10 @@
 
 .jump-login-mian-page .badge-glow {
     position: absolute;
-    inset: -2px;
+    top: -2px;
+    right: -2px;
+    bottom: -2px;
+    left: -2px;
     border-radius: var(--radius-lg);
     background: linear-gradient(135deg, rgba(59, 130, 246, 0.35), transparent 40%, transparent 60%, rgba(96, 165, 250, 0.35));
     opacity: 0;
@@ -123,7 +129,11 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 10px;
+}
+
+/* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+.jump-login-mian-page .slogan > :not(:last-child) {
+    margin-right: 10px;
 }
 
 .jump-login-mian-page .slogan-icon {
@@ -300,9 +310,13 @@
 .jump-login-mian-page .remember-me {
     display: flex;
     align-items: center;
-    gap: 8px;
     cursor: pointer;
     user-select: none;
+}
+
+/* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+.jump-login-mian-page .remember-me > :not(:last-child) {
+    margin-right: 8px;
 }
 
 .jump-login-mian-page .remember-me input {
@@ -388,8 +402,12 @@
 
 .jump-login-mian-page .btn-loader {
     display: inline-flex;
-    gap: 6px;
     align-items: center;
+}
+
+/* Chrome 82 不支持 flex gap，用 margin 实现等价间距 */
+.jump-login-mian-page .btn-loader > :not(:last-child) {
+    margin-right: 6px;
 }
 
 .jump-login-mian-page .loader-dot {

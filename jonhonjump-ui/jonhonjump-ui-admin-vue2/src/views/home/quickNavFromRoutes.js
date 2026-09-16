@@ -71,7 +71,7 @@ export function buildExternalNavItems(items) {
     const { color, shape } = resolveMenuColors(item)
     return {
       menuId: `external-${item.id != null ? item.id : index}`,
-      name: item.name || item.systemName || '外部系统',
+      name: item.name || item.systemName || '业务系统',
       subtitle: item.subtitle || '',
       path: item.url || item.path || '',
       svgIcon: null,
