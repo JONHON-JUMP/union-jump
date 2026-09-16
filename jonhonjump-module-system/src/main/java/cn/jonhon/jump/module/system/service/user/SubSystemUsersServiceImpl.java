@@ -1182,16 +1182,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         vo.setManualUrl(menu.getManualUrl());
         vo.setChildren(children);
         if ("C".equals(menu.getType())) {
-            String path = menu.getPath();
-            boolean httpRoute = StrUtil.isNotBlank(path)
-                    && (StrUtil.startWithIgnoreCase(path, "http://")
-                    || StrUtil.startWithIgnoreCase(path, "https://"));
-            // 两类菜单：Camstar/外链认「路由地址」；若依认「组件路径」
-            if (httpRoute) {
-                vo.setComponent(null);
-            } else {
-                vo.setComponent(menu.getComponent());
-            }
+            // 业务菜单统一直开型：只认「路由地址」，组件路径（若依型）已废弃，不再下发
+            vo.setComponent(null);
             // 门户壳没有子系统 Vue 页，一律 iframe；真正打开地址在 link
             vo.setLink(buildIframeLink(subSystem, menu, menuMap));
         }
@@ -1203,31 +1195,18 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             return null;
         }
         String leafPath = menu.getPath();
-        String component = menu.getComponent();
-        boolean ruoyiComponent = StrUtil.isNotBlank(component)
-                && !"InnerLink".equalsIgnoreCase(component)
-                && !StrUtil.containsIgnoreCase(component, "empty")
-                && !StrUtil.containsIgnoreCase(component, "portal/");
 
-        // 若依：有组件路径 → 一律 systemUrl/#/路由（禁止再走 http 直链分支）
-        if (ruoyiComponent) {
-            String routePath = buildMenuRoutePath(menu.getId(), menuMap);
-            if (StrUtil.isBlank(routePath)) {
-                return baseUrl;
-            }
-            return baseUrl + "/#/" + routePath.replace(":", "/");
-        }
-
-        // Camstar/外链：路由地址 http → 直开
+        // 直开型：路由地址为完整 http(s) 地址 → 原样直开（含 /#/ hash 地址，不再被组件路径分支抢占）
         if (StrUtil.isNotBlank(leafPath)
                 && (leafPath.startsWith("http://") || leafPath.startsWith("https://"))) {
             return leafPath;
         }
+
+        // 兼容存量：无 http 前缀的 IP:端口编码登记（如 192.168.240.12794200/...）→ 还原为 http 直开
         String routePath = buildMenuRoutePath(menu.getId(), menuMap);
         if (StrUtil.isBlank(routePath)) {
             return baseUrl;
         }
-        // 无组件 + IP:port 编码 → Camstar/外链直链；还原失败则仍按若依 hash
         if (routePath.contains(":") || routePath.matches(".*\\d+[./]\\d+[./]\\d+[./]\\d+.*")
                 || routePath.matches(".*\\d+\\.\\d+\\.\\d+\\.\\d+9\\d{2,5}.*")) {
             String asHttp = slashIpPortPathToHttp(routePath);
@@ -1236,16 +1215,12 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 normalized = normalized.replaceAll("(?<=^|/)(\\d+)\\.(\\d+)\\.(\\d+)\\.(\\d+)(?=/)", "$1/$2/$3/$4");
                 asHttp = slashIpPortPathToHttp(normalized);
             }
-            if (asHttp != null && isCamstarPortalUrl(asHttp)) {
-                return asHttp;
-            }
             if (asHttp != null) {
-                // 其它业务机端口：同样直开
                 return asHttp;
             }
-            return baseUrl + "/#/" + routePath.replace(":", "/");
         }
-        return baseUrl + "/#/" + routePath.replace(":", "/");
+        // 相对路由为废弃的若依型登记：回退系统入口，不再拼接 /#/
+        return baseUrl;
     }
 
     /**
@@ -1278,29 +1253,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         return "http://" + m.group(1) + "." + m.group(2) + "." + m.group(3) + "." + m.group(4)
                 + ":" + m.group(5) + "/" + m.group(6);
-    }
-
-    /** 与若依 SysMenuServiceImpl.innerLinkReplaceEach 对齐（含端口冒号→/） */
-    private static String innerLinkReplaceEach(String path) {
-        if (path == null) {
-            return "";
-        }
-        return path.replace("https://", "")
-                .replace("http://", "")
-                .replace("www.", "")
-                .replace(".", "/")
-                .replace(":", "/");
-    }
-
-    private static boolean isCamstarPortalUrl(String path) {
-        if (StrUtil.isBlank(path)) {
-            return false;
-        }
-        String p = path.toLowerCase();
-        return p.contains(":4200/") || p.contains(":4200?") || p.endsWith(":4200")
-                || p.contains("94200/") || p.endsWith("94200")
-                || p.contains("/4200/") || p.endsWith("/4200")
-                || p.contains("camstarportal") || p.contains("/camstar/");
     }
 
     private String buildParentRoutePrefix(Long menuId, Map<Long, SubSystemMenuDO> menuMap) {

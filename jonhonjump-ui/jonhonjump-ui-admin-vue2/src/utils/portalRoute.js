@@ -783,7 +783,8 @@ export function slashIpPortRestToHttp(rest) {
   if (!built) {
     return ''
   }
-  return built.replace(/\/$/, '') + searchPart + (spaHash || hashPart)
+  // SPA hash 前补 /，保证还原为规范的 http://host:port[/path]/#/... 形式
+  return built.replace(/\/$/, '') + (spaHash ? '/' : '') + searchPart + (spaHash || hashPart)
 }
 
 function slashIpPortRestToHttpPath(rest) {

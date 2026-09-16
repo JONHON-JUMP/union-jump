@@ -55,7 +55,8 @@ function toPortalShellPath(route, clientId) {
   if (asHttp) {
     return encodeHttpToMesPath(asHttp)
   }
-  return raw.replace(/:/g, '/').replace(/\./g, '_').split('#')[0]
+  // 相对路由为废弃的若依型登记：不再生成壳路由，退化为 menu{id} 占位
+  return 'menu' + (route && route.id != null ? route.id : '0')
 }
 
 /**

@@ -114,7 +114,6 @@
           <el-table-column prop="sort" label="排序" width="60"/>
           <el-table-column prop="path" label="路由地址" :show-overflow-tooltip="true" min-width="160"/>
           <el-table-column prop="permission" label="权限标识" :show-overflow-tooltip="true" />
-          <el-table-column prop="component" label="组件路径" :show-overflow-tooltip="true" min-width="120"/>
           <el-table-column prop="status" label="状态" width="80">
             <template v-slot="scope">
               <dict-tag :type="DICT_TYPE.COMMON_STATUS" :value="scope.row.status"/>
@@ -190,7 +189,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item v-if="form.type !== MenuTypeEnum.BUTTON" label="路由地址" prop="path">
-              <el-input v-model="form.path" placeholder="请输入路由地址" />
+              <el-input v-model="form.path" placeholder="完整 http 地址；hash 路由连同 # 一起填，如 http://192.168.240.123:8080/#/pageA" />
             </el-form-item>
           </el-col>
           <el-col :span="24" v-if="form.type !== MenuTypeEnum.BUTTON">
@@ -201,23 +200,6 @@
           <el-col :span="12">
             <el-form-item v-if="form.type !== MenuTypeEnum.DIR" label="权限标识">
               <el-input v-model="form.permission" placeholder="请输入权限标识" maxlength="100" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12" v-if="form.type === MenuTypeEnum.MENU || (form.type === MenuTypeEnum.DIR && form.component)">
-            <el-form-item label="组件路径" prop="component">
-              <el-input
-                v-model="form.component"
-                :placeholder="form.type === MenuTypeEnum.DIR ? '目录一般为空' : '打开页不使用，可留空'"
-                clearable
-              />
-              <div style="line-height: 18px; margin-top: 4px; color: #909399; font-size: 12px;">
-                不影响打开地址。打开只认上方「路由地址」。
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12" v-if="form.type === MenuTypeEnum.MENU">
-            <el-form-item label="组件名称" prop="componentName">
-              <el-input v-model="form.componentName" placeholder="打开页不使用，可留空" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -512,8 +494,6 @@ export default {
         sort: 0,
         path: undefined,
         permission: undefined,
-        component: undefined,
-        componentName: undefined,
         status: CommonStatusEnum.ENABLE,
         visible: true,
         keepAlive: true,
@@ -600,8 +580,6 @@ export default {
           sort: res.data.sort,
           path: res.data.path,
           permission: res.data.permission,
-          component: res.data.component,
-          componentName: res.data.componentName,
           status: res.data.status,
           visible: res.data.visible,
           keepAlive: res.data.keepAlive,
@@ -648,11 +626,6 @@ export default {
         }
         this.warnDuplicateMenuName()
         const payload = { ...this.form }
-        // 目录不需要组件；列表曾把误填的「15」显示在组件路径且无法编辑，保存时清空
-        if (payload.type === SystemMenuTypeEnum.DIR) {
-          payload.component = ''
-          payload.componentName = ''
-        }
         if (!checkFirstLevelMenu(payload.parentId)) {
           payload.styleId = null
         }

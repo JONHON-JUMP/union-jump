@@ -13,19 +13,6 @@ export function isCamstarLikeUrl(url) {
   return /:4200\b/i.test(s) || /\/4200\//i.test(s) || /camstarportal/i.test(s) || /\/camstar\//i.test(s)
 }
 
-/** 若依业务组件路径（登记字段，打开页不用） */
-export function isRuoyiComponent(component) {
-  const c = String(component || '').trim()
-  if (!c) {
-    return false
-  }
-  const lower = c.toLowerCase()
-  if (lower === 'innerlink' || lower.includes('empty') || lower.includes('portal/')) {
-    return false
-  }
-  return true
-}
-
 /** 任意 http(s) 完整地址（可带 #，仍以路由地址原样打开） */
 export function isHttpUrl(url) {
   return /^https?:\/\//i.test(String(url || ''))
@@ -39,6 +26,7 @@ export function isPureHttpUrl(url) {
 
 /**
  * 只看路由地址 / 已算出的 iframe link。component 一律忽略。
+ * 'camstar' = http 直开；'ruoyi' 仅用于存量相对路由登记（已废弃）的兜底标记。
  * @returns {'camstar'|'ruoyi'}
  */
 export function classifyPortalMenu({ path, link } = {}) {
@@ -52,8 +40,4 @@ export function classifyPortalMenu({ path, link } = {}) {
 
 export function isCamstarPortalMenu(route) {
   return classifyPortalMenu(route) === 'camstar'
-}
-
-export function isRuoyiPortalMenu(route) {
-  return classifyPortalMenu(route) === 'ruoyi'
 }
