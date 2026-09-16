@@ -90,7 +90,6 @@
 
 <script>
 import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
-import { markCamstarOpen } from '@/utils/camstarOpenDiag'
 import { applyIframeHrefToJump } from '@/utils/portalIframeNav'
 import { parsePortalClientId } from '@/utils/portalRoute'
 
@@ -147,7 +146,6 @@ export default {
       hardTimer: null,
       holdTimer: null,
       slowDismissed: false,
-      _diagLoadStart: 0,
       _reloadSeq: 0,
       _navPollTimer: null,
       _lastReportedHref: '',
@@ -276,13 +274,7 @@ export default {
       this.directSlowDismissed = false
       this.directPhase = 'loading'
       this.directSrc = n
-      this._diagLoadStart = Date.now()
       this.armDirectTimeouts()
-      let tid = 0
-      try {
-        tid = Number(sessionStorage.getItem('JUMP_CAMSTAR_TRACE') || 0)
-      } catch (e) { /* ignore */ }
-      markCamstarOpen(tid, 'iframe-mount', { src: n, mode: 'camstar-stable' })
     },
     armDirectTimeouts() {
       this.clearDirectTimers()
@@ -322,16 +314,6 @@ export default {
       this.clearDirectTimers()
       this.directLoaded = true
       this.directPhase = 'idle'
-      const cost = this._diagLoadStart ? (Date.now() - this._diagLoadStart) : -1
-      let tid = 0
-      try {
-        tid = Number(sessionStorage.getItem('JUMP_CAMSTAR_TRACE') || 0)
-      } catch (e) { /* ignore */ }
-      markCamstarOpen(tid, 'iframe-load', {
-        src: this.directSrc,
-        docCostMs: cost,
-        note: 'onload 收遮罩；之后变慢多半是 Camstar 页内接口'
-      })
       this.captureIframeHref()
       this.hookIframeHistory()
       this.tryInjectJumpSync()
@@ -349,7 +331,6 @@ export default {
       this.clearTimers()
       this.phase = 'loading'
       this.slowDismissed = false
-      this._diagLoadStart = Date.now()
       this.softTimer = setTimeout(() => {
         if (!this.active || this.hasLoaded || this.phase === 'failed') {
           return
@@ -398,7 +379,6 @@ export default {
         this.directPhase = 'loading'
         const sep = base.indexOf('?') >= 0 ? '&' : '?'
         this.directSrc = `${base}${sep}_portal_t=${Date.now()}`
-        this._diagLoadStart = Date.now()
         this.armDirectTimeouts()
         return
       }

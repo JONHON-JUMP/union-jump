@@ -4,7 +4,10 @@ import {
   isPortalSubSystemHomePath,
   isGenericPortalTitle,
   resolvePortalMenuTitle,
-  portalTabsMatch
+  portalTabsMatch,
+  parsePortalClientId,
+  extractPortalMenuRest,
+  slashIpPortRestToHttp
 } from '@/utils/portalRoute'
 import { ensureLocalCamstarCookie } from '@/utils/camstarCookie'
 
@@ -38,6 +41,19 @@ function isCamstarLink(link) {
   return /^https?:\/\//i.test(s) && s.indexOf('/#/') < 0 && s.indexOf('#') < 0
 }
 
+/** 壳 path 还原业务 http，补上 resolve 未给出的 meta.link */
+function fallbackLinkFromShell(route) {
+  const clientId = parsePortalClientId(route && route.path)
+  if (!clientId) {
+    return ''
+  }
+  const rest = extractPortalMenuRest(route.path, clientId)
+  if (!rest || /^menu\d+/i.test(rest)) {
+    return ''
+  }
+  return slashIpPortRestToHttp(String(rest).replace(/:/g, '/')) || ''
+}
+
 /**
  * 门户 iframe 唯一登记入口。
  * 子页（带 ? 或更深路径）与主菜单分开登记，对齐通知公告 / 通知详情。
@@ -54,6 +70,12 @@ export function syncPortalIframeView(store, route) {
   const view = toMutablePortalView(resolved)
   if (!view || !view.name) {
     return view || route
+  }
+  if (!(view.meta && view.meta.link)) {
+    const shellLink = fallbackLinkFromShell(route)
+    if (shellLink) {
+      view.meta = { ...(view.meta || {}), link: shellLink }
+    }
   }
   const hasLink = !!(view.meta && view.meta.link)
   const isChild = !!(view.meta && view.meta.portalChild)

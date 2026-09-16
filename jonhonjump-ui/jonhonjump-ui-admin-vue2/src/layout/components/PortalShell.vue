@@ -127,7 +127,6 @@ import { confirmSwitchUser, confirmLogout } from '@/utils/switchUser'
 import { isExternal } from '@/utils/validate'
 import { parsePortalClientId, resolvePortalFrameRoute, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath, httpUrlToPortalLocation } from '@/utils/portalRoute'
 import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
-import { startCamstarOpenTrace, markCamstarOpen } from '@/utils/camstarOpenDiag'
 import AllAppsDrawer from '@/views/components/AllAppsDrawer.vue'
 import PortalDock from './PortalDock.vue'
 import PortalSystemSwitch from './PortalSystemSwitch.vue'
@@ -548,23 +547,11 @@ export default {
 
         const openDirect = () => {
           // 对齐 4200：只切壳 + 立刻 push，绝不 await 全量菜单（那会到 10s+）
-          const traceId = startCamstarOpenTrace({
-            path: targetPath,
-            link: resolvedLink,
-            clientId,
-            title: app.name
-          })
-          const tCookie0 = Date.now()
           ensureLocalCamstarCookie(resolvedLink, clientId)
-          markCamstarOpen(traceId, 'cookie', { ms: Date.now() - tCookie0 })
           if (resolvedLink) {
             seedCamstarCookieForUrlInBackground(resolvedLink, clientId)
           }
           const afterPush = () => {
-            markCamstarOpen(traceId, 'navigate', { path: targetPath })
-            try {
-              sessionStorage.setItem('JUMP_CAMSTAR_TRACE', String(traceId))
-            } catch (e) { /* ignore */ }
             if (!menusReady) {
               this.$store.dispatch('portal/ensureSubSystemLoaded', {
                 clientId,
@@ -576,15 +563,10 @@ export default {
           const needShell = this.$store.state.portal.currentSystem !== clientId
             || !(this.$store.state.portal.pathLinkMap && Object.keys(this.$store.state.portal.pathLinkMap).length)
           if (needShell) {
-            const tShell = Date.now()
             return this.$store.dispatch('portal/activateSubSystemShell', { clientId })
-              .then(() => {
-                markCamstarOpen(traceId, 'shell', { ms: Date.now() - tShell })
-                return pushWithTitle()
-              })
+              .then(() => pushWithTitle())
               .then(afterPush)
           }
-          markCamstarOpen(traceId, 'shell', { ms: 0, skipped: true })
           return Promise.resolve(pushWithTitle()).then(afterPush)
         }
 

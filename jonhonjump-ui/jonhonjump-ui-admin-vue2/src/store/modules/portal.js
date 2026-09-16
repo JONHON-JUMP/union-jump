@@ -13,7 +13,9 @@ import {
   resolvePortalMenuTitle,
   findPortalCloseTarget,
   portalPathAliasKey,
-  portalQueryBucket
+  portalQueryBucket,
+  portalTabsMatch,
+  isPortalPathDescendant
 } from '@/utils/portalRoute'
 import {
   loadPersistedPortalCache,
@@ -944,15 +946,29 @@ const actions = {
   closePortalTab({ commit, dispatch, rootState }, { tab, active }) {
     commit('SET_IFRAME_SYNC_SUSPENDED', true)
     const parent = findPortalCloseTarget(rootState.tagsView.visitedViews, tab)
+    const route = router.currentRoute
+    // 与 Dock 一致：别名/子路径也视为关闭当前页，避免 sync 把页签加回
+    const closingCurrent = !!active
+      || portalTabsMatch(tab, route)
+      || portalPathAliasKey(tab.path) === portalPathAliasKey(route.path)
+      || isPortalPathDescendant(route.path, tab.path)
     const resumeSync = () => {
       commit('SET_IFRAME_SYNC_SUSPENDED', false)
       const vuexStore = router.app && router.app.$store
       if (vuexStore && router.currentRoute) {
-        syncPortalIframeView(vuexStore, router.currentRoute)
+        // 仍停在被关页签对应路由时，禁止 sync 把页签加回来
+        const cur = router.currentRoute
+        const stillOnClosed = portalTabsMatch(tab, cur)
+          || portalPathAliasKey(tab.path) === portalPathAliasKey(cur.path)
+          || isPortalPathDescendant(cur.path, tab.path)
+        if (stillOnClosed) {
+          return
+        }
+        syncPortalIframeView(vuexStore, cur)
       }
     }
     return dispatch('tagsView/delView', tab, { root: true }).then(() => {
-      if (!active) {
+      if (!closingCurrent) {
         resumeSync()
         return
       }
@@ -962,6 +978,11 @@ const actions = {
         if (view.title === '外部系统' || view.title === '业务系统') return false
         if (view.meta && view.meta.portalHome) return false
         if (isPortalSubSystemHomePath(view.path)) return false
+        // 刚删的别名页不再当作“下一个”
+        if (portalTabsMatch(view, tab)
+          || portalPathAliasKey(view.path) === portalPathAliasKey(tab.path)) {
+          return false
+        }
         return true
       })
       const parentRoot = parent && remaining.find(v =>
@@ -975,7 +996,7 @@ const actions = {
         }
         return router.push(nextTab.fullPath || nextTab.path).catch(() => {}).finally(resumeSync)
       }
-      return dispatch('returnToPortalHome')
+      return dispatch('returnToPortalHome').finally(resumeSync)
     }).catch(err => {
       resumeSync()
       return Promise.reject(err)

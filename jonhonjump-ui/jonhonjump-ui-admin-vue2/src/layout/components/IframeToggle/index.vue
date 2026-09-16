@@ -127,19 +127,27 @@ export default {
       immediate: true,
       handler() {
         this.placeholderFailed = false
+        this.$nextTick(() => this.ensureFrameRegistered())
         this.armPlaceholderTimeout()
       }
     },
     showFramePlaceholder(show) {
       if (show) {
+        this.ensureFrameRegistered()
         this.armPlaceholderTimeout()
       } else {
         this.clearPlaceholderTimeout()
         this.placeholderFailed = false
       }
+    },
+    resolvedFrameLink(link) {
+      if (link) {
+        this.ensureFrameRegistered()
+      }
     }
   },
   mounted() {
+    this.ensureFrameRegistered()
     this.armPlaceholderTimeout()
   },
   beforeDestroy() {
@@ -150,8 +158,23 @@ export default {
     stableFrameId(path) {
       return String(path || '').replace(/[^\w]+/g, '_').slice(0, 120)
     },
+    /** 有业务 link 但尚未登记 iframe 时补登记，避免「未能挂载」空转 */
+    ensureFrameRegistered() {
+      const link = this.resolvedFrameLink
+      if (!link || !this.routeClientId) {
+        return
+      }
+      if ((this.allIframeFrames || []).some(item => this.isIframeVisible(item))) {
+        return
+      }
+      if (this.$store.state.portal.iframeSyncSuspended) {
+        return
+      }
+      syncPortalIframeView(this.$store, this.$route)
+    },
     retryRegister() {
       this.placeholderFailed = false
+      this.ensureFrameRegistered()
       syncPortalIframeView(this.$store, this.$route)
       this.armPlaceholderTimeout()
     },
