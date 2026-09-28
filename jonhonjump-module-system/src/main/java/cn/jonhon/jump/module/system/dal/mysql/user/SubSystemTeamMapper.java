@@ -9,14 +9,16 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemTeamDO;
 import org.apache.ibatis.annotations.Mapper;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
 public interface SubSystemTeamMapper extends BaseMapperX<SubSystemTeamDO> {
 
-    default PageResult<SubSystemTeamDO> selectPage(SubSystemTeamPageReqVO reqVO) {
+    default PageResult<SubSystemTeamDO> selectPage(SubSystemTeamPageReqVO reqVO, Collection<Long> allowedSubSystemIds) {
         return selectPage(reqVO, new LambdaQueryWrapperX<SubSystemTeamDO>()
                 .eqIfPresent(SubSystemTeamDO::getSubSystemId, reqVO.getSubSystemId())
+                .inIfPresent(SubSystemTeamDO::getSubSystemId, allowedSubSystemIds)
                 .eqIfPresent(SubSystemTeamDO::getDeptId, reqVO.getDeptId())
                 .likeIfPresent(SubSystemTeamDO::getTeamCode, reqVO.getTeamCode())
                 .likeIfPresent(SubSystemTeamDO::getTeamName, reqVO.getTeamName())

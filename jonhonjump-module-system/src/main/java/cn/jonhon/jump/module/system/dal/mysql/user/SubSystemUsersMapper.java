@@ -43,9 +43,11 @@ public interface SubSystemUsersMapper extends BaseMapperX<SubSystemUsersDO> {
                 .orderByDesc(SubSystemUsersDO::getId));
     }
 
-    default PageResult<SubSystemUsersDO> selectPage(SubSystemUsersPageReqVO reqVO, Collection<String> teamCodes) {
+    default PageResult<SubSystemUsersDO> selectPage(SubSystemUsersPageReqVO reqVO, Collection<String> teamCodes,
+                                                    Collection<Long> allowedSubSystemIds) {
         LambdaQueryWrapperX<SubSystemUsersDO> wrapper = new LambdaQueryWrapperX<SubSystemUsersDO>()
                 .eqIfPresent(SubSystemUsersDO::getSubSystemId, reqVO.getSubSystemId())
+                .inIfPresent(SubSystemUsersDO::getSubSystemId, allowedSubSystemIds)
                 .eqIfPresent(SubSystemUsersDO::getMainUserId, reqVO.getMainUserId())
                 .eqIfPresent(SubSystemUsersDO::getEmployeeRegistered, reqVO.getEmployeeRegistered())
                 .likeIfPresent(SubSystemUsersDO::getUsername, reqVO.getUsername())

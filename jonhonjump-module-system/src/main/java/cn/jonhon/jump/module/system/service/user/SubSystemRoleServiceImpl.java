@@ -63,13 +63,20 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     private SubSystemApiConfigService subSystemApiConfigService;
     @Resource
     private SubSystemWorkshopService subSystemWorkshopService;
+    @Resource
+    private SubSystemAccessService subSystemAccessService;
 
     @Override
     public PageResult<SubSystemRoleRespVO> getSubSystemRolePage(SubSystemRolePageReqVO pageReqVO) {
+        // 可管系统范围：受限时强制只查授权系统（null=不受限）
+        java.util.Set<Long> allowedSubSystemIds = subSystemAccessService.getAllowedSubSystemIds(
+                cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId());
         if (pageReqVO.getSubSystemId() != null) {
             validateSubSystemExists(pageReqVO.getSubSystemId());
+        } else if (allowedSubSystemIds != null && allowedSubSystemIds.isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), 0L);
         }
-        PageResult<SubSystemRoleDO> pageResult = subSystemRoleMapper.selectPage(pageReqVO);
+        PageResult<SubSystemRoleDO> pageResult = subSystemRoleMapper.selectPage(pageReqVO, allowedSubSystemIds);
         return new PageResult<>(buildRespList(pageResult.getList()), pageResult.getTotal());
     }
 
@@ -420,6 +427,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         if (subSystem == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统
+        subSystemAccessService.checkAccessible(subSystemId);
         return subSystem;
     }
 
@@ -428,6 +437,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         if (role == null) {
             throw exception(SUB_SYSTEM_ROLE_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统的角色
+        subSystemAccessService.checkAccessible(role.getSubSystemId());
         return role;
     }
 

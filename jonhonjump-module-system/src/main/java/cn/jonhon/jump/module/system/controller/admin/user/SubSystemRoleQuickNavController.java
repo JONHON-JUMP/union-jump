@@ -24,12 +24,18 @@ public class SubSystemRoleQuickNavController {
 
     @Resource
     private SubSystemRoleQuickNavService subSystemRoleQuickNavService;
+    @Resource
+    private cn.jonhon.jump.module.system.service.user.SubSystemRoleService subSystemRoleService;
+    @Resource
+    private cn.jonhon.jump.module.system.service.user.SubSystemAccessService subSystemAccessService;
 
     @GetMapping("/list")
     @Operation(summary = "获得外部子系统角色的默认快捷导航配置")
     @Parameter(name = "roleId", description = "角色编号", required = true)
     @PreAuthorize("@ss.hasPermission('sub-system:role:update')")
     public CommonResult<RoleQuickNavRespVO> getRoleQuickNavList(@RequestParam("roleId") Long roleId) {
+        // 可管系统范围校验（内部按角色换算所属系统）
+        subSystemRoleService.getSubSystemRole(roleId);
         return success(subSystemRoleQuickNavService.getRoleQuickNav(roleId));
     }
 
@@ -37,6 +43,8 @@ public class SubSystemRoleQuickNavController {
     @Operation(summary = "保存外部子系统角色的默认快捷导航配置")
     @PreAuthorize("@ss.hasPermission('sub-system:role:update')")
     public CommonResult<Boolean> saveRoleQuickNav(@Valid @RequestBody SubSystemRoleQuickNavSaveReqVO reqVO) {
+        // 可管系统范围校验：受限角色只能配置授权系统的角色快捷导航
+        subSystemAccessService.checkAccessible(reqVO.getSubSystemId());
         subSystemRoleQuickNavService.saveRoleQuickNav(reqVO.getSubSystemId(), reqVO.getRoleId(), reqVO.getMenuIds());
         return success(true);
     }

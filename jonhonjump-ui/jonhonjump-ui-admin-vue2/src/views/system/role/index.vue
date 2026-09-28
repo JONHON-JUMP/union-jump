@@ -62,6 +62,7 @@
         </template>
       </el-table-column>
       <el-table-column label="显示顺序" prop="sort" width="100" />
+      <el-table-column label="可管系统" prop="subSystemScopeText" :show-overflow-tooltip="true" width="150" />
       <el-table-column label="状态" align="center" width="100">
         <template v-slot="scope">
           <el-switch v-model="scope.row.status" :active-value="0" :inactive-value="1" @change="handleStatusChange(scope.row)"/>
@@ -102,6 +103,13 @@
         </el-form-item>
         <el-form-item label="角色顺序" prop="sort">
           <el-input-number v-model="form.sort" controls-position="right" :min="0" />
+        </el-form-item>
+        <el-form-item label="可管系统">
+          <el-select v-model="form.subSystemIds" multiple collapse-tags clearable filterable
+                     placeholder="留空表示可管理全部业务系统" style="width: 100%">
+            <el-option v-for="item in subSystemOptions" :key="item.id" :label="item.name" :value="item.id"/>
+          </el-select>
+          <div class="sub-system-scope-tip">只给车间管理员勾选。留空表示此角色不限制系统；用户只要有角色勾了系统，就只能管理这些系统，其他留空角色不会放开全部</div>
         </el-form-item>
         <el-form-item label="备注">
           <el-input v-model="form.remark" type="textarea" placeholder="请输入内容"></el-input>
@@ -209,6 +217,7 @@ import { buildMainRoleQuickNavCheckTree, getMainQuickNavLeafIds } from "@/utils/
 import { restoreRoleMenuCheckedKeys } from "@/utils/roleMenuTree";
 import RoleQuickNavDialog from "@/views/system/components/RoleQuickNavDialog.vue";
 import {listSimpleDepts} from "@/api/system/dept";
+import { getSubSystemClientSimpleList } from "@/api/system/subSystemUsers";
 import {CommonStatusEnum, SystemDataScopeEnum} from "@/utils/constants";
 import {DICT_TYPE, ensureDictDatas, getDictDatas} from "@/utils/dict";
 
@@ -252,6 +261,9 @@ export default {
       // 部门列表
       deptOptions: [], // 部门属性结构
       depts: [], // 部门列表
+      // 业务系统选项（可管系统范围配置）
+      subSystemOptions: [],
+      subSystemMap: {},
       // 查询参数
       queryParams: {
         pageNo: 1,
@@ -305,6 +317,7 @@ export default {
     ]).finally(() => {
       this.getList();
     });
+    this.loadSubSystems();
   },
   methods: {
     /** 查询角色列表 */
@@ -312,11 +325,48 @@ export default {
       this.loading = true;
       listRole(this.queryParams).then(
         response => {
-          this.roleList = response.data.list;
+          const list = response.data.list || [];
+          this.fillSubSystemScopeText(list);
+          this.roleList = list;
           this.total = response.data.total;
           this.loading = false;
         }
       );
+    },
+    /** 加载业务系统选项（可管系统范围配置用） */
+    loadSubSystems() {
+      getSubSystemClientSimpleList(true).then(res => {
+        this.subSystemOptions = res.data || [];
+        this.subSystemMap = {};
+        this.subSystemOptions.forEach(item => {
+          this.subSystemMap[item.id] = item.name;
+          this.subSystemMap[String(item.id)] = item.name;
+        });
+        this.fillSubSystemScopeText(this.roleList);
+      }).catch(() => {
+        this.subSystemOptions = [];
+      });
+    },
+    /** 写成普通文本列，和「角色名称」「角色标识」一样固定宽度、溢出省略 */
+    fillSubSystemScopeText(list) {
+      (list || []).forEach(row => {
+        this.$set(row, "subSystemScopeText", this.formatSubSystemScope(row.subSystemIds));
+      });
+    },
+    /** 列表「可管系统」列显示：空 = 全部 */
+    formatSubSystemScope(subSystemIds) {
+      let ids = subSystemIds;
+      if (typeof ids === "string" && ids) {
+        try {
+          ids = JSON.parse(ids);
+        } catch (e) {
+          ids = [];
+        }
+      }
+      if (!Array.isArray(ids) || !ids.length) {
+        return "全部";
+      }
+      return ids.map(id => this.subSystemMap[id] || this.subSystemMap[String(id)] || ("系统#" + id)).join("、");
     },
     // 角色状态修改
     handleStatusChange(row) {
@@ -367,6 +417,7 @@ export default {
         dataScope: undefined,
         deptCheckStrictly: false,
         menuCheckStrictly: true,
+        subSystemIds: [],
         remark: undefined
       };
       this.resetForm("form");
@@ -424,6 +475,10 @@ export default {
       const id = row.id
       getRole(id).then(response => {
         this.form = response.data;
+        // 可管系统为空 = 不限；保证多选下拉可绑定数组
+        if (!this.form.subSystemIds) {
+          this.form.subSystemIds = [];
+        }
         this.open = true;
         this.title = "修改角色";
       });
@@ -602,3 +657,12 @@ export default {
   }
 };
 </script>
+
+<style scoped>
+.sub-system-scope-tip {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.5;
+  margin-top: 4px;
+}
+</style>

@@ -50,13 +50,20 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
     private DeptMapper deptMapper;
     @Resource
     private OAuth2ClientMapper oauth2ClientMapper;
+    @Resource
+    private SubSystemAccessService subSystemAccessService;
 
     @Override
     public PageResult<SubSystemWorkshopRespVO> getSubSystemWorkshopPage(SubSystemWorkshopPageReqVO pageReqVO) {
+        // 可管系统范围：受限时强制只查授权系统（null=不受限）；班组管理页左侧部门列表亦取自本查询
+        java.util.Set<Long> allowedSubSystemIds = subSystemAccessService.getAllowedSubSystemIds(
+                cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId());
         if (pageReqVO.getSubSystemId() != null) {
             validateSubSystemExists(pageReqVO.getSubSystemId());
+        } else if (allowedSubSystemIds != null && allowedSubSystemIds.isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), 0L);
         }
-        PageResult<SubSystemWorkshopDO> pageResult = subSystemWorkshopMapper.selectPage(pageReqVO);
+        PageResult<SubSystemWorkshopDO> pageResult = subSystemWorkshopMapper.selectPage(pageReqVO, allowedSubSystemIds);
         return new PageResult<>(buildRespList(pageResult.getList()), pageResult.getTotal());
     }
 
@@ -116,6 +123,8 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
             if (subSystemMapper.selectById(subSystemId) == null) {
                 throw exception(SUB_SYSTEM_NOT_EXISTS);
             }
+            // 可管系统范围校验：受限角色只能取授权系统的车间下拉
+            subSystemAccessService.checkAccessible(subSystemId);
             if (deptId != null) {
                 list = subSystemWorkshopMapper.selectListBySubSystemIdAndDeptId(subSystemId, deptId);
             }
@@ -285,6 +294,8 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
         if (workshop == null) {
             throw exception(SUB_SYSTEM_WORKSHOP_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统的车间对照
+        subSystemAccessService.checkAccessible(workshop.getSubSystemId());
         return workshop;
     }
 
@@ -292,6 +303,8 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
         if (subSystemMapper.selectById(subSystemId) == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统的车间对照
+        subSystemAccessService.checkAccessible(subSystemId);
     }
 
     private void validateDept(Long deptId) {

@@ -52,6 +52,8 @@ public class RoleServiceImpl implements RoleService {
     private RoleMapper roleMapper;
     @Resource
     private RoleQuickNavService roleQuickNavService;
+    @Resource
+    private cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper subSystemMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -60,6 +62,8 @@ public class RoleServiceImpl implements RoleService {
     public Long createRole(RoleSaveReqVO createReqVO, Integer type) {
         // 1. 校验角色
         validateRoleDuplicate(createReqVO.getName(), createReqVO.getCode(), null);
+        // 1.1 校验可管业务系统存在
+        validateSubSystemIds(createReqVO.getSubSystemIds());
 
         // 2. 插入到数据库
         RoleDO role = BeanUtils.toBean(createReqVO, RoleDO.class)
@@ -82,6 +86,8 @@ public class RoleServiceImpl implements RoleService {
         RoleDO role = validateRoleForUpdate(updateReqVO.getId());
         // 1.2 校验角色的唯一字段是否重复
         validateRoleDuplicate(updateReqVO.getName(), updateReqVO.getCode(), updateReqVO.getId());
+        // 1.3 校验可管业务系统存在
+        validateSubSystemIds(updateReqVO.getSubSystemIds());
 
         // 2. 更新到数据库
         RoleDO updateObj = BeanUtils.toBean(updateReqVO, RoleDO.class);
@@ -172,6 +178,21 @@ public class RoleServiceImpl implements RoleService {
         role = roleMapper.selectByCode(code);
         if (role != null && !role.getId().equals(id)) {
             throw exception(ROLE_CODE_DUPLICATE, code);
+        }
+    }
+
+    /**
+     * 校验角色的"可管业务系统"集合中的系统都存在
+     *
+     * @param subSystemIds 业务系统编号集合；空 = 不限，跳过校验
+     */
+    @VisibleForTesting
+    void validateSubSystemIds(Set<Long> subSystemIds) {
+        if (CollUtil.isEmpty(subSystemIds)) {
+            return;
+        }
+        if (subSystemMapper.selectListByIds(subSystemIds).size() != subSystemIds.size()) {
+            throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
     }
 

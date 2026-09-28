@@ -50,13 +50,20 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
     private DeptMapper deptMapper;
     @Resource
     private SubSystemWorkshopService subSystemWorkshopService;
+    @Resource
+    private SubSystemAccessService subSystemAccessService;
 
     @Override
     public PageResult<SubSystemTeamRespVO> getSubSystemTeamPage(SubSystemTeamPageReqVO pageReqVO) {
+        // 可管系统范围：受限时强制只查授权系统（null=不受限）
+        java.util.Set<Long> allowedSubSystemIds = subSystemAccessService.getAllowedSubSystemIds(
+                cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId());
         if (pageReqVO.getSubSystemId() != null) {
             validateSubSystemExists(pageReqVO.getSubSystemId());
+        } else if (allowedSubSystemIds != null && allowedSubSystemIds.isEmpty()) {
+            return new PageResult<>(java.util.Collections.emptyList(), 0L);
         }
-        PageResult<SubSystemTeamDO> pageResult = subSystemTeamMapper.selectPage(pageReqVO);
+        PageResult<SubSystemTeamDO> pageResult = subSystemTeamMapper.selectPage(pageReqVO, allowedSubSystemIds);
         return new PageResult<>(buildRespList(pageResult.getList()), pageResult.getTotal());
     }
 
@@ -201,6 +208,8 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
         if (subSystem == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统
+        subSystemAccessService.checkAccessible(subSystemId);
         return subSystem;
     }
 
@@ -209,6 +218,8 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
         if (team == null) {
             throw exception(SUB_SYSTEM_TEAM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统的班组
+        subSystemAccessService.checkAccessible(team.getSubSystemId());
         return team;
     }
 

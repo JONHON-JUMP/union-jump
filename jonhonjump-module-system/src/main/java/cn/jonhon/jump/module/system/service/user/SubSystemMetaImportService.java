@@ -49,6 +49,8 @@ public class SubSystemMetaImportService {
     private SubSystemTeamService subSystemTeamService;
     @Resource
     private SubSystemMenuService subSystemMenuService;
+    @Resource
+    private SubSystemAccessService subSystemAccessService;
 
     @Transactional(rollbackFor = Exception.class)
     public SubSystemUserImportRespVO importRoleList(Long subSystemId, List<SubSystemRoleImportExcelVO> rows, boolean updateSupport) {
@@ -259,6 +261,8 @@ public class SubSystemMetaImportService {
         if (subSystemMapper.selectById(subSystemId) == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能导入授权系统
+        subSystemAccessService.checkAccessible(subSystemId);
         if (CollUtil.isEmpty(rows)) {
             throw exception(SUB_SYSTEM_IMPORT_LIST_EMPTY);
         }

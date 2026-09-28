@@ -53,6 +53,9 @@ public class RoleRespVO {
     @Schema(description = "数据范围(指定部门数组)", example = "1")
     private Set<Long> dataScopeDeptIds;
 
+    @Schema(description = "可管理的业务系统编号集合；空=不限", example = "[1,2]")
+    private Set<Long> subSystemIds;
+
     @Schema(description = "创建时间", requiredMode = Schema.RequiredMode.REQUIRED, example = "时间戳格式")
     private LocalDateTime createTime;
 

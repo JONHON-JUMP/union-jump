@@ -7,14 +7,16 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemWorkshopDO;
 import org.apache.ibatis.annotations.Mapper;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
 public interface SubSystemWorkshopMapper extends BaseMapperX<SubSystemWorkshopDO> {
 
-    default PageResult<SubSystemWorkshopDO> selectPage(SubSystemWorkshopPageReqVO reqVO) {
+    default PageResult<SubSystemWorkshopDO> selectPage(SubSystemWorkshopPageReqVO reqVO, Collection<Long> allowedSubSystemIds) {
         return selectPage(reqVO, new LambdaQueryWrapperX<SubSystemWorkshopDO>()
                 .eqIfPresent(SubSystemWorkshopDO::getSubSystemId, reqVO.getSubSystemId())
+                .inIfPresent(SubSystemWorkshopDO::getSubSystemId, allowedSubSystemIds)
                 .eqIfPresent(SubSystemWorkshopDO::getDeptId, reqVO.getDeptId())
                 .likeIfPresent(SubSystemWorkshopDO::getWorkshopCode, reqVO.getWorkshopCode())
                 .likeIfPresent(SubSystemWorkshopDO::getWorkshopName, reqVO.getWorkshopName())

@@ -43,6 +43,8 @@ public class SubSystemUserImportService {
     private SubSystemRoleMapper subSystemRoleMapper;
     @Resource
     private SubSystemUsersService subSystemUsersService;
+    @Resource
+    private SubSystemAccessService subSystemAccessService;
 
     @Transactional(rollbackFor = Exception.class)
     public SubSystemUserImportRespVO importUserList(Long subSystemId,
@@ -55,6 +57,8 @@ public class SubSystemUserImportService {
         if (subSystem == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能导入授权系统
+        subSystemAccessService.checkAccessible(subSystemId);
         if (CollUtil.isEmpty(importUsers)) {
             throw exception(SUB_SYSTEM_IMPORT_LIST_EMPTY);
         }

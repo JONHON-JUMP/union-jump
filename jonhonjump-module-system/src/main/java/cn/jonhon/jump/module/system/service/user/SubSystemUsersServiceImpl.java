@@ -5,6 +5,7 @@ import cn.hutool.core.util.URLUtil;
 import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
+import cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils;
 import cn.jonhon.jump.framework.tenant.core.context.TenantContextHolder;
 import cn.jonhon.jump.framework.tenant.core.util.TenantUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
@@ -23,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 import javax.annotation.Resource;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeConstants.BAD_REQUEST;
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -69,12 +71,15 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     private SubSystemWorkshopService subSystemWorkshopService;
     @Resource
     private cn.jonhon.jump.module.system.dal.redis.user.PortalMyMenusRedisDAO portalMyMenusRedisDAO;
+    @Resource
+    private SubSystemAccessService subSystemAccessService;
     @Override
     public List<SubSystemUsersRespVO> getListByMainUserId(Long mainUserId) {
         List<SubSystemUsersDO> list = subSystemUsersMapper.selectListByMainUserId(mainUserId);
         if (CollUtil.isEmpty(list)) {
             return Collections.emptyList();
         }
+        list = filterByAllowedSubSystems(list, SubSystemUsersDO::getSubSystemId);
         return buildRespList(list);
     }
     @Override
@@ -82,7 +87,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(mainUserIds)) {
             return Collections.emptyMap();
         }
-        List<SubSystemUsersDO> list = subSystemUsersMapper.selectListByMainUserIds(mainUserIds);
+        List<SubSystemUsersDO> list = filterByAllowedSubSystems(
+                subSystemUsersMapper.selectListByMainUserIds(mainUserIds), SubSystemUsersDO::getSubSystemId);
         return list.stream().collect(Collectors.groupingBy(SubSystemUsersDO::getMainUserId, Collectors.counting()));
     }
     @Override
@@ -105,6 +111,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(subSystems)) {
             return Collections.emptyList();
         }
+        // 可管系统范围过滤：左侧业务系统列表只显示授权系统
+        subSystems = filterByAllowedSubSystems(subSystems, SubSystemDO::getId);
         boolean onlyPortal = Boolean.TRUE.equals(portalOnly);
         return subSystems.stream()
                 .filter(subSystem -> !onlyPortal || subSystem.isPortalBound())
@@ -131,8 +139,13 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     }
     @Override
     public PageResult<SubSystemUsersRespVO> getSubSystemUserPage(SubSystemUsersPageReqVO pageReqVO) {
+        // 可管系统范围：受限时强制只查授权系统（null=不受限）
+        Set<Long> allowedSubSystemIds = subSystemAccessService.getAllowedSubSystemIds(
+                SecurityFrameworkUtils.getLoginUserId());
         if (pageReqVO.getSubSystemId() != null) {
             validateSubSystemExists(pageReqVO.getSubSystemId());
+        } else if (allowedSubSystemIds != null && allowedSubSystemIds.isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), 0L);
         }
         Collection<String> teamCodes = null;
         if (StrUtil.isNotBlank(pageReqVO.getTeamName())) {
@@ -145,7 +158,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 return new PageResult<>(Collections.emptyList(), 0L);
             }
         }
-        PageResult<SubSystemUsersDO> pageResult = subSystemUsersMapper.selectPage(pageReqVO, teamCodes);
+        PageResult<SubSystemUsersDO> pageResult = subSystemUsersMapper.selectPage(pageReqVO, teamCodes, allowedSubSystemIds);
         return new PageResult<>(buildRespList(pageResult.getList()), pageResult.getTotal());
     }
     @Override
@@ -273,6 +286,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         // 去重后加载，仅登记已绑定门户的业务系统
         List<SubSystemDO> subSystems = subSystemMapper.selectListByIds(new LinkedHashSet<>(subSystemIds));
         for (SubSystemDO subSystem : subSystems) {
+            // 无登录上下文（内部调用）不受限；受限角色不能把主用户登记到未授权系统
+            subSystemAccessService.checkAccessible(subSystem.getId());
             if (subSystem.getOauth2ClientId() == null) {
                 // 仅接口目标（如 Camstar人员管理）不属于外部用户管理，跳过花名册登记
                 log.warn("[registerFromMainUser] subSystemId={}({}) 未绑定门户，跳过花名册登记",
@@ -748,6 +763,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (user == null) {
             throw exception(SUB_SYSTEM_USER_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统的花名册
+        subSystemAccessService.checkAccessible(user.getSubSystemId());
         return user;
     }
     private void validateSubSystemUserNotExists(Long subSystemId, Long mainUserId) {
@@ -894,7 +911,19 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (subSystem == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统
+        subSystemAccessService.checkAccessible(subSystemId);
         return subSystem;
+    }
+    /** 可管系统范围过滤：受限时仅保留授权系统的记录（不受限原样返回） */
+    private <T> List<T> filterByAllowedSubSystems(List<T> list, Function<T, Long> subSystemIdGetter) {
+        Set<Long> allowed = subSystemAccessService.getAllowedSubSystemIds(SecurityFrameworkUtils.getLoginUserId());
+        if (allowed == null) {
+            return list;
+        }
+        return list.stream()
+                .filter(item -> allowed.contains(subSystemIdGetter.apply(item)))
+                .collect(Collectors.toList());
     }
     private AdminUserDO validateMainUserExists(Long mainUserId) {
         AdminUserDO mainUser = adminUserMapper.selectById(mainUserId);

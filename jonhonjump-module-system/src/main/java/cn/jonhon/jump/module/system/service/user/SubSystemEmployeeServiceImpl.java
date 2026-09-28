@@ -66,6 +66,8 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     private AdminUserMapper adminUserMapper;
     @Resource
     private SubSystemWorkshopService subSystemWorkshopService;
+    @Resource
+    private SubSystemAccessService subSystemAccessService;
 
     @Override
     public PageResult<SubSystemEmployeeRespVO> getEmployeePage(SubSystemEmployeePageReqVO pageReqVO) {
@@ -194,6 +196,13 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
             result.setId(roster.getId())
                     .setUsername(roster.getUsername())
                     .setNickname(roster.getNickname());
+            // 可管系统范围校验：受限角色只能推送授权系统的花名册
+            try {
+                subSystemAccessService.checkAccessible(roster.getSubSystemId());
+            } catch (Exception e) {
+                result.setSuccess(false).setMessage(e.getMessage());
+                continue;
+            }
             // 同一批须同属一个花名册系统（注册状态打在该系统名册行上）
             if (rosterSubSystemId == null) {
                 rosterSubSystemId = roster.getSubSystemId();

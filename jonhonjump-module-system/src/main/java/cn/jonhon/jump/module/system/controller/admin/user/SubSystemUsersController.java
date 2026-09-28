@@ -54,7 +54,7 @@ public class SubSystemUsersController {
 
     @GetMapping("/client-simple-list")
     @Operation(summary = "获得外部系统精简列表（portalOnly=true 仅 JUMP 门户业务系统）")
-    @PreAuthorize("@ss.hasAnyPermissions('sub-system:user:list', 'sub-system:apiconfig:list', 'system:user:query', 'system:user:create')")
+    @PreAuthorize("@ss.hasAnyPermissions('sub-system:user:list', 'sub-system:apiconfig:list', 'system:user:query', 'system:user:create', 'system:role:query', 'system:role:create')")
     public CommonResult<List<SubSystemClientSimpleRespVO>> getClientSimpleList(
             @RequestParam(value = "portalOnly", required = false) Boolean portalOnly) {
         return success(subSystemUsersService.getClientSimpleList(portalOnly));

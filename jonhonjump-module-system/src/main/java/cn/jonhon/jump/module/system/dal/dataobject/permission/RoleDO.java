@@ -75,4 +75,13 @@ public class RoleDO extends TenantBaseDO {
     @TableField(typeHandler = JacksonTypeHandler.class)
     private Set<Long> dataScopeDeptIds;
 
+    /**
+     * 可管理的业务系统编号集合
+     *
+     * 空 = 不限（可管全部业务系统）；非空 = 业务菜单/角色/用户/班组等管理页面仅可见、可操作这些系统。
+     * 多角色时取并集，任一启用角色为空则不受限
+     */
+    @TableField(typeHandler = JacksonTypeHandler.class)
+    private Set<Long> subSystemIds;
+
 }

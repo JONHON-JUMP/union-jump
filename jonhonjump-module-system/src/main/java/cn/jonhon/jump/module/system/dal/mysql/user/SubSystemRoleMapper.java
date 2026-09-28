@@ -13,9 +13,10 @@ import java.util.List;
 @Mapper
 public interface SubSystemRoleMapper extends BaseMapperX<SubSystemRoleDO> {
 
-    default PageResult<SubSystemRoleDO> selectPage(SubSystemRolePageReqVO reqVO) {
+    default PageResult<SubSystemRoleDO> selectPage(SubSystemRolePageReqVO reqVO, Collection<Long> allowedSubSystemIds) {
         return selectPage(reqVO, new LambdaQueryWrapperX<SubSystemRoleDO>()
                 .eqIfPresent(SubSystemRoleDO::getSubSystemId, reqVO.getSubSystemId())
+                .inIfPresent(SubSystemRoleDO::getSubSystemId, allowedSubSystemIds)
                 .likeIfPresent(SubSystemRoleDO::getName, reqVO.getName())
                 .likeIfPresent(SubSystemRoleDO::getCode, reqVO.getCode())
                 .eqIfPresent(SubSystemRoleDO::getStatus, reqVO.getStatus())
