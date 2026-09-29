@@ -237,6 +237,52 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         return results;
     }
 
+    private static final String CAMSTAR_LOGIN_ROLE_ID = "001bda8000000001";
+
+    @Override
+    public void syncCamstarUserRoles(Long apiSubSystemId, String userCode, String userName,
+                                      String workshopCode, String teamCode, List<String> roleNames) {
+        if (apiSubSystemId == null) {
+            throw exception0(BAD_REQUEST.getCode(), "请选择接口目标");
+        }
+        if (StrUtil.isBlank(userCode) || StrUtil.isBlank(workshopCode)) {
+            throw exception0(BAD_REQUEST.getCode(), "同步 Camstar 角色需要工号和车间编号");
+        }
+        Map<String, String> nameToId = subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, workshopCode.trim());
+        List<String> roleIds = new ArrayList<>();
+        roleIds.add(CAMSTAR_LOGIN_ROLE_ID);
+        if (roleNames != null) {
+            for (String name : roleNames) {
+                if (StrUtil.isBlank(name)) {
+                    continue;
+                }
+                String trimmed = name.trim();
+                String camstarId = nameToId.get(trimmed);
+                if (camstarId == null && !trimmed.startsWith(workshopCode.trim() + "_")) {
+                    camstarId = nameToId.get(workshopCode.trim() + "_" + trimmed);
+                }
+                if (StrUtil.isBlank(camstarId)) {
+                    throw exception0(BAD_REQUEST.getCode(),
+                            "Camstar 未找到角色「" + trimmed + "」，请先在角色管理注册到该系统");
+                }
+                if (!roleIds.contains(camstarId)) {
+                    roleIds.add(camstarId);
+                }
+            }
+        }
+        SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
+        dto.setUserCode(userCode.trim());
+        dto.setUserName(userName);
+        dto.setWorkshopCode(workshopCode.trim());
+        dto.setTeamCode(teamCode);
+        dto.setUserRoleIdStr(String.join(",", roleIds));
+        try {
+            getApi(apiSubSystemId).update(dto);
+        } catch (ExternalApiException e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
+    }
+
     /** 车间优先：花名册已填 > 注册弹窗指定 > 花名册系统车间对照 > 接口目标车间对照 */
     private SubSystemEmployeeDTO buildEmployeeDTO(SubSystemUsersDO roster, Long apiSubSystemId, String overrideWorkshopCode,
                                                   boolean usernameWithWorkshop) {

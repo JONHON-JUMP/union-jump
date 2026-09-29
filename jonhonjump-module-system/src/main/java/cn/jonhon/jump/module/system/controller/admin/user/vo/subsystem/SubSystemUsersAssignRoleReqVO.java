@@ -19,4 +19,10 @@ public class SubSystemUsersAssignRoleReqVO {
     @NotNull(message = "角色编号列表不能为空")
     private List<Long> roleIds;
 
+    @Schema(description = "是否同步关联 Camstar 人员与角色（勾选后调对方接口）", example = "false")
+    private Boolean syncCamstar;
+
+    @Schema(description = "接口目标系统 ID（勾选同步时必填，与人员注册的接口目标相同）", example = "9")
+    private Long apiSubSystemId;
+
 }

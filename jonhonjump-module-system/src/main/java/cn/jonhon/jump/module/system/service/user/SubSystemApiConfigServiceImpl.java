@@ -192,7 +192,7 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         if (!endpoint.isEnabled()) {
             throw exception(SUB_SYSTEM_API_ENDPOINT_DISABLED, "role_create");
         }
-        // Camstar updateRoleInfo(List<RoleEntity>)：roleId 为空 → 新增裸角色（不挂页面）；请求体为 JSON 数组
+        // 与人员新增相同：JSON 数组 + Base64 Cookie。roleId 为空走新增，不传 pageCodeStr 不挂页面。
         Map<String, Object> item = new HashMap<>();
         item.put("roleName", externalRoleName);
         item.put("workshopCode", workshopCode);
@@ -204,7 +204,6 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         } catch (ExternalApiException e) {
             throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
         }
-        // 响应契约同 Camstar AjaxResult：code==200 成功，失败信息在 message
         JsonNode resp;
         try {
             resp = JsonUtils.parseObject(raw, JsonNode.class);
@@ -239,6 +238,60 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
                         .setSubSystemId(id)
                         .setSystemName(subSystemMap.get(id).getSystemName()))
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    public Map<String, String> queryExternalRoleIds(Long subSystemId, String workshopCode) {
+        SubSystemApiConfigDO config = subSystemApiConfigMapper.selectBySubSystemId(subSystemId);
+        if (config == null) {
+            throw exception(SUB_SYSTEM_API_CONFIG_NOT_EXISTS);
+        }
+        EndpointSpec endpoint;
+        try {
+            endpoint = EndpointSpec.parse(config.getApiRoleQuery(), "role_query");
+        } catch (ExternalApiException e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
+        if (!endpoint.isEnabled()) {
+            throw exception(SUB_SYSTEM_API_ENDPOINT_DISABLED, "role_query");
+        }
+        Map<String, Object> body = new HashMap<>();
+        body.put("workshopCode", workshopCode);
+        ExternalApiHttpClient httpClient = new ExternalApiHttpClient(
+                config.getBaseUrl(), config.getConnectTimeoutMs(), config.getReadTimeoutMs());
+        JsonNode resp;
+        try {
+            String raw = httpClient.execute(endpoint, body, buildAuthHeaders(config, endpoint));
+            resp = JsonUtils.parseObject(raw, JsonNode.class);
+        } catch (ExternalApiException e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        } catch (Exception e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
+        if (resp.path("code").asInt(0) != 200) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, resp.path("message").asText("角色查询失败"));
+        }
+        JsonNode rows = resp.has("rows") && resp.get("rows").isArray() ? resp.get("rows")
+                : (resp.has("data") && resp.get("data").isArray() ? resp.get("data") : null);
+        Map<String, String> nameToId = new HashMap<>();
+        if (rows == null) {
+            return nameToId;
+        }
+        for (JsonNode row : rows) {
+            // getRoleInfo 是 roleName/roleId；getRoleComboByFactory 是 text/value
+            String roleName = firstNonBlank(row.path("roleName").asText(""),
+                    firstNonBlank(row.path("RoleName").asText(""), row.path("text").asText("")));
+            String roleId = firstNonBlank(row.path("roleId").asText(""),
+                    firstNonBlank(row.path("RoleId").asText(""), row.path("value").asText("")));
+            if (StrUtil.isNotBlank(roleName) && StrUtil.isNotBlank(roleId)) {
+                nameToId.put(roleName.trim(), roleId.trim());
+            }
+        }
+        return nameToId;
+    }
+
+    private String firstNonBlank(String a, String b) {
+        return StrUtil.isNotBlank(a) ? a : (b == null ? "" : b);
     }
 
     private boolean isRoleCreateEndpointEnabled(SubSystemApiConfigDO config) {
@@ -376,8 +429,7 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
             if (StrUtil.isBlank(userCode)) {
                 return null;
             }
-            String cookieValue = Base64.getEncoder()
-                    .encodeToString(userCode.getBytes(StandardCharsets.UTF_8));
+            String cookieValue = Base64.getEncoder().encodeToString(userCode.getBytes(StandardCharsets.UTF_8));
             Map<String, String> headers = new HashMap<>();
             headers.put("Cookie", cookieName + "=" + cookieValue);
             return headers;

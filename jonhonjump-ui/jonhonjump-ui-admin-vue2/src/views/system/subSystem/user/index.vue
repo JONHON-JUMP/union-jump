@@ -343,8 +343,8 @@
     </el-dialog>
 
     <!-- 分配角色 -->
-    <el-dialog title="分配角色" :visible.sync="openRole" width="500px" append-to-body>
-      <el-form :model="roleForm" label-width="100px">
+    <el-dialog title="分配角色" :visible.sync="openRole" width="560px" append-to-body>
+      <el-form :model="roleForm" label-width="110px">
         <el-form-item label="用户姓名">
           <el-input v-model="roleForm.nickname" disabled />
         </el-form-item>
@@ -358,9 +358,31 @@
             />
           </el-select>
         </el-form-item>
+        <el-form-item label="同步 Camstar">
+          <el-checkbox v-model="roleForm.syncCamstar">同步关联 Camstar 人员与角色</el-checkbox>
+          <div class="form-tip">不勾选只改 JUMP；勾选后按角色名匹配 Camstar 角色并调用人员更新接口</div>
+        </el-form-item>
+        <el-form-item v-if="roleForm.syncCamstar" label="接口目标">
+          <el-select
+            v-model="roleForm.apiSubSystemId"
+            placeholder="请选择接口目标（与人员注册相同）"
+            filterable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in registerApis"
+              :key="item.subSystemId"
+              :label="item.systemName"
+              :value="item.subSystemId"
+            />
+          </el-select>
+          <div v-if="!registerApis.length" class="form-tip" style="color:#f56c6c">
+            没有已启用「新增人员」的接口目标，请先在【接口管理】接入并启用
+          </div>
+        </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitRole">确 定</el-button>
+        <el-button type="primary" :loading="roleSubmitting" @click="submitRole">确 定</el-button>
         <el-button @click="openRole = false">取 消</el-button>
       </div>
     </el-dialog>
@@ -551,6 +573,7 @@ export default {
       open: false,
       submitting: false,
       openRole: false,
+      roleSubmitting: false,
       form: {},
       roleForm: {},
       mainUserInfo: {},
@@ -1068,9 +1091,12 @@ export default {
       this.roleForm = {
         id: row.id,
         nickname: row.nickname,
-        roleIds: []
+        roleIds: [],
+        syncCamstar: false,
+        apiSubSystemId: undefined
       }
       this.openRole = true
+      this.loadRegisterableApis()
       this.openingKey = 'role:' + row.id
       const sid = row.subSystemId
       Promise.all([
@@ -1083,15 +1109,24 @@ export default {
       })
     },
     submitRole() {
+      if (this.roleForm.syncCamstar && !this.roleForm.apiSubSystemId) {
+        this.$modal.msgWarning('同步 Camstar 请选择接口目标')
+        return
+      }
+      this.roleSubmitting = true
       assignSubSystemUserRole({
         id: this.roleForm.id,
-        roleIds: this.roleForm.roleIds || []
+        roleIds: this.roleForm.roleIds || [],
+        syncCamstar: !!this.roleForm.syncCamstar,
+        apiSubSystemId: this.roleForm.syncCamstar ? this.roleForm.apiSubSystemId : undefined
       }).then(() => {
-        this.$modal.msgSuccess('分配成功')
+        this.$modal.msgSuccess(this.roleForm.syncCamstar ? '分配成功，已同步 Camstar' : '分配成功')
         this.openRole = false
         this.getList()
       }).catch(() => {
         this.$modal.msgError('分配角色失败，请重试')
+      }).finally(() => {
+        this.roleSubmitting = false
       })
     },
     handleRowCheckboxChange(selection) {

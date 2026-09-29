@@ -240,6 +240,9 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         if (StrUtil.isNotBlank(dto.getCardNo())) {
             item.put("cardNo", dto.getCardNo());
         }
+        if (StrUtil.isNotBlank(dto.getUserRoleIdStr())) {
+            item.put("userRoleIdStr", dto.getUserRoleIdStr());
+        }
         return item;
     }
 

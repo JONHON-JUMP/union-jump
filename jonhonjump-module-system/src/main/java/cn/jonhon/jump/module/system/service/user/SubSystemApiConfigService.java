@@ -9,6 +9,7 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 子系统人员接口配置 Service
@@ -60,5 +61,10 @@ public interface SubSystemApiConfigService {
      * 已启用「角色新增」接口的接入系统列表（与门户角色所属系统解耦，如 Camstar人员管理）
      */
     List<SubSystemRegisterableApiRespVO> listRoleCreateApis();
+
+    /**
+     * 按车间查对方角色：roleName → Camstar roleId（role_query / getRoleInfo）
+     */
+    Map<String, String> queryExternalRoleIds(Long subSystemId, String workshopCode);
 
 }

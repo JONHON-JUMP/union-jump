@@ -118,6 +118,7 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_CLIENT_ID_INVALID = new ErrorCode(1_002_003_065, "系统编号只能以字母开头，且仅含字母、数字、下划线或中划线");
     ErrorCode SUB_SYSTEM_CLIENT_ID_EXISTS = new ErrorCode(1_002_003_066, "系统编号【{}】已存在");
     ErrorCode SUB_SYSTEM_SAVE_FAILED = new ErrorCode(1_002_003_067, "业务系统保存失败，请检查系统编号是否重复");
+    ErrorCode SUB_SYSTEM_NO_PERMISSION = new ErrorCode(1_002_003_068, "无权管理该业务系统，请联系管理员调整角色的可管业务系统");
     // ========== 业务系统人员接口模块 1-002-003-055 ==========
     ErrorCode SUB_SYSTEM_EMPLOYEE_API_NOT_CONFIGURED = new ErrorCode(1_002_003_055, "该业务系统未配置（或未启用）人员接口");
     ErrorCode SUB_SYSTEM_EMPLOYEE_API_ERROR = new ErrorCode(1_002_003_056, "业务系统接口调用失败：【{}】");
