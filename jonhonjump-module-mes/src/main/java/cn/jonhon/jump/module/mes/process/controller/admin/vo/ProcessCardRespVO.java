@@ -18,6 +18,9 @@ public class ProcessCardRespVO {
     /** 工艺卡片直接查看地址，无需工序节点。 */
     private String url;
 
+    /** MPM的010文档，由本系统PDF接口预览，不向浏览器暴露MPM凭证。 */
+    private Boolean documentPdf;
+
     /**
      * 工艺号
      */

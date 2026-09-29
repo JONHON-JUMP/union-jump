@@ -82,6 +82,9 @@ public class ProcessServiceImpl implements ProcessService{
     @Value("${jonhonjump.mes.process.process-file-url}")
     private String processFileUrl;
 
+    @Value("${jonhonjump.mes.process.mpm-document-pdf-url:http://mpm.caoe.com/plm-service/api/gate/content/v1/downloadPrimaryContentByOid}")
+    private String documentPdfUrl;
+
     /**
      * 查看工艺卡片
      * @param reqVO
@@ -115,6 +118,12 @@ public class ProcessServiceImpl implements ProcessService{
         if (document == null) {
             throw exception(new ErrorCode(500, "临时工艺文档信息不存在"));
         }
+        if ("MPM".equals(document.getSourceSys())) {
+            requireMpmDocument(document);
+            return ProcessCardRespVO.builder().accno(accno).documentPdf(true)
+                    .isFormal(YesOrNo.NO.getType()).isFix(YesOrNo.NO.getType())
+                    .details(Collections.emptyList()).build();
+        }
         pdmProcessStateService.requirePublished(accno);
         String link = StringUtils.trimToEmpty(document.getDocLink());
         int queryIndex = link.indexOf('?');
@@ -140,6 +149,46 @@ public class ProcessServiceImpl implements ProcessService{
                 .url(CommonConstant.VIEW_URL_PREFIX + oid)
                 .details(Collections.emptyList())
                 .build();
+    }
+
+    private void requireMpmDocument(CaoeDocInfoDTO document) {
+        if (!CommonConstant.PUBLISHED.equals(document.getDocState())) {
+            throw exception(new ErrorCode(500, "工艺未发行，无法查看"));
+        }
+        if (StringUtils.isBlank(document.getOid())) {
+            throw exception(new ErrorCode(500, "工艺文档oid缺失，无法查看"));
+        }
+    }
+
+    @Override
+    public byte[] queryDocumentPdf(String accno) {
+        String number = StringUtils.trimToEmpty(accno);
+        if (!number.startsWith("010")) {
+            throw exception(new ErrorCode(500, "仅支持010开头的MPM文档"));
+        }
+        // 只接受工艺号并重新查库、校验，不能让公共接口转发任意外部oid。
+        CaoeDocInfoDTO document = caoeTableMapper.queryDocInfo(number);
+        if (document == null || !"MPM".equals(document.getSourceSys())) {
+            throw exception(new ErrorCode(500, "MPM工艺文档不存在"));
+        }
+        requireMpmDocument(document);
+        HttpHeaders headers = buildMpmHeaders();
+        headers.setContentType(new MediaType("text", "plain", StandardCharsets.UTF_8));
+        headers.setAccept(Collections.singletonList(MediaType.APPLICATION_PDF));
+        ResponseEntity<byte[]> response;
+        try {
+            response = restTemplate.postForEntity(documentPdfUrl,
+                    new HttpEntity<>(document.getOid(), headers), byte[].class);
+        } catch (RestClientException failure) {
+            log.warn("MPM文档下载失败，异常类型：{}", failure.getClass().getSimpleName());
+            throw exception(new ErrorCode(500, "工艺PDF获取失败，请稍后重试"));
+        }
+        byte[] pdf = response.getBody();
+        if (!response.getStatusCode().is2xxSuccessful() || pdf == null || pdf.length < 5
+                || pdf[0] != '%' || pdf[1] != 'P' || pdf[2] != 'D' || pdf[3] != 'F' || pdf[4] != '-') {
+            throw exception(new ErrorCode(500, "工艺接口未返回有效PDF文件"));
+        }
+        return pdf;
     }
 
     private ProcessCardRespVO queryExplicitTemporaryCard(String prtno, String accno) {
