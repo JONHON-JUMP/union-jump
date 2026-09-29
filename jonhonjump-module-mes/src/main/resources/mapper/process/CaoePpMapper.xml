@@ -22,6 +22,11 @@
         WHERE PP_NUMBER = #{accno} AND PP_VERSION = #{version} AND ROWNUM = 1
     </select>
 
+    <select id="queryProcessSourceSystem" resultType="java.lang.String">
+        SELECT SOURCESYS FROM DBA_MGR.CAOE_PP
+        WHERE PP_NUMBER = #{accno} AND PP_VERSION = #{version} AND ROWNUM = 1
+    </select>
+
     <select id="queryChildOperations"
             resultType="cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.ProcessOperationDTO">
         SELECT cname, cnumber, label, cversion FROM DBA_MGR.CAOE_PPOPLINK

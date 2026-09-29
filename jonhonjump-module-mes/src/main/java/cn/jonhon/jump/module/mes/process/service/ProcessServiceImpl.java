@@ -307,7 +307,9 @@ public class ProcessServiceImpl implements ProcessService{
 
         String version = queryFormalVersion(request);
 
-        boolean mpm = accno.startsWith(CommonConstant.MPM_FORMAL_ACCNO_PREFIX);
+        // CX始终走MPM；其他正式工艺按当前版本的来源系统判断，空值及其他值均走PDM。
+        boolean mpm = accno.startsWith(CommonConstant.MPM_FORMAL_ACCNO_PREFIX)
+                || "MPM".equals(caoeTableMapper.queryProcessSourceSystem(accno, version));
         if (mpm) {
             String state = caoeTableMapper.queryProcessState(accno, version);
             if (!CommonConstant.PUBLISHED.equals(state)) {
