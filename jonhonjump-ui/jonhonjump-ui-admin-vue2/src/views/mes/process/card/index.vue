@@ -162,7 +162,7 @@
 </template>
 
 <script>
-import { queryProcessCard, queryProcessFileUrl } from '@/api/mes/process/card'
+import { queryProcessCard, queryProcessFileUrl, getDocumentPdfUrl } from '@/api/mes/process/card'
 
 export default {
   name: 'MesProcessViewer',
@@ -176,7 +176,8 @@ export default {
       querySequence: 0,
       viewLoadingId: '',
       viewSequence: 0,
-      viewWindow: null
+      viewWindow: null,
+      documentWindow: null
     }
   },
   computed: {
@@ -239,6 +240,10 @@ export default {
       return this.activeProcess && this.activeProcess.isFix === 1 ? '返修' : '普通'
     }
   },
+  beforeDestroy() {
+    this.querySequence++
+    if (this.documentWindow) this.documentWindow.close()
+  },
   methods: {
     hasChildren(row) {
       return Boolean(row && row.children && row.children.length)
@@ -277,7 +282,7 @@ export default {
         version: card.version || '—',
         isFormal: card.isFormal,
         isFix: card.isFix,
-        externalUrl: card.url || '',
+        externalUrl: card.documentPdf ? getDocumentPdfUrl(card.accno) : (card.url || ''),
         parentName: '',
         nodeType: 'card',
         children: mapDetails(card.details, card.accno, cardIndex, card.accno || `card-${cardIndex}`)
@@ -326,18 +331,33 @@ export default {
         .forEach(item => table.toggleRowExpansion(item, expanded))
     },
     async handleQuery() {
-      const valid = await this.validateQueryForm()
-      if (!valid) return
+      const querySnapshot = { ...this.queryParams }
       const querySequence = ++this.querySequence
+      if (this.documentWindow) this.documentWindow.close()
+      // 在用户点击事件内预留页签，不能等异步查询结束后再打开。
+      const pdfWindow = this.isDocumentProcess(querySnapshot.accno) ? window.open('about:blank', '_blank') : null
+      if (pdfWindow) pdfWindow.opener = null
+      this.documentWindow = pdfWindow
+      let pdfOpened = false
       this.loading = true
       try {
-        const querySnapshot = { ...this.queryParams }
+        const valid = await this.validateQueryForm()
+        if (!valid || querySequence !== this.querySequence) return
         const requestData = this.buildQueryRequest(querySnapshot)
         const response = await queryProcessCard(requestData)
         if (querySequence !== this.querySequence) return
         const cards = Array.isArray(response) ? response : response && response.data
         this.processTree = this.normalizeCards(cards)
         this.displayProcessTree = this.processTree
+        const pdfCard = (cards || []).find(card => card.documentPdf)
+        if (pdfCard) {
+          if (pdfWindow && !pdfWindow.closed) {
+            pdfWindow.location.href = getDocumentPdfUrl(pdfCard.accno)
+            pdfOpened = true
+          } else {
+            this.$message.warning('浏览器阻止了新页签，请允许弹窗或点击工艺后的查看按钮')
+          }
+        }
         if (this.processTree.length) {
           const recent = {
             ...querySnapshot,
@@ -354,6 +374,8 @@ export default {
         this.processTree = []
         this.displayProcessTree = []
       } finally {
+        if (pdfWindow && !pdfOpened) pdfWindow.close()
+        if (this.documentWindow === pdfWindow) this.documentWindow = null
         if (querySequence === this.querySequence) this.loading = false
       }
     },
@@ -363,6 +385,8 @@ export default {
     },
     resetQuery() {
       this.querySequence++
+      if (this.documentWindow) this.documentWindow.close()
+      this.documentWindow = null
       if (this.$refs.queryForm) this.$refs.queryForm.resetFields()
       this.queryParams = { prtno: '', accno: '' }
       this.processTree = []

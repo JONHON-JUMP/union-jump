@@ -21,10 +21,11 @@ function loadComponent(options = {}) {
     window: { open: options.openWindow || (() => null) },
     queryProcessCard: options.queryProcessCard || (() => Promise.resolve({ data: [] })),
     queryProcessFileUrl: options.queryProcessFileUrl || (() => Promise.resolve({ data: { url: '' } })),
-    encodeURIComponent
+    encodeURIComponent,
+    getDocumentPdfUrl: accno => '/admin-api/mes/process/query/document-pdf?accno=' + encodeURIComponent(accno)
   }
   const executableScript = scriptMatch[1]
-    .replace(/import \{ queryProcessCard, queryProcessFileUrl \} from '@\/api\/mes\/process\/card'\s*/, '')
+    .replace(/import \{[^}]+\} from '@\/api\/mes\/process\/card'\s*/, '')
     .replace('export default', 'module.exports =')
   vm.runInNewContext(executableScript, sandbox, { filename: 'index.vue' })
   return sandbox.module.exports
@@ -63,6 +64,66 @@ function createContext(component, overrides = {}) {
     ...overrides
   }
 }
+
+test('MPM 010 query reserves a tab synchronously then opens backend PDF preview', async () => {
+  const popup = { location: {}, close() { this.closed = true } }
+  let opened = false
+  const component = loadComponent({
+    openWindow: () => { opened = true; return popup },
+    queryProcessCard: () => Promise.resolve({ data: [{ accno: '010123', documentPdf: true, details: [] }] })
+  })
+  const context = createContext(component, { queryParams: { accno: '010123', prtno: '' } })
+  const pending = context.handleQuery()
+  assert.equal(opened, true)
+  await pending
+  assert.equal(popup.location.href, '/admin-api/mes/process/query/document-pdf?accno=010123')
+  assert.equal(popup.closed, undefined)
+  assert.equal(context.canView(context.processTree[0]), true)
+})
+
+test('PDM 010 closes the reserved tab and retains original URL', async () => {
+  const popup = { location: {}, close() { this.closed = true } }
+  const component = loadComponent({
+    openWindow: () => popup,
+    queryProcessCard: () => Promise.resolve({ data: [{ accno: '010123', url: 'http://pdm.example/doc', details: [] }] })
+  })
+  const context = createContext(component, { queryParams: { accno: '010123', prtno: '' } })
+  await context.handleQuery()
+  assert.equal(popup.closed, true)
+  assert.equal(context.processTree[0].externalUrl, 'http://pdm.example/doc')
+})
+
+test('010 query failure closes the pending tab', async () => {
+  const popup = { close() { this.closed = true } }
+  const component = loadComponent({ openWindow: () => popup, queryProcessCard: () => Promise.reject(new Error('failed')) })
+  const context = createContext(component, { queryParams: { accno: '010123' } })
+  await context.handleQuery()
+  assert.equal(popup.closed, true)
+  assert.equal(context.documentWindow, null)
+})
+
+test('reset prevents a pending 010 query from navigating its tab', async () => {
+  const popup = { location: {}, close() { this.closed = true } }
+  let resolve
+  const component = loadComponent({ openWindow: () => popup, queryProcessCard: () => new Promise(done => { resolve = done }) })
+  const context = createContext(component, { queryParams: { accno: '010123' } })
+  const pending = context.handleQuery()
+  await Promise.resolve()
+  context.resetQuery()
+  resolve({ data: [{ accno: '010123', documentPdf: true }] })
+  await pending
+  assert.equal(popup.closed, true)
+  assert.equal(popup.location.href, undefined)
+})
+
+test('blocked automatic PDF tab leaves a clickable preview and warns', async () => {
+  let warning
+  const component = loadComponent({ queryProcessCard: () => Promise.resolve({ data: [{ accno: '010123', documentPdf: true }] }) })
+  const context = createContext(component, { queryParams: { accno: '010123' }, $message: { warning: message => { warning = message } } })
+  await context.handleQuery()
+  assert.match(warning, /弹窗/)
+  assert.equal(context.canView(context.processTree[0]), true)
+})
 
 test('declares the real queryCard API contract', () => {
   const apiSource = fs.readFileSync(apiFilePath, 'utf8')
