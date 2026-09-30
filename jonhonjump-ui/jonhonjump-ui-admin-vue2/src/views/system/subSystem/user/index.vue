@@ -359,8 +359,8 @@
           </el-select>
         </el-form-item>
         <el-form-item label="同步 Camstar">
-          <el-checkbox v-model="roleForm.syncCamstar">同步关联 Camstar 人员与角色</el-checkbox>
-          <div class="form-tip">不勾选只改 JUMP；勾选后按角色名匹配 Camstar 角色并调用人员更新接口</div>
+          <el-checkbox v-model="roleForm.syncCamstar">调用接口更新 Camstar 人员角色</el-checkbox>
+          <div class="form-tip">不勾选只改 JUMP。勾选后按角色名匹配 Camstar 角色，只更新人员角色，不改菜单、主页、工位和班组。接口目标需已启用角色查询。</div>
         </el-form-item>
         <el-form-item v-if="roleForm.syncCamstar" label="接口目标">
           <el-select

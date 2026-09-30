@@ -6,9 +6,13 @@ import cn.jonhon.jump.framework.common.util.json.JsonUtils;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
+import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiEndpointDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemApiConfigMapper;
+import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemApiEndpointMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
+import cn.jonhon.jump.module.system.framework.subsystemapi.ApiEndpointSpecs;
+import cn.jonhon.jump.module.system.framework.subsystemapi.CamstarEmployeeApiAdapter;
 import cn.jonhon.jump.module.system.framework.subsystemapi.ExternalApiException;
 import cn.jonhon.jump.module.system.framework.subsystemapi.SubSystemEmployeeApiFactory;
 import cn.jonhon.jump.module.system.framework.subsystemapi.http.EndpointSpec;
@@ -23,11 +27,15 @@ import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeConstants.BAD_REQUEST;
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception0;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertMap;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertSet;
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.*;
@@ -41,6 +49,8 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
 
     @Resource
     private SubSystemApiConfigMapper subSystemApiConfigMapper;
+    @Resource
+    private SubSystemApiEndpointMapper subSystemApiEndpointMapper;
     @Resource
     private SubSystemMapper subSystemMapper;
     @Resource
@@ -71,6 +81,7 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
 
         SubSystemApiConfigDO config = BeanUtils.toBean(createReqVO, SubSystemApiConfigDO.class);
         subSystemApiConfigMapper.insert(config);
+        saveEndpoints(config.getSubSystemId(), createReqVO.getEndpoints());
         return config.getId();
     }
 
@@ -91,6 +102,7 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void updateApiConfig(SubSystemApiConfigSaveReqVO updateReqVO) {
         SubSystemApiConfigDO config = validateApiConfigExists(updateReqVO.getId());
         validateSubSystemExists(updateReqVO.getSubSystemId());
@@ -100,24 +112,37 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         SubSystemApiConfigDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemApiConfigDO.class);
         updateObj.setSubSystemId(config.getSubSystemId());
         subSystemApiConfigMapper.updateById(updateObj);
+        saveEndpoints(config.getSubSystemId(), updateReqVO.getEndpoints());
         // 配置变更：重建适配器（含旧 Cookie 会话作废）
         subSystemEmployeeApiFactory.invalidate(config.getSubSystemId());
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public void deleteApiConfig(Long id) {
         SubSystemApiConfigDO config = validateApiConfigExists(id);
         subSystemApiConfigMapper.deleteById(id);
+        subSystemApiEndpointMapper.deleteListBySubSystemId(config.getSubSystemId());
         subSystemEmployeeApiFactory.invalidate(config.getSubSystemId());
     }
 
     @Override
     public SubSystemApiConfigDO getEnabledConfigBySubSystemId(Long subSystemId) {
         SubSystemApiConfigDO config = subSystemApiConfigMapper.selectBySubSystemId(subSystemId);
-        if (config == null || !isCreateEndpointEnabled(config)) {
+        if (config == null || !isCreateEndpointEnabled(subSystemId)) {
             return null;
         }
         return config;
+    }
+
+    @Override
+    public boolean isCreateEndpointEnabled(Long subSystemId) {
+        if (subSystemId == null) {
+            return false;
+        }
+        SubSystemApiEndpointDO endpoint = subSystemApiEndpointMapper
+                .selectBySubSystemIdAndPurpose(subSystemId, ApiEndpointSpecs.CREATE);
+        return endpoint != null && (endpoint.getEnabled() == null || endpoint.getEnabled() == 1);
     }
 
     @Override
@@ -135,8 +160,7 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     @Override
     public SubSystemApiTestRespVO testInvoke(SubSystemApiTestReqVO reqVO) {
         SubSystemApiConfigDO config = validateApiConfigExists(reqVO.getId());
-        String jsonField = resolveEndpointJson(config, reqVO.getApiKey());
-        EndpointSpec endpoint = EndpointSpec.parse(jsonField, reqVO.getApiKey());
+        EndpointSpec endpoint = resolveEndpointSpec(config, reqVO.getApiKey());
         if (!endpoint.isEnabled()) {
             throw exception(SUB_SYSTEM_API_ENDPOINT_DISABLED, reqVO.getApiKey());
         }
@@ -183,12 +207,12 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         if (config == null) {
             throw exception(SUB_SYSTEM_API_CONFIG_NOT_EXISTS);
         }
-        EndpointSpec endpoint;
-        try {
-            endpoint = EndpointSpec.parse(config.getApiRoleCreate(), "role_create");
-        } catch (ExternalApiException e) {
-            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        SubSystemApiEndpointDO roleCreate = subSystemApiEndpointMapper
+                .selectBySubSystemIdAndPurpose(subSystemId, ApiEndpointSpecs.ROLE_CREATE);
+        if (roleCreate == null) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, "角色新增接口未配置");
         }
+        EndpointSpec endpoint = ApiEndpointSpecs.toSpec(roleCreate);
         if (!endpoint.isEnabled()) {
             throw exception(SUB_SYSTEM_API_ENDPOINT_DISABLED, "role_create");
         }
@@ -246,12 +270,12 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         if (config == null) {
             throw exception(SUB_SYSTEM_API_CONFIG_NOT_EXISTS);
         }
-        EndpointSpec endpoint;
-        try {
-            endpoint = EndpointSpec.parse(config.getApiRoleQuery(), "role_query");
-        } catch (ExternalApiException e) {
-            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        SubSystemApiEndpointDO roleQuery = subSystemApiEndpointMapper
+                .selectBySubSystemIdAndPurpose(subSystemId, ApiEndpointSpecs.ROLE_QUERY);
+        if (roleQuery == null) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, "角色查询接口未配置");
         }
+        EndpointSpec endpoint = ApiEndpointSpecs.toSpec(roleQuery);
         if (!endpoint.isEnabled()) {
             throw exception(SUB_SYSTEM_API_ENDPOINT_DISABLED, "role_query");
         }
@@ -295,40 +319,28 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     }
 
     private boolean isRoleCreateEndpointEnabled(SubSystemApiConfigDO config) {
-        if (config == null || StrUtil.isBlank(config.getApiRoleCreate())) {
+        if (config == null) {
             return false;
         }
-        try {
-            return EndpointSpec.parse(config.getApiRoleCreate(), "role_create").isEnabled();
-        } catch (Exception e) {
-            return false;
-        }
+        SubSystemApiEndpointDO roleCreate = subSystemApiEndpointMapper
+                .selectBySubSystemIdAndPurpose(config.getSubSystemId(), ApiEndpointSpecs.ROLE_CREATE);
+        return roleCreate != null && (roleCreate.getEnabled() == null || roleCreate.getEnabled() == 1);
     }
 
-    private String resolveEndpointJson(SubSystemApiConfigDO config, String apiKey) {
+    /** apiKey（=purpose，auth 除外）→ 接口行构建的 EndpointSpec */
+    private EndpointSpec resolveEndpointSpec(SubSystemApiConfigDO config, String apiKey) {
         if (apiKey == null) {
             throw exception(SUB_SYSTEM_API_CONFIG_INVALID_JSON, "apiKey");
         }
-        switch (apiKey.trim().toLowerCase()) {
-            case "auth":
-                return toAuthEndpointJson(config);
-            case "query":
-                return config.getApiQuery();
-            case "create":
-                return config.getApiCreate();
-            case "update":
-                return config.getApiUpdate();
-            case "delete":
-                return config.getApiDelete();
-            case "role_query":
-                return config.getApiRoleQuery();
-            case "role_create":
-                return config.getApiRoleCreate();
-            case "role_delete":
-                return config.getApiRoleDelete();
-            default:
-                throw exception(SUB_SYSTEM_API_CONFIG_INVALID_JSON, apiKey);
+        if ("auth".equalsIgnoreCase(apiKey.trim())) {
+            return EndpointSpec.parse(toAuthEndpointJson(config), "auth");
         }
+        SubSystemApiEndpointDO endpoint = subSystemApiEndpointMapper
+                .selectBySubSystemIdAndPurpose(config.getSubSystemId(), apiKey.trim().toLowerCase());
+        if (endpoint == null) {
+            throw exception(SUB_SYSTEM_API_CONFIG_INVALID_JSON, apiKey);
+        }
+        return ApiEndpointSpecs.toSpec(endpoint);
     }
 
     /** authConfig → 可被 EndpointSpec 解析的 JSON（完整 url / path / method / enabled） */
@@ -379,17 +391,6 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         return params;
     }
 
-    private boolean isCreateEndpointEnabled(SubSystemApiConfigDO config) {
-        if (config == null || StrUtil.isBlank(config.getApiCreate())) {
-            return false;
-        }
-        try {
-            return EndpointSpec.parse(config.getApiCreate(), "新增接口").isEnabled();
-        } catch (Exception e) {
-            return false;
-        }
-    }
-
     private String firstText(JsonNode node, String... fields) {
         if (node == null || fields == null) {
             return "";
@@ -424,12 +425,16 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         }
         try {
             JsonNode auth = JsonUtils.parseObject(config.getAuthConfig(), JsonNode.class);
+            // 与人员注册同一规则：会话关闭时不带 Cookie，避免 Camstar 解一个坏 Cookie 直接 500
+            if (auth.has("enabled") && !auth.get("enabled").asBoolean(true)) {
+                return null;
+            }
             String userCode = auth.path("userCode").asText("");
             String cookieName = auth.path("cookieName").asText("Nancal_Cam_SessionId");
             if (StrUtil.isBlank(userCode)) {
                 return null;
             }
-            String cookieValue = Base64.getEncoder().encodeToString(userCode.getBytes(StandardCharsets.UTF_8));
+            String cookieValue = CamstarEmployeeApiAdapter.encodeSessionCookie(userCode);
             Map<String, String> headers = new HashMap<>();
             headers.put("Cookie", cookieName + "=" + cookieValue);
             return headers;
@@ -447,14 +452,73 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         Map<Long, SubSystemDO> subSystemMap = convertMap(
                 subSystemMapper.selectListByIds(convertSet(list, SubSystemApiConfigDO::getSubSystemId)),
                 SubSystemDO::getId);
+        Map<Long, List<SubSystemApiEndpointDO>> endpointMap = subSystemApiEndpointMapper
+                .selectList().stream()
+                .collect(Collectors.groupingBy(SubSystemApiEndpointDO::getSubSystemId));
         return list.stream().map(config -> {
             SubSystemApiConfigRespVO vo = BeanUtils.toBean(config, SubSystemApiConfigRespVO.class);
             SubSystemDO subSystem = subSystemMap.get(config.getSubSystemId());
             if (subSystem != null) {
                 vo.setClientName(subSystem.getSystemName());
             }
+            vo.setEndpoints(buildEndpointVOList(endpointMap.get(config.getSubSystemId())));
             return vo;
         }).collect(Collectors.toList());
+    }
+
+    private List<SubSystemApiEndpointVO> buildEndpointVOList(List<SubSystemApiEndpointDO> endpoints) {
+        if (CollUtil.isEmpty(endpoints)) {
+            return Collections.emptyList();
+        }
+        return endpoints.stream()
+                .sorted((a, b) -> Integer.compare(
+                        a.getSort() == null ? 0 : a.getSort(),
+                        b.getSort() == null ? 0 : b.getSort()))
+                .map(endpoint -> {
+                    SubSystemApiEndpointVO vo = new SubSystemApiEndpointVO();
+                    vo.setId(endpoint.getId());
+                    vo.setPurpose(endpoint.getPurpose());
+                    vo.setGroupCode(endpoint.getGroupCode());
+                    vo.setName(endpoint.getName());
+                    vo.setUrl(endpoint.getUrl());
+                    vo.setMethod(endpoint.getMethod());
+                    vo.setEnabled(endpoint.getEnabled() == null || endpoint.getEnabled() == 1);
+                    vo.setWithSession(endpoint.getWithSession() == null || endpoint.getWithSession() == 1);
+                    vo.setSort(endpoint.getSort());
+                    return vo;
+                })
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 级联保存接口行：先逻辑删旧行再整批插入；同一用途只能一个接口（空用途除外）。
+     */
+    private void saveEndpoints(Long subSystemId, List<SubSystemApiEndpointVO> endpoints) {
+        subSystemApiEndpointMapper.deleteListBySubSystemId(subSystemId);
+        if (CollUtil.isEmpty(endpoints)) {
+            return;
+        }
+        Set<String> purposes = new HashSet<>();
+        int index = 0;
+        for (SubSystemApiEndpointVO vo : endpoints) {
+            String purpose = StrUtil.nullToEmpty(vo.getPurpose()).trim();
+            if (!purpose.isEmpty() && !purposes.add(purpose)) {
+                throw exception0(BAD_REQUEST.getCode(), "接口用途「" + purpose + "」重复，同一用途只能配置一个接口");
+            }
+            SubSystemApiEndpointDO endpoint = new SubSystemApiEndpointDO();
+            endpoint.setSubSystemId(subSystemId);
+            endpoint.setPurpose(purpose);
+            // 分组按用途推导：role_* → role，空用途 → other，其余 → person
+            endpoint.setGroupCode(ApiEndpointSpecs.groupOf(purpose));
+            endpoint.setName(StrUtil.nullToEmpty(vo.getName()).trim());
+            endpoint.setUrl(StrUtil.nullToEmpty(vo.getUrl()).trim());
+            endpoint.setMethod(StrUtil.blankToDefault(vo.getMethod(), "POST").trim().toUpperCase());
+            endpoint.setEnabled(!Boolean.FALSE.equals(vo.getEnabled()) ? 1 : 0);
+            endpoint.setWithSession(!Boolean.FALSE.equals(vo.getWithSession()) ? 1 : 0);
+            endpoint.setSort(vo.getSort() == null ? (index + 1) * 10 : vo.getSort());
+            subSystemApiEndpointMapper.insert(endpoint);
+            index++;
+        }
     }
 
     private SubSystemApiConfigRespVO buildResp(SubSystemApiConfigDO config) {
@@ -484,10 +548,7 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     }
 
     private void validateJsonFields(SubSystemApiConfigSaveReqVO reqVO) {
-        String[] jsonFields = {reqVO.getAuthConfig(), reqVO.getApiQuery(), reqVO.getApiCreate(),
-                reqVO.getApiUpdate(), reqVO.getApiDelete(), reqVO.getApiTeamCombo(),
-                reqVO.getApiRoleQuery(), reqVO.getApiRoleCreate(), reqVO.getApiRoleDelete(),
-                reqVO.getApiCatalog(), reqVO.getParamMapping(), reqVO.getResponseMapping()};
+        String[] jsonFields = {reqVO.getAuthConfig(), reqVO.getParamMapping(), reqVO.getResponseMapping()};
         for (String json : jsonFields) {
             if (StrUtil.isBlank(json)) {
                 continue;

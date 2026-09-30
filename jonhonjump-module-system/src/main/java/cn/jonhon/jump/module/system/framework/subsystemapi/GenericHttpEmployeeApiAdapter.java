@@ -3,6 +3,7 @@ package cn.jonhon.jump.module.system.framework.subsystemapi;
 import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.util.json.JsonUtils;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
+import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiEndpointDO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemEmployeeDTO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemEmployeePageRespDTO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemEmployeeQueryDTO;
@@ -13,6 +14,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -20,8 +22,8 @@ import java.util.Map;
 /**
  * 通用 HTTP 人员接口适配器（纯配置驱动，标准 REST 系统零代码接入）
  *
- * 配置约定（sub_system_api_config）：
- * - apiQuery/apiCreate/apiUpdate/apiDelete/apiTeamCombo：{"path":"/api/user/page","method":"POST"}
+ * 配置约定：
+ * - 接口端点存 sub_system_api_endpoint（一行一接口，按 purpose 区分；team_combo 可选，未配置返回空）
  * - paramMapping：JUMP标准参数名→对方参数名，如 {"userCode":"empNo","page":"pageNo","rows":"pageSize"}
  * - responseMapping：{"successField":"code","successValue":200,"listPath":"data.list",
  *                     "totalPath":"data.total","fields":{"userCode":"empNo","userName":"empName"}}
@@ -41,17 +43,19 @@ public class GenericHttpEmployeeApiAdapter implements SubSystemEmployeeApi {
     /** 响应映射 */
     private final JsonNode responseMapping;
 
-    public GenericHttpEmployeeApiAdapter(SubSystemApiConfigDO config) {
+    public GenericHttpEmployeeApiAdapter(SubSystemApiConfigDO config, List<SubSystemApiEndpointDO> endpoints) {
         if (!"none".equals(StrUtil.nullToEmpty(config.getAuthType()))) {
             throw new ExternalApiException("通用 HTTP 适配器仅支持 authType=none，当前：" + config.getAuthType());
         }
         this.httpClient = new ExternalApiHttpClient(config.getBaseUrl(),
                 config.getConnectTimeoutMs(), config.getReadTimeoutMs());
-        this.queryEndpoint = EndpointSpec.parse(config.getApiQuery(), "查询接口");
-        this.createEndpoint = EndpointSpec.parse(config.getApiCreate(), "新增接口");
-        this.updateEndpoint = EndpointSpec.parse(config.getApiUpdate(), "修改接口");
-        this.deleteEndpoint = EndpointSpec.parse(config.getApiDelete(), "删除接口");
-        this.teamComboEndpoint = EndpointSpec.parse(config.getApiTeamCombo(), "班组下拉接口");
+        Map<String, EndpointSpec> specs = ApiEndpointSpecs.toSpecMap(endpoints);
+        this.queryEndpoint = requireSpec(specs, ApiEndpointSpecs.QUERY, "查询接口");
+        this.createEndpoint = requireSpec(specs, ApiEndpointSpecs.CREATE, "新增接口");
+        this.updateEndpoint = requireSpec(specs, ApiEndpointSpecs.UPDATE, "修改接口");
+        this.deleteEndpoint = requireSpec(specs, ApiEndpointSpecs.DELETE, "删除接口");
+        // 可选接口：未配置接口行时为 null，teamCombo() 返回空列表
+        this.teamComboEndpoint = specs.get(ApiEndpointSpecs.TEAM_COMBO);
         JsonNode pm = safeParse(config.getParamMapping());
         if (pm != null) {
             pm.fields().forEachRemaining(e -> paramMapping.put(e.getKey(), e.getValue().asText()));
@@ -105,6 +109,9 @@ public class GenericHttpEmployeeApiAdapter implements SubSystemEmployeeApi {
 
     @Override
     public List<SubSystemTeamComboDTO> teamCombo(String workshopCode) {
+        if (teamComboEndpoint == null) {
+            return Collections.emptyList();
+        }
         Map<String, Object> body = new HashMap<>();
         body.put("workshopCode", workshopCode);
         JsonNode resp = doExecute(teamComboEndpoint, mapParams(body));
@@ -133,6 +140,15 @@ public class GenericHttpEmployeeApiAdapter implements SubSystemEmployeeApi {
     }
 
     // ===================== 私有方法 =====================
+
+    /** 必选接口：未配置接口行时直接抛错（与原 JSON 列「未配置」行为一致） */
+    private static EndpointSpec requireSpec(Map<String, EndpointSpec> specs, String purpose, String label) {
+        EndpointSpec spec = specs.get(purpose);
+        if (spec == null) {
+            throw new ExternalApiException(label + "未配置");
+        }
+        return spec;
+    }
 
     private void requireEnabled(EndpointSpec endpoint, String label) {
         if (endpoint == null || !endpoint.isEnabled()) {

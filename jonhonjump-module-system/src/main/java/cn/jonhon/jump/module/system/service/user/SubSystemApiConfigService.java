@@ -37,6 +37,11 @@ public interface SubSystemApiConfigService {
     SubSystemApiConfigDO getEnabledConfigBySubSystemId(Long subSystemId);
 
     /**
+     * 「新增人员」接口是否已配置且启用（接口目标下拉 / 花名册注册入口用）
+     */
+    boolean isCreateEndpointEnabled(Long subSystemId);
+
+    /**
      * 测试连接：按配置调一次查询接口（page=1,rows=1），返回耗时与结果摘要
      */
     String testConnection(Long id);

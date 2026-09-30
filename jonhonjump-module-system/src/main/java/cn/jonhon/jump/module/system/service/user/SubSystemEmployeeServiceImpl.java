@@ -19,6 +19,7 @@ import cn.jonhon.jump.module.system.dal.mysql.user.AdminUserMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemApiConfigMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUsersMapper;
+import cn.jonhon.jump.module.system.framework.subsystemapi.CamstarEmployeeApiAdapter;
 import cn.jonhon.jump.module.system.framework.subsystemapi.ExternalApiException;
 import cn.jonhon.jump.module.system.framework.subsystemapi.SubSystemEmployeeApi;
 import cn.jonhon.jump.module.system.framework.subsystemapi.SubSystemEmployeeApiFactory;
@@ -26,7 +27,6 @@ import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemEmployee
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemEmployeePageRespDTO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemEmployeeQueryDTO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemTeamComboDTO;
-import cn.jonhon.jump.module.system.framework.subsystemapi.http.EndpointSpec;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.validation.annotation.Validated;
@@ -143,10 +143,10 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         if (CollUtil.isEmpty(configs)) {
             return Collections.emptyList();
         }
-        // 接口目标 = create 用途叶子已启用的接入系统（如 Camstar人员管理），与花名册系统解耦
+        // 接口目标 = create 用途接口已启用的接入系统（如 Camstar人员管理），与花名册系统解耦
         List<Long> apiSubSystemIds = configs.stream()
-                .filter(this::isCreateEndpointEnabled)
                 .map(SubSystemApiConfigDO::getSubSystemId)
+                .filter(subSystemApiConfigService::isCreateEndpointEnabled)
                 .distinct()
                 .collect(Collectors.toList());
         if (CollUtil.isEmpty(apiSubSystemIds)) {
@@ -160,17 +160,6 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                         .setSubSystemId(id)
                         .setSystemName(subSystemMap.get(id).getSystemName()))
                 .collect(Collectors.toList());
-    }
-
-    private boolean isCreateEndpointEnabled(SubSystemApiConfigDO config) {
-        if (config == null || StrUtil.isBlank(config.getApiCreate())) {
-            return false;
-        }
-        try {
-            return EndpointSpec.parse(config.getApiCreate(), "新增接口").isEnabled();
-        } catch (Exception e) {
-            return false;
-        }
     }
 
     @Override
@@ -248,7 +237,18 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         if (StrUtil.isBlank(userCode) || StrUtil.isBlank(workshopCode)) {
             throw exception0(BAD_REQUEST.getCode(), "同步 Camstar 角色需要工号和车间编号");
         }
-        Map<String, String> nameToId = subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, workshopCode.trim());
+        String workshop = workshopCode.trim();
+        SubSystemEmployeeApi api = getApi(apiSubSystemId);
+        if (!(api instanceof CamstarEmployeeApiAdapter)) {
+            throw exception0(BAD_REQUEST.getCode(), "该接口目标不是 Camstar，不能同步人员角色");
+        }
+        CamstarEmployeeApiAdapter camstar = (CamstarEmployeeApiAdapter) api;
+        Map<String, String> nameToId;
+        try {
+            nameToId = camstar.queryRoleIds(workshop);
+        } catch (ExternalApiException e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
         List<String> roleIds = new ArrayList<>();
         roleIds.add(CAMSTAR_LOGIN_ROLE_ID);
         if (roleNames != null) {
@@ -256,14 +256,10 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                 if (StrUtil.isBlank(name)) {
                     continue;
                 }
-                String trimmed = name.trim();
-                String camstarId = nameToId.get(trimmed);
-                if (camstarId == null && !trimmed.startsWith(workshopCode.trim() + "_")) {
-                    camstarId = nameToId.get(workshopCode.trim() + "_" + trimmed);
-                }
+                String camstarId = matchCamstarRoleId(nameToId, name.trim(), workshop);
                 if (StrUtil.isBlank(camstarId)) {
                     throw exception0(BAD_REQUEST.getCode(),
-                            "Camstar 未找到角色「" + trimmed + "」，请先在角色管理注册到该系统");
+                            "Camstar 未找到角色「" + name.trim() + "」，请先在角色管理同步到该系统");
                 }
                 if (!roleIds.contains(camstarId)) {
                     roleIds.add(camstarId);
@@ -272,15 +268,37 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         }
         SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
         dto.setUserCode(userCode.trim());
-        dto.setUserName(userName);
-        dto.setWorkshopCode(workshopCode.trim());
-        dto.setTeamCode(teamCode);
+        dto.setUserName(StrUtil.blankToDefault(StrUtil.trim(userName), userCode.trim()));
+        dto.setWorkshopCode(workshop);
+        dto.setRoleOnly(true);
         dto.setUserRoleIdStr(String.join(",", roleIds));
         try {
-            getApi(apiSubSystemId).update(dto);
+            camstar.updateFollowingCreateSession(dto);
         } catch (ExternalApiException e) {
             throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
         }
+    }
+
+    /** 角色名可能是「工艺员」，也可能是同步后的「4200_工艺员」，两边都试一次 */
+    private static String matchCamstarRoleId(Map<String, String> nameToId, String roleName, String workshopCode) {
+        String prefixed = workshopCode + "_" + roleName;
+        String direct = nameToId.get(roleName);
+        if (StrUtil.isNotBlank(direct)) {
+            return direct;
+        }
+        if (!roleName.startsWith(workshopCode + "_")) {
+            String withWorkshop = nameToId.get(prefixed);
+            if (StrUtil.isNotBlank(withWorkshop)) {
+                return withWorkshop;
+            }
+        } else {
+            String bare = roleName.substring((workshopCode + "_").length());
+            String withoutWorkshop = nameToId.get(bare);
+            if (StrUtil.isNotBlank(withoutWorkshop)) {
+                return withoutWorkshop;
+            }
+        }
+        return null;
     }
 
     /** 车间优先：花名册已填 > 注册弹窗指定 > 花名册系统车间对照 > 接口目标车间对照 */

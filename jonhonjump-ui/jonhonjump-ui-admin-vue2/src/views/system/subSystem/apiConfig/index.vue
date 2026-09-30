@@ -50,37 +50,30 @@
       <main class="api-main">
         <div v-if="!currentNode" class="empty-hint">左侧选择目录或接口</div>
 
-        <!-- 目录：像菜单一样可操作 -->
+        <!-- 目录：系统节点 / 固定分组节点 -->
         <div v-else-if="currentNode.type === 'dir'" class="api-panel">
           <div class="panel-head">
             <div class="panel-head__title">
               <strong>{{ currentNode.label }}</strong>
-              <span class="meta">目录</span>
+              <span class="meta">{{ currentNode.dirKind === 'system' ? '系统' : '分组' }}</span>
             </div>
             <div class="panel-head__actions">
-              <el-button size="mini" icon="el-icon-folder-add" @click="addChildDir"
-                         v-hasPermi="['sub-system:apiconfig:update']">新增子目录</el-button>
               <el-button size="mini" type="primary" plain icon="el-icon-document-add" @click="addChildApi"
                          v-hasPermi="['sub-system:apiconfig:update']">新增接口</el-button>
-              <el-button size="mini" @click="renameDir" v-if="currentNode.dirKind !== 'system'"
-                         v-hasPermi="['sub-system:apiconfig:update']">重命名</el-button>
               <el-button size="mini" @click="renameSystem" v-if="currentNode.dirKind === 'system'"
                          v-hasPermi="['sub-system:apiconfig:update']">重命名系统</el-button>
-              <el-button size="mini" type="danger" plain @click="removeDir"
-                         v-if="currentNode.dirKind !== 'system'"
-                         v-hasPermi="['sub-system:apiconfig:update']">删除目录</el-button>
               <el-button size="mini" type="danger" plain @click="handleDeleteConfig"
                          v-if="currentNode.dirKind === 'system'"
                          v-hasPermi="['sub-system:apiconfig:delete']">取消接入</el-button>
-              <el-button size="mini" type="primary" @click="persistCatalog"
-                         v-hasPermi="['sub-system:apiconfig:update']">保存结构</el-button>
+              <el-button size="mini" type="primary" @click="persistConfig"
+                         v-hasPermi="['sub-system:apiconfig:update']">保存</el-button>
             </div>
           </div>
           <el-alert
             type="info"
             :closable="false"
             show-icon
-            title="目录只做分组。叶子接口可设置「用途」：用途=新增人员 时，用户管理勾选同步该业务系统会调用这条接口。"
+            title="分组按接口「用途」自动归组（人员接口 / 角色接口 / 其他接口）。用途=新增人员 时，用户管理勾选同步该业务系统会调用这条接口。"
           />
 
           <!-- 会话鉴权（系统级，一次配置全系统接口共用；树上不再有独立鉴权接口） -->
@@ -152,12 +145,16 @@
                 <el-option label="查询人员" value="query" />
                 <el-option label="新增人员（用户同步用）" value="create" />
                 <el-option label="修改人员" value="update" />
+                <el-option label="人员分配角色（分配角色同步用）" value="assign_role" />
                 <el-option label="删除人员" value="delete" />
+                <el-option label="班组下拉" value="team_combo" />
                 <el-option label="角色查询" value="role_query" />
                 <el-option label="角色新增（裸角色，不挂页面）" value="role_create" />
                 <el-option label="角色删除" value="role_delete" />
               </el-select>
+              <div class="form-tip">同一用途只能配置一个接口；设置用途后自动归入对应分组</div>
               <div class="form-tip" v-if="editApi.purpose === 'create'">用户管理 → 添加用户 → 同步业务系统，将调用本接口</div>
+              <div class="form-tip" v-else-if="editApi.purpose === 'assign_role'">花名册 → 分配角色 → 勾选「调用接口更新 Camstar 人员角色」时调用本接口（请求体自动带 roleOnly=true，只改角色）</div>
             </el-form-item>
             <el-form-item label="启用">
               <el-switch v-model="editApi.enabled" />
@@ -246,7 +243,33 @@ import {
   updateSubSystemApiConfig
 } from '@/api/system/subSystemApiConfig'
 
-const PURPOSES = ['query', 'create', 'update', 'delete', 'role_query', 'role_create', 'role_delete']
+const PURPOSES = ['query', 'create', 'update', 'delete', 'team_combo', 'assign_role', 'role_query', 'role_create', 'role_delete']
+
+/** 用途 → 显示名 */
+const PURPOSE_LABELS = {
+  '': '无',
+  query: '查询人员',
+  create: '新增人员',
+  update: '修改人员',
+  delete: '删除人员',
+  team_combo: '班组下拉',
+  assign_role: '人员分配角色',
+  role_query: '角色查询',
+  role_create: '角色新增',
+  role_delete: '角色删除'
+}
+
+/** 固定分组：按用途自动归组（与后端 ApiEndpointSpecs.groupOf 规则一致） */
+const GROUPS = [
+  { code: 'person', label: '人员接口' },
+  { code: 'role', label: '角色接口' },
+  { code: 'other', label: '其他接口' }
+]
+
+function groupOfPurpose(purpose) {
+  if (!purpose) return 'other'
+  return String(purpose).indexOf('role_') === 0 ? 'role' : 'person'
+}
 
 const CAMSTAR_SAMPLES = {
   auth: { token: '' },
@@ -260,6 +283,12 @@ const CAMSTAR_SAMPLES = {
     teamCode: '', domainName: '', erpNo: '', cardNo: ''
   }],
   delete: { userCode: '00078' },
+  team_combo: { workshopCode: '4200' },
+  // 人员分配角色：请求体 roleOnly=true，只增删角色不改菜单/主页/工位/班组/密码
+  assign_role: [{
+    userCode: '00078', userName: '张三', workshopCode: '4200',
+    roleOnly: true, userRoleIdStr: '001bda8000000001,角色查询返回的roleId'
+  }],
   // Camstar 角色（裸角色，不挂页面）：全部 POST；新增/删除要求会话工号挂「管理员/Administrator」角色
   role_query: { workshopCode: '4200' },
   role_create: [{ roleName: 'JUMP测试角色', workshopCode: '4200' }],
@@ -304,47 +333,7 @@ function parseJsonSafe(json, fallback) {
   }
 }
 
-function endpointFromField(json, defaults) {
-  const d = defaults || {}
-  const obj = parseJsonSafe(json, {}) || {}
-  const stored = String(obj.url || obj.path || obj.loginPath || '').trim()
-  const fallback = String(d.url || '').trim()
-  const host = d.host || extractHost(fallback) || extractHost(stored)
-  return {
-    url: resolveApiUrl(stored || fallback, host),
-    method: String(obj.method || d.method || 'POST').toUpperCase(),
-    name: obj.name || d.name || '',
-    enabled: obj.enabled === false ? false : true,
-    withSession: obj.withSession !== false
-  }
-}
-
-/** 从配置/目录/会话里取主机（http://ip:port），用于把存量相对 path 补成完整地址 */
-function configHost(config, catalog) {
-  const fromBase = extractHost(config && config.baseUrl)
-  if (fromBase) return fromBase
-  const fromSession = extractHost(sessionFromConfig(config).url)
-  if (fromSession) return fromSession
-  let found = ''
-  walkCatalog((catalog && catalog.nodes) || [], n => {
-    if (!found && n && n.type === 'api') {
-      found = extractHost(n.url || n.path)
-    }
-  })
-  return found
-}
-
-/** 目录树里人员等存量接口常只存 /BasicData/...，展示和保存前补上主机 */
-function resolveCatalogUrls(catalog, host) {
-  if (!catalog || !host) return
-  walkCatalog(catalog.nodes, n => {
-    if (n && n.type === 'api') {
-      n.url = resolveApiUrl(n.url || n.path, host)
-    }
-  })
-}
-
-/** authConfig 列 → 系统级会话设置（树上不再有鉴权叶子，会话在系统节点维护） */
+/** authConfig 列 → 系统级会话设置（会话在系统节点维护） */
 function sessionFromConfig(config) {
   const obj = parseJsonSafe(config && config.authConfig, {}) || {}
   const raw = String(obj.url || obj.path || obj.loginPath || '').trim()
@@ -369,143 +358,29 @@ function stringifySession(session) {
   })
 }
 
-/** 剔除旧版鉴权叶子（会话设置已上移到系统级）；「鉴权」目录剔除后为空则一并移除 */
-function stripAuthNodes(nodes) {
-  const result = []
-  ;(nodes || []).forEach(n => {
-    if (n.type === 'api' && n.purpose === 'auth') {
-      return
-    }
-    if (n.children) {
-      const children = stripAuthNodes(n.children)
-      if (n.type === 'dir' && children.length === 0 && (n.id === 'dir-auth' || n.name === '鉴权')) {
-        return
-      }
-      result.push(Object.assign({}, n, { children }))
-    } else {
-      result.push(n)
-    }
+/** 新接入系统的默认接口行（Camstar 风格路径；班组下拉默认不建，需要时手动加） */
+function defaultEndpoints(host) {
+  const mk = (purpose, name, path) => ({
+    uid: uid('ep'),
+    id: null,
+    purpose,
+    name,
+    url: joinUrl(host, path),
+    method: 'POST',
+    enabled: true,
+    withSession: true,
+    sort: null
   })
-  return result
-}
-
-/** 角色目录（与人员目录同级）：Camstar 角色裸增删查（ROLEDEF 一行，NOTES=车间编码），不挂页面 */
-function buildRoleDir(config, host) {
-  const h = host || (config && config.baseUrl) || ''
-  const roleQuery = endpointFromField(config && config.apiRoleQuery, {
-    name: '角色查询', method: 'POST', url: joinUrl(h, '/BasicData/Role/getRoleInfo')
-  })
-  const roleCreate = endpointFromField(config && config.apiRoleCreate, {
-    name: '角色新增', method: 'POST', url: joinUrl(h, '/BasicData/Role/updateRoleInfo')
-  })
-  const roleDelete = endpointFromField(config && config.apiRoleDelete, {
-    name: '角色删除', method: 'POST', url: joinUrl(h, '/BasicData/Role/deleteRoleInfo')
-  })
-  return {
-    id: 'dir-role',
-    type: 'dir',
-    name: '角色',
-    children: [
-      { id: 'api-role-query', type: 'api', name: roleQuery.name || '角色查询', purpose: 'role_query', method: roleQuery.method, url: roleQuery.url, enabled: roleQuery.enabled, withSession: roleQuery.withSession },
-      { id: 'api-role-create', type: 'api', name: roleCreate.name || '角色新增', purpose: 'role_create', method: roleCreate.method, url: roleCreate.url, enabled: roleCreate.enabled, withSession: roleCreate.withSession },
-      { id: 'api-role-delete', type: 'api', name: roleDelete.name || '角色删除', purpose: 'role_delete', method: roleDelete.method, url: roleDelete.url, enabled: roleDelete.enabled, withSession: roleDelete.withSession }
-    ]
-  }
-}
-
-/** 存量 camstar 配置目录树无「角色」目录时自动补（仅展示层合并，保存时随 apiCatalog 持久化） */
-function ensureRoleDir(catalog, config) {
-  if (!catalog || !catalog.nodes) return
-  if ((config && config.apiType) !== 'camstar') return
-  if (findInCatalog(catalog.nodes, 'dir-role')) return
-  catalog.nodes.push(buildRoleDir(config, (config && config.baseUrl) || ''))
-}
-
-/** 无 catalog 时，用旧字段拼默认菜单树（不含鉴权叶子，会话在系统节点配置） */
-function buildDefaultCatalog(config, host) {
-  const h = host || (config && config.baseUrl) || ''
-  const query = endpointFromField(config && config.apiQuery, {
-    name: '查询', method: 'POST', url: joinUrl(h, '/BasicData/Employee/getEmployeeInfo')
-  })
-  const create = endpointFromField(config && config.apiCreate, {
-    name: '新增', method: 'POST', url: joinUrl(h, '/BasicData/Employee/addOrUpdateUser')
-  })
-  const update = endpointFromField(config && config.apiUpdate, {
-    name: '修改', method: 'POST', url: joinUrl(h, '/BasicData/Employee/addOrUpdateUser')
-  })
-  const del = endpointFromField(config && config.apiDelete, {
-    name: '删除', method: 'POST', url: joinUrl(h, '/BasicData/Employee/deleteEmployeeInfo')
-  })
-  return {
-    nodes: [
-      {
-        id: 'dir-person',
-        type: 'dir',
-        name: '人员',
-        children: [
-          { id: 'api-query', type: 'api', name: query.name || '查询', purpose: 'query', method: query.method, url: query.url, enabled: query.enabled, withSession: query.withSession },
-          { id: 'api-create', type: 'api', name: create.name || '新增', purpose: 'create', method: create.method, url: create.url, enabled: create.enabled, withSession: create.withSession },
-          { id: 'api-update', type: 'api', name: update.name || '修改', purpose: 'update', method: update.method, url: update.url, enabled: update.enabled, withSession: update.withSession },
-          { id: 'api-delete', type: 'api', name: del.name || '删除', purpose: 'delete', method: del.method, url: del.url, enabled: del.enabled, withSession: del.withSession }
-        ]
-      },
-      buildRoleDir(config, host)
-    ]
-  }
-}
-
-function normalizeCatalog(raw, config) {
-  const parsed = parseJsonSafe(raw, null)
-  if (parsed && Array.isArray(parsed.nodes)) {
-    return parsed
-  }
-  return buildDefaultCatalog(config || {}, (config && config.baseUrl) || '')
-}
-
-function walkCatalog(nodes, fn) {
-  ;(nodes || []).forEach(n => {
-    fn(n)
-    if (n.children) walkCatalog(n.children, fn)
-  })
-}
-
-function findInCatalog(nodes, id) {
-  let found = null
-  walkCatalog(nodes, n => {
-    if (n.id === id) found = n
-  })
-  return found
-}
-
-function findParent(nodes, id, parent) {
-  for (let i = 0; i < (nodes || []).length; i++) {
-    const n = nodes[i]
-    if (n.id === id) return parent
-    const p = findParent(n.children, id, n)
-    if (p) return p
-  }
-  return null
-}
-
-function findByPurpose(nodes, purpose) {
-  let found = null
-  walkCatalog(nodes, n => {
-    if (n.type === 'api' && n.purpose === purpose) found = n
-  })
-  return found
-}
-
-function stringifyEndpoint(api) {
-  if (!api || !String(api.url || '').trim()) return ''
-  const payload = {
-    url: String(api.url).trim(),
-    method: (api.method || 'POST').toUpperCase(),
-    enabled: api.enabled !== false,
-    name: api.name || '',
-    // 是否携带系统会话 Cookie（后端 EndpointSpec.withSession；false=该接口裸调）
-    withSession: api.withSession !== false
-  }
-  return JSON.stringify(payload)
+  return [
+    mk('query', '查询人员', '/BasicData/Employee/getEmployeeInfo'),
+    mk('create', '新增人员', '/BasicData/Employee/addOrUpdateUser'),
+    mk('update', '修改人员', '/BasicData/Employee/addOrUpdateUser'),
+    mk('assign_role', '人员分配角色', '/BasicData/Employee/addOrUpdateUser'),
+    mk('delete', '删除人员', '/BasicData/Employee/deleteEmployeeInfo'),
+    mk('role_query', '角色查询', '/BasicData/Role/getRoleInfo'),
+    mk('role_create', '角色新增', '/BasicData/Role/updateRoleInfo'),
+    mk('role_delete', '角色删除', '/BasicData/Role/deleteRoleInfo')
+  ]
 }
 
 export default {
@@ -516,8 +391,8 @@ export default {
       testing: false,
       clientList: [],
       configMap: {},
-      /** subSystemId → catalog { nodes: [] }，内存编辑 */
-      catalogMap: {},
+      /** subSystemId → endpoints 数组（一行一接口，内存编辑；uid 为前端行标识） */
+      endpointMap: {},
       /** subSystemId → 系统级会话设置（登录地址/工号/Cookie 名；树上不再有鉴权叶子） */
       sessionMap: {},
       /** 当前编辑的会话设置（系统节点面板表单） */
@@ -550,44 +425,40 @@ export default {
     },
     treeData() {
       return this.accessList.map(item => {
-        const catalog = this.catalogMap[item.id] || { nodes: [] }
-        const mapNode = (n) => {
-          if (n.type === 'dir') {
-            return {
-              nodeKey: 'sys-' + item.id + '-' + n.id,
-              type: 'dir',
-              dirKind: 'category',
-              catalogId: n.id,
-              label: n.name,
+        const endpoints = this.endpointMap[item.id] || []
+        const sorted = endpoints.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0))
+        const groups = GROUPS.map(g => ({
+          nodeKey: 'sys-' + item.id + '-g-' + g.code,
+          type: 'dir',
+          dirKind: 'group',
+          groupCode: g.code,
+          label: g.label,
+          subSystemId: item.id,
+          systemName: item.name,
+          children: sorted
+            .filter(e => (e.groupCode || groupOfPurpose(e.purpose)) === g.code)
+            .map(e => ({
+              nodeKey: 'sys-' + item.id + '-ep-' + e.uid,
+              type: 'api',
+              epUid: e.uid,
+              label: e.name || PURPOSE_LABELS[e.purpose] || e.purpose,
+              method: e.method,
+              enabled: e.enabled !== false,
+              purpose: e.purpose || '',
+              purposeHint: e.purpose === 'create' ? '同步' : '',
               subSystemId: item.id,
-              systemName: item.name,
-              children: (n.children || []).map(mapNode)
-            }
-          }
-          return {
-            nodeKey: 'sys-' + item.id + '-' + n.id,
-            type: 'api',
-            catalogId: n.id,
-            label: n.name,
-            method: n.method,
-            enabled: n.enabled !== false,
-            purpose: n.purpose || '',
-            purposeHint: n.purpose === 'create' ? '同步' : '',
-            subSystemId: item.id,
-            systemName: item.name
-          }
-        }
+              systemName: item.name
+            }))
+        })).filter(g => g.groupCode !== 'other' || g.children.length)
         return {
           nodeKey: 'sys-' + item.id,
           type: 'dir',
           dirKind: 'system',
-          catalogId: null,
           label: item.name,
           id: item.id,
           subSystemId: item.id,
           systemName: item.name,
-          // 树上不展示旧版鉴权叶子（会话设置在系统节点面板维护）
-          children: stripAuthNodes(catalog.nodes).map(mapNode)
+          children: groups
         }
       })
     },
@@ -615,7 +486,7 @@ export default {
     },
     /** 人员/角色接口：Cookie 从系统级会话设置自动带，不在本页重复配置 */
     isWithSessionPurpose() {
-      const purposes = ['query', 'create', 'update', 'delete', 'role_query', 'role_create', 'role_delete']
+      const purposes = ['query', 'create', 'update', 'delete', 'team_combo', 'assign_role', 'role_query', 'role_create', 'role_delete']
       return purposes.indexOf(this.editApi && this.editApi.purpose) >= 0
     },
     currentSession() {
@@ -649,14 +520,25 @@ export default {
       return Promise.all([getSubSystemClientSimpleList(), getSubSystemApiConfigList()]).then(([clients, configs]) => {
         this.clientList = clients.data || []
         this.configMap = {}
-        this.catalogMap = {}
+        this.endpointMap = {}
         this.sessionMap = {}
         ;(configs.data || []).forEach(c => {
           this.configMap[c.subSystemId] = c
-          const catalog = normalizeCatalog(c.apiCatalog, c)
-          ensureRoleDir(catalog, c)
-          resolveCatalogUrls(catalog, configHost(c, catalog))
-          this.$set(this.catalogMap, c.subSystemId, catalog)
+          const host = extractHost(c.baseUrl)
+          const endpoints = (c.endpoints || []).map(e => ({
+            uid: 'db-' + e.id,
+            id: e.id,
+            purpose: e.purpose || '',
+            groupCode: e.groupCode || groupOfPurpose(e.purpose || ''),
+            name: e.name || '',
+            // 存量相对 path 补上主机展示
+            url: resolveApiUrl(e.url || '', host),
+            method: (e.method || 'POST').toUpperCase(),
+            enabled: e.enabled !== false,
+            withSession: e.withSession !== false,
+            sort: e.sort
+          }))
+          this.$set(this.endpointMap, c.subSystemId, endpoints)
           this.$set(this.sessionMap, c.subSystemId, sessionFromConfig(c))
         })
         this.$nextTick(() => {
@@ -711,7 +593,6 @@ export default {
         deleteTip: config.deleteTip || '',
         connectTimeoutMs: config.connectTimeoutMs || 10000,
         readTimeoutMs: config.readTimeoutMs || 30000,
-        apiTeamCombo: config.apiTeamCombo || '',
         status: 0
       }
     },
@@ -726,27 +607,29 @@ export default {
         this.sessionTestResult = ''
       }
       if (data.type === 'api') {
-        const catalog = this.catalogMap[data.subSystemId]
-        const node = findInCatalog(catalog.nodes, data.catalogId) || {}
-        const host = (this.formMeta && this.formMeta.baseUrl) || configHost(this.configMap[data.subSystemId], catalog)
+        const ep = this.findEndpoint(data.subSystemId, data.epUid) || {}
         this.editApi = {
-          id: node.id,
-          name: node.name || '',
-          // 旧版鉴权叶子已在树上隐藏；防御性不再允许编辑 auth 用途
-          purpose: node.purpose === 'auth' ? '' : (node.purpose || ''),
-          method: (node.method || 'POST').toUpperCase(),
-          url: resolveApiUrl(node.url || node.path || '', host),
-          enabled: node.enabled !== false,
-          withSession: node.withSession !== false
+          uid: ep.uid,
+          id: ep.id,
+          name: ep.name || '',
+          purpose: ep.purpose || '',
+          method: (ep.method || 'POST').toUpperCase(),
+          url: ep.url || '',
+          enabled: ep.enabled !== false,
+          withSession: ep.withSession !== false
         }
         if (!sameNode) {
-          const sample = CAMSTAR_SAMPLES[node.purpose] || {}
+          const sample = CAMSTAR_SAMPLES[ep.purpose] || {}
           this.testBody = JSON.stringify(sample, null, 2)
         }
       } else {
-        // 目录/系统节点：装载该系统的会话设置表单
+        // 系统/分组节点：装载该系统的会话设置表单
         this.applySessionForm(data.subSystemId)
       }
+    },
+    findEndpoint(subSystemId, epUid) {
+      const endpoints = this.endpointMap[subSystemId] || []
+      return endpoints.find(e => e.uid === epUid) || null
     },
     applySessionForm(subSystemId) {
       const s = this.sessionMap[subSystemId] || {}
@@ -758,158 +641,94 @@ export default {
         cookieName: s.cookieName || 'Nancal_Cam_SessionId'
       }
     },
-    ensureUniquePurpose(nodes, purpose, exceptId) {
+    /** 同一用途只能一个接口：后选用途者保留，其他行用途清空 */
+    ensureUniquePurpose(endpoints, purpose, exceptUid) {
       if (!purpose) return
-      walkCatalog(nodes, n => {
-        if (n.type === 'api' && n.purpose === purpose && n.id !== exceptId) {
-          n.purpose = ''
+      endpoints.forEach(e => {
+        if (e.purpose === purpose && e.uid !== exceptUid) {
+          e.purpose = ''
         }
       })
     },
-    addChildDir() {
-      if (!this.currentNode || this.currentNode.type !== 'dir') return
-      this.$prompt('目录名称', '新增子目录', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        inputPattern: /\S+/,
-        inputErrorMessage: '请输入名称'
-      }).then(({ value }) => {
-        const sid = this.currentNode.subSystemId
-        const catalog = this.catalogMap[sid]
-        const node = { id: uid('dir'), type: 'dir', name: value.trim(), children: [] }
-        if (this.currentNode.dirKind === 'system') {
-          catalog.nodes.push(node)
-        } else {
-          const parent = findInCatalog(catalog.nodes, this.currentNode.catalogId)
-          if (!parent) return
-          if (!parent.children) parent.children = []
-          parent.children.push(node)
-        }
-        this.$forceUpdate()
-        this.persistCatalog()
-      }).catch(() => {})
-    },
     addChildApi() {
       if (!this.currentNode || this.currentNode.type !== 'dir') return
-      if (this.currentNode.dirKind === 'system') {
-        this.$modal.msgWarning('请先在业务系统下新增目录，再在目录下新增接口')
-        return
-      }
+      const sid = this.currentNode.subSystemId
+      const endpoints = this.endpointMap[sid]
+      if (!endpoints) return
       this.$prompt('接口名称', '新增接口', {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         inputPattern: /\S+/,
         inputErrorMessage: '请输入名称'
       }).then(({ value }) => {
-        const sid = this.currentNode.subSystemId
-        const catalog = this.catalogMap[sid]
-        const parent = findInCatalog(catalog.nodes, this.currentNode.catalogId)
-        if (!parent) return
-        if (!parent.children) parent.children = []
-        const node = {
-          id: uid('api'),
-          type: 'api',
-          name: value.trim(),
+        const row = {
+          uid: uid('ep'),
+          id: null,
           purpose: '',
+          name: value.trim(),
           method: 'POST',
           url: '',
-          enabled: true
+          enabled: true,
+          withSession: true,
+          sort: null
         }
-        parent.children.push(node)
-        this.persistCatalog().then(() => {
+        endpoints.push(row)
+        this.persistConfig().then(() => {
           this.$nextTick(() => {
-            const treeNode = this.findTreeNode('sys-' + sid + '-' + node.id)
-            if (treeNode) {
-              this.handleNodeClick(treeNode)
-              if (this.$refs.tree) this.$refs.tree.setCurrentKey(treeNode.nodeKey)
+            // 保存重载后 uid 会变（后端生成新 id），按名称定位新行
+            let target = null
+            const walk = (nodes) => {
+              ;(nodes || []).forEach(n => {
+                if (!target && n.type === 'api' && n.label === row.name) target = n
+                walk(n.children)
+              })
+            }
+            walk(this.treeData)
+            if (target) {
+              this.handleNodeClick(target)
+              if (this.$refs.tree) this.$refs.tree.setCurrentKey(target.nodeKey)
             }
           })
         })
-      }).catch(() => {})
-    },
-    renameDir() {
-      if (!this.currentNode || this.currentNode.dirKind === 'system') return
-      this.$prompt('目录名称', '重命名', {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        inputValue: this.currentNode.label,
-        inputPattern: /\S+/,
-        inputErrorMessage: '请输入名称'
-      }).then(({ value }) => {
-        const catalog = this.catalogMap[this.currentNode.subSystemId]
-        const node = findInCatalog(catalog.nodes, this.currentNode.catalogId)
-        if (node) {
-          node.name = value.trim()
-          this.currentNode.label = node.name
-          this.persistCatalog()
-        }
-      }).catch(() => {})
-    },
-    removeDir() {
-      if (!this.currentNode || this.currentNode.dirKind === 'system') return
-      const catalog = this.catalogMap[this.currentNode.subSystemId]
-      const node = findInCatalog(catalog.nodes, this.currentNode.catalogId)
-      if (node && node.children && node.children.length) {
-        this.$modal.msgWarning('请先删除目录下的子项')
-        return
-      }
-      this.$modal.confirm('确认删除该目录？').then(() => {
-        const parent = findParent(catalog.nodes, this.currentNode.catalogId, null)
-        const list = parent ? parent.children : catalog.nodes
-        const idx = list.findIndex(n => n.id === this.currentNode.catalogId)
-        if (idx >= 0) list.splice(idx, 1)
-        this.currentNode = null
-        this.persistCatalog()
       }).catch(() => {})
     },
     removeApi() {
       if (!this.currentNode || this.currentNode.type !== 'api') return
       this.$modal.confirm('确认删除该接口？').then(() => {
         const sid = this.currentNode.subSystemId
-        const catalog = this.catalogMap[sid]
-        const parent = findParent(catalog.nodes, this.currentNode.catalogId, null)
-        if (!parent || !parent.children) return
-        const idx = parent.children.findIndex(n => n.id === this.currentNode.catalogId)
-        if (idx >= 0) parent.children.splice(idx, 1)
+        const endpoints = this.endpointMap[sid] || []
+        const idx = endpoints.findIndex(e => e.uid === this.currentNode.epUid)
+        if (idx >= 0) endpoints.splice(idx, 1)
         this.currentNode = null
-        this.persistCatalog()
+        this.persistConfig()
       }).catch(() => {})
     },
-    applyEditToCatalog() {
+    /** 表单值写回接口行（内存），保存时随 endpoints 一起提交 */
+    applyEditToEndpoints() {
       if (!this.currentNode || this.currentNode.type !== 'api') return
-      const catalog = this.catalogMap[this.currentNode.subSystemId]
-      const node = findInCatalog(catalog.nodes, this.currentNode.catalogId)
-      if (!node) return
+      const endpoints = this.endpointMap[this.currentNode.subSystemId] || []
+      const ep = endpoints.find(e => e.uid === (this.editApi.uid || this.currentNode.epUid))
+      if (!ep) return
       const purpose = this.editApi.purpose || ''
-      this.ensureUniquePurpose(catalog.nodes, purpose, node.id)
-      node.name = this.editApi.name || node.name
-      node.purpose = purpose
-      node.method = (this.editApi.method || 'POST').toUpperCase()
-      node.url = String(this.editApi.url || '').trim()
-      node.enabled = this.editApi.enabled !== false
+      this.ensureUniquePurpose(endpoints, purpose, ep.uid)
+      ep.name = this.editApi.name || ep.name
+      ep.purpose = purpose
+      ep.groupCode = groupOfPurpose(purpose)
+      ep.method = (this.editApi.method || 'POST').toUpperCase()
+      ep.url = String(this.editApi.url || '').trim()
+      ep.enabled = this.editApi.enabled !== false
       // 是否携带系统会话 Cookie（false=该接口裸调）
-      node.withSession = this.editApi.withSession !== false
+      ep.withSession = this.editApi.withSession !== false
     },
     buildPayload(subSystemId) {
       const config = this.configMap[subSystemId]
-      const catalog = this.catalogMap[subSystemId] || { nodes: [] }
-      const query = findByPurpose(catalog.nodes, 'query')
-      const create = findByPurpose(catalog.nodes, 'create')
-      const update = findByPurpose(catalog.nodes, 'update')
-      const del = findByPurpose(catalog.nodes, 'delete')
-      const roleQuery = findByPurpose(catalog.nodes, 'role_query')
-      const roleCreate = findByPurpose(catalog.nodes, 'role_create')
-      const roleDelete = findByPurpose(catalog.nodes, 'role_delete')
-      let baseUrl = (this.formMeta && this.formMeta.baseUrl) || (config && config.baseUrl) || ''
-      const urls = [query, create].filter(Boolean).map(a => a.url)
-      for (let i = 0; i < urls.length; i++) {
-        const m = String(urls[i] || '').match(/^(https?:\/\/[^/]+)/i)
-        if (m) {
-          baseUrl = m[1]
-          break
-        }
-      }
-      // 会话设置来自系统级 sessionMap（树上已无鉴权叶子）；关闭时保留字段、enabled=false
+      const endpoints = this.endpointMap[subSystemId] || []
+      // 基地址优先取接口行 URL 的主机，避免接口改了主机而 base_url 还是旧值
+      let baseUrl = (config && config.baseUrl) || ''
+      const primary = endpoints.find(e => e.purpose === 'query') || endpoints.find(e => e.purpose === 'create')
+      const m = primary && String(primary.url || '').match(/^(https?:\/\/[^/]+)/i)
+      if (m) baseUrl = m[1]
+      // 会话设置来自系统级 sessionMap；关闭时保留字段、enabled=false
       const session = this.sessionMap[subSystemId] || {}
       const sessionOn = !!(session.enabled && String(session.url || '').trim())
       const sessionHasUrl = !!String(session.url || '').trim()
@@ -920,16 +739,18 @@ export default {
         baseUrl: baseUrl || 'http://127.0.0.1',
         authType: sessionOn ? 'cookie_sso' : 'none',
         authConfig: sessionHasUrl ? stringifySession(Object.assign({}, session, { enabled: sessionOn })) : '',
-        apiQuery: stringifyEndpoint(query),
-        apiCreate: stringifyEndpoint(create),
-        apiUpdate: stringifyEndpoint(update),
-        apiDelete: stringifyEndpoint(del),
-        apiRoleQuery: stringifyEndpoint(roleQuery),
-        apiRoleCreate: stringifyEndpoint(roleCreate),
-        apiRoleDelete: stringifyEndpoint(roleDelete),
-        apiTeamCombo: config.apiTeamCombo || '',
-        // 持久化时剔除旧版鉴权叶子（后端不解析目录树；会话信息在 authConfig 列）
-        apiCatalog: JSON.stringify({ nodes: stripAuthNodes(catalog.nodes) }),
+        // 一行一接口：整系统接口行一起提交（后端级联全删全插）
+        endpoints: endpoints.map((e, i) => ({
+          id: e.id || undefined,
+          purpose: e.purpose || '',
+          groupCode: e.groupCode || groupOfPurpose(e.purpose || ''),
+          name: e.name || '',
+          url: String(e.url || '').trim(),
+          method: (e.method || 'POST').toUpperCase(),
+          enabled: e.enabled !== false,
+          withSession: e.withSession !== false,
+          sort: e.sort == null ? (i + 1) * 10 : e.sort
+        })),
         paramMapping: config.paramMapping || '',
         responseMapping: config.responseMapping || '',
         deleteTip: config.deleteTip || '',
@@ -948,7 +769,7 @@ export default {
         return
       }
       this.$set(this.sessionMap, sid, Object.assign({}, this.sessionForm))
-      this.persistCatalog()
+      this.persistConfig()
     },
     /** 启用会话时地址与调用工号必填（否则保存后按 authConfig 解析会自动回到未启用） */
     validSessionForm() {
@@ -996,7 +817,7 @@ export default {
         this.sessionTesting = false
       })
     },
-    persistCatalog() {
+    persistConfig() {
       const sid = (this.currentNode && this.currentNode.subSystemId)
         || (this.formMeta && this.formMeta.subSystemId)
       if (!sid || !this.configMap[sid]) {
@@ -1014,8 +835,8 @@ export default {
         this.$modal.msgWarning('请填写完整地址')
         return
       }
-      this.applyEditToCatalog()
-      this.persistCatalog()
+      this.applyEditToEndpoints()
+      this.persistConfig()
     },
     handleTest() {
       if (!this.formMeta.id) {
@@ -1029,7 +850,7 @@ export default {
         this.$modal.msgWarning('请求参数不是合法 JSON')
         return
       }
-      this.applyEditToCatalog()
+      this.applyEditToEndpoints()
       const purpose = this.editApi.purpose
       if (!purpose || PURPOSES.indexOf(purpose) < 0) {
         this.$modal.msgWarning('测试需先设置用途（人员或角色的查询/新增/删除）')
@@ -1069,24 +890,24 @@ export default {
     confirmAddAccess() {
       if (!this.canConfirmAdd) return
       const host = this.addHost.trim().replace(/\/+$/, '')
-      const catalog = buildDefaultCatalog({ baseUrl: host }, host)
       const payload = {
         baseUrl: host,
         connectTimeoutMs: 10000,
         readTimeoutMs: 30000,
         apiType: this.addApiType,
-        // 会话鉴权改为系统级设置，接入后再在系统节点开启（不预置 authConfig）
+        // 会话鉴权为系统级设置，接入后再在系统节点开启（不预置 authConfig）
         authType: 'none',
         authConfig: '',
-        apiQuery: stringifyEndpoint(findByPurpose(catalog.nodes, 'query')),
-        apiCreate: stringifyEndpoint(findByPurpose(catalog.nodes, 'create')),
-        apiUpdate: stringifyEndpoint(findByPurpose(catalog.nodes, 'update')),
-        apiDelete: stringifyEndpoint(findByPurpose(catalog.nodes, 'delete')),
-        apiRoleQuery: stringifyEndpoint(findByPurpose(catalog.nodes, 'role_query')),
-        apiRoleCreate: stringifyEndpoint(findByPurpose(catalog.nodes, 'role_create')),
-        apiRoleDelete: stringifyEndpoint(findByPurpose(catalog.nodes, 'role_delete')),
-        apiTeamCombo: '',
-        apiCatalog: JSON.stringify(catalog),
+        // 默认接口行（Camstar 风格路径占位，接入后按现场改）
+        endpoints: defaultEndpoints(host).map((e, i) => ({
+          purpose: e.purpose,
+          name: e.name,
+          url: e.url,
+          method: e.method,
+          enabled: e.enabled,
+          withSession: e.withSession,
+          sort: (i + 1) * 10
+        })),
         deleteTip: this.addApiType === 'camstar' ? '删除将同时删除该用户在 Camstar 的域账号，不可恢复！' : '',
         status: 0
       }

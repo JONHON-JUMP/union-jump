@@ -3,6 +3,7 @@ package cn.jonhon.jump.module.system.framework.subsystemapi;
 import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.util.json.JsonUtils;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
+import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiEndpointDO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemEmployeeDTO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemEmployeePageRespDTO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemEmployeeQueryDTO;
@@ -28,7 +29,7 @@ import java.util.Map;
  *   Cookie Nancal_Cam_SessionId = Base64(调用账号工号)。
  *   业务接口失败时，若鉴权接口启用则调 SSO 激活会话后重试一次。
  * - 响应：AjaxResult JSON {code:200/500, message, data, total, rows}
- * - 各业务接口 JSON：{"name","url"|"path","method","enabled"}
+ * - 各业务接口端点存 sub_system_api_endpoint（一行一接口，按 purpose 区分）
  */
 @Slf4j
 public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
@@ -42,30 +43,31 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
     private final EndpointSpec updateEndpoint;
     private final EndpointSpec deleteEndpoint;
     private final EndpointSpec teamComboEndpoint;
+    private final EndpointSpec roleQueryEndpoint;
     private final EndpointSpec authEndpoint;
     private final String cookieName;
     private final String authUserCode;
     /** 会话 Cookie 值（= Base64(authUserCode)） */
     private volatile String cookieValue;
 
-    public CamstarEmployeeApiAdapter(SubSystemApiConfigDO config) {
+    public CamstarEmployeeApiAdapter(SubSystemApiConfigDO config, List<SubSystemApiEndpointDO> endpoints) {
         this.httpClient = new ExternalApiHttpClient(config.getBaseUrl(),
                 config.getConnectTimeoutMs(), config.getReadTimeoutMs());
-        this.queryEndpoint = EndpointSpec.parse(config.getApiQuery(), "查询接口");
-        this.createEndpoint = EndpointSpec.parse(config.getApiCreate(), "新增接口");
-        this.updateEndpoint = EndpointSpec.parse(config.getApiUpdate(), "修改接口");
-        this.deleteEndpoint = EndpointSpec.parse(config.getApiDelete(), "删除接口");
-        this.teamComboEndpoint = StrUtil.isBlank(config.getApiTeamCombo())
-                ? null
-                : EndpointSpec.parse(config.getApiTeamCombo(), "班组下拉接口");
+        Map<String, EndpointSpec> specs = ApiEndpointSpecs.toSpecMap(endpoints);
+        this.queryEndpoint = requireSpec(specs, ApiEndpointSpecs.QUERY, "查询接口");
+        this.createEndpoint = requireSpec(specs, ApiEndpointSpecs.CREATE, "新增接口");
+        this.updateEndpoint = requireSpec(specs, ApiEndpointSpecs.UPDATE, "修改接口");
+        this.deleteEndpoint = requireSpec(specs, ApiEndpointSpecs.DELETE, "删除接口");
+        // 可选接口：未配置接口行时为 null（调用前判空）
+        this.teamComboEndpoint = specs.get(ApiEndpointSpecs.TEAM_COMBO);
+        this.roleQueryEndpoint = specs.get(ApiEndpointSpecs.ROLE_QUERY);
         JsonNode auth = parseJson(StrUtil.blankToDefault(config.getAuthConfig(), "{}"));
         this.authUserCode = text(auth, "userCode", "");
         this.cookieName = text(auth, "cookieName", DEFAULT_COOKIE_NAME);
         this.authEndpoint = buildAuthEndpoint(auth);
         // 会话关闭（enabled=false）：完全不带 Cookie、不重登；接口级 withSession=false 另行控制
         if (this.authEndpoint.isEnabled() && StrUtil.isNotBlank(this.authUserCode)) {
-            this.cookieValue = Base64.getEncoder()
-                    .encodeToString(this.authUserCode.getBytes(StandardCharsets.UTF_8));
+            this.cookieValue = encodeSessionCookie(this.authUserCode);
         }
     }
 
@@ -104,6 +106,43 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         requireEnabled(updateEndpoint, "修改");
         Map<String, Object> item = toCamstarEmployee(employee);
         JsonNode resp = executeWithRelogin(updateEndpoint, Collections.singletonList(item));
+        checkSuccess(resp);
+    }
+
+    /**
+     * 按车间查 Camstar 角色名 → roleId。请求方式和人员注册相同：同一个客户端、同一份会话 Cookie。
+     */
+    public Map<String, String> queryRoleIds(String workshopCode) {
+        requireEnabled(roleQueryEndpoint, "角色查询");
+        Map<String, Object> body = new HashMap<>();
+        body.put("workshopCode", workshopCode);
+        JsonNode resp = executeWithRelogin(sameSessionAsCreate(roleQueryEndpoint), body);
+        JsonNode rows = resp.has("rows") && resp.get("rows").isArray() ? resp.get("rows")
+                : (resp.has("data") && resp.get("data").isArray() ? resp.get("data") : null);
+        Map<String, String> nameToId = new HashMap<>();
+        if (rows == null) {
+            return nameToId;
+        }
+        for (JsonNode row : rows) {
+            String roleName = firstNonBlank(text(row, "roleName", ""),
+                    firstNonBlank(text(row, "RoleName", ""), text(row, "text", "")));
+            String roleId = firstNonBlank(text(row, "roleId", ""),
+                    firstNonBlank(text(row, "RoleId", ""), text(row, "value", "")));
+            if (StrUtil.isNotBlank(roleName) && StrUtil.isNotBlank(roleId)) {
+                nameToId.put(roleName.trim(), roleId.trim());
+            }
+        }
+        return nameToId;
+    }
+
+    /**
+     * 给人挂角色。表里没有单独的「人员关联角色」接口，Camstar 也没有。
+     * 用已有的修改人员接口（与注册人员同一条 addOrUpdateUser），会话开关跟新增人员一致。
+     */
+    public void updateFollowingCreateSession(SubSystemEmployeeDTO employee) {
+        requireEnabled(updateEndpoint, "修改");
+        Map<String, Object> item = toCamstarEmployee(employee);
+        JsonNode resp = executeWithRelogin(sameSessionAsCreate(updateEndpoint), Collections.singletonList(item));
         checkSuccess(resp);
     }
 
@@ -148,6 +187,15 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
     }
 
     // ===================== 私有方法 =====================
+
+    /** 必选接口：未配置接口行时直接抛错（与原 JSON 列「未配置」行为一致） */
+    private static EndpointSpec requireSpec(Map<String, EndpointSpec> specs, String purpose, String label) {
+        EndpointSpec spec = specs.get(purpose);
+        if (spec == null) {
+            throw new ExternalApiException(label + "未配置");
+        }
+        return spec;
+    }
 
     /**
      * 执行请求；若失败（HTTP 错误或业务 code!=200）且该接口携带会话且尚未重登过，
@@ -220,7 +268,27 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         Map<String, Object> params = new HashMap<>();
         params.put("token", token);
         httpClient.execute(authEndpoint, params, null);
-        this.cookieValue = token;
+        this.cookieValue = encodeSessionCookie(authUserCode);
+    }
+
+    /** Cookie 值 = Base64(工号)，与人员注册使用的会话值相同。不再做百分号编码，% 不是合法 Base64。 */
+    public static String encodeSessionCookie(String userCode) {
+        return Base64.getEncoder().encodeToString(userCode.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /** 地址、方法用目标接口的，是否带 Cookie 与人员注册的新增接口相同。 */
+    private EndpointSpec sameSessionAsCreate(EndpointSpec source) {
+        if (source == null || createEndpoint == null || createEndpoint.isWithSession()) {
+            return source;
+        }
+        EndpointSpec spec = new EndpointSpec();
+        spec.setUrl(source.getUrl());
+        spec.setPath(source.getPath());
+        spec.setMethod(source.getMethod());
+        spec.setName(source.getName());
+        spec.setEnabled(source.getEnabled());
+        spec.setWithSession(false);
+        return spec;
     }
 
     private Map<String, Object> toCamstarEmployee(SubSystemEmployeeDTO dto) {
@@ -242,6 +310,9 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         }
         if (StrUtil.isNotBlank(dto.getUserRoleIdStr())) {
             item.put("userRoleIdStr", dto.getUserRoleIdStr());
+        }
+        if (Boolean.TRUE.equals(dto.getRoleOnly())) {
+            item.put("roleOnly", true);
         }
         return item;
     }

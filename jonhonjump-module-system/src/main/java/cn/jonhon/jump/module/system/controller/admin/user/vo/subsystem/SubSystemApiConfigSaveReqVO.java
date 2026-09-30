@@ -3,8 +3,10 @@ package cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import javax.validation.Valid;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.Size;
+import java.util.List;
 
 @Schema(description = "管理后台 - 子系统人员接口配置创建/更新 Request VO")
 @Data
@@ -36,40 +38,9 @@ public class SubSystemApiConfigSaveReqVO {
     @Size(max = 1024, message = "鉴权配置长度不能超过 1024 个字符")
     private String authConfig;
 
-    @Schema(description = "查询接口 JSON", example = "{\"path\":\"/BasicData/Employee/getEmployeeInfo\",\"method\":\"POST\"}")
-    @Size(max = 512, message = "查询接口长度不能超过 512 个字符")
-    private String apiQuery;
-
-    @Schema(description = "新增接口 JSON（人员 upsert）")
-    @Size(max = 512, message = "新增接口长度不能超过 512 个字符")
-    private String apiCreate;
-
-    @Schema(description = "修改接口 JSON（人员 upsert）")
-    @Size(max = 512, message = "修改接口长度不能超过 512 个字符")
-    private String apiUpdate;
-
-    @Schema(description = "删除接口 JSON")
-    @Size(max = 512, message = "删除接口长度不能超过 512 个字符")
-    private String apiDelete;
-
-    @Schema(description = "班组下拉接口 JSON")
-    @Size(max = 512, message = "班组下拉接口长度不能超过 512 个字符")
-    private String apiTeamCombo;
-
-    @Schema(description = "角色查询接口 JSON", example = "{\"path\":\"/BasicData/Role/getRoleInfo\",\"method\":\"POST\"}")
-    @Size(max = 512, message = "角色查询接口长度不能超过 512 个字符")
-    private String apiRoleQuery;
-
-    @Schema(description = "角色新增接口 JSON（只建裸角色，不挂页面）")
-    @Size(max = 512, message = "角色新增接口长度不能超过 512 个字符")
-    private String apiRoleCreate;
-
-    @Schema(description = "角色删除接口 JSON")
-    @Size(max = 512, message = "角色删除接口长度不能超过 512 个字符")
-    private String apiRoleDelete;
-
-    @Schema(description = "接口目录树 JSON（目录+叶子；叶子 purpose=create 供用户同步「新增人员」）")
-    private String apiCatalog;
+    @Schema(description = "接口列表（一行一接口；同一用途只能配置一个）")
+    @Valid
+    private List<SubSystemApiEndpointVO> endpoints;
 
     @Schema(description = "参数映射 JSON（JUMP标准参数名→对方参数名）", example = "{\"userCode\":\"empNo\"}")
     @Size(max = 2048, message = "参数映射长度不能超过 2048 个字符")

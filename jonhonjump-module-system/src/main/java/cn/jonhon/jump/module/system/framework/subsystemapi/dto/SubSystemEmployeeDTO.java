@@ -35,5 +35,9 @@ public class SubSystemEmployeeDTO {
      * 含内置 Login：001bda8000000001
      */
     private String userRoleIdStr;
+    /**
+     * 为 true 时 Camstar 只改人员角色，不回写菜单、主页、工位、班组、密码。
+     */
+    private Boolean roleOnly;
 
 }
