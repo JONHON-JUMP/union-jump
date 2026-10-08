@@ -55,12 +55,6 @@
               <el-option v-for="dict in statusDictDatas" :key="parseInt(dict.value)" :label="dict.label" :value="parseInt(dict.value)"/>
             </el-select>
           </el-form-item>
-          <el-form-item label="接口注册" prop="roleRegistered">
-            <el-select v-model="queryParams.roleRegistered" placeholder="全部" clearable style="width: 140px">
-              <el-option label="已注册" value="1" />
-              <el-option label="未注册" value="0" />
-            </el-select>
-          </el-form-item>
           <el-form-item label="创建时间" prop="createTime">
             <el-date-picker v-model="queryParams.createTime" style="width: 240px" value-format="yyyy-MM-dd HH:mm:ss" type="daterange"
                             range-separator="-" start-placeholder="开始日期" end-placeholder="结束日期" :default-time="['00:00:00', '23:59:59']" />
@@ -110,34 +104,13 @@
               <el-switch v-model="scope.row.status" :active-value="0" :inactive-value="1" @change="handleStatusChange(scope.row)"/>
             </template>
           </el-table-column>
-          <el-table-column label="接口注册" align="center" width="90">
-            <template v-slot="scope">
-              <el-tag
-                :type="scope.row.roleRegistered === '1' ? 'success' : 'info'"
-                size="mini"
-                style="cursor: pointer"
-                title="点击切换已注册/未注册"
-                @click.native="handleToggleRegister(scope.row)"
-              >
-                {{ scope.row.roleRegistered === '1' ? '已注册' : '未注册' }}
-              </el-tag>
-            </template>
-          </el-table-column>
           <el-table-column label="创建时间" align="center" prop="createTime" width="180">
             <template v-slot="scope">
               <span>{{ parseTime(scope.row.createTime) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" align="center" width="320" class-name="small-padding fixed-width">
+          <el-table-column label="操作" align="center" width="260" class-name="small-padding fixed-width">
             <template v-slot="scope">
-              <el-button
-                size="mini"
-                type="text"
-                icon="el-icon-position"
-                :disabled="scope.row.roleRegistered === '1'"
-                @click="handleRegister(scope.row)"
-                v-hasPermi="['sub-system:role:update']"
-              >注册</el-button>
               <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
                          v-hasPermi="['sub-system:role:update']">修改</el-button>
               <el-button size="mini" type="text" icon="el-icon-circle-check" @click="handleMenu(scope.row)"
@@ -157,7 +130,7 @@
 
     <!-- 新增/修改：关闭销毁表单，避免下次 resetFields 踩到上次残留字段 -->
     <el-dialog :title="title" :visible.sync="open" width="560px" append-to-body destroy-on-close>
-      <el-form ref="form" :model="form" :rules="formRules" label-width="110px">
+      <el-form ref="form" :model="form" :rules="rules" label-width="110px">
         <el-form-item label="业务系统">
           <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
         </el-form-item>
@@ -175,100 +148,10 @@
             <el-radio v-for="dict in statusDictDatas" :key="parseInt(dict.value)" :label="parseInt(dict.value)">{{ dict.label }}</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item v-if="form.id" label="接口注册" prop="roleRegistered">
-          <el-radio-group v-model="form.roleRegistered">
-            <el-radio label="0">未注册</el-radio>
-            <el-radio label="1">已注册</el-radio>
-          </el-radio-group>
-          <div class="form-tip">
-            仅修改本地标记。真正推送到对方系统请用列表「注册」；人工已在对方系统建过角色可标已注册，改回未注册后可重新推送
-          </div>
-        </el-form-item>
-        <template v-if="!form.id">
-          <el-form-item label="同步外部">
-            <el-checkbox
-              v-model="form.syncToExternal"
-              :disabled="!roleCreateApiReady"
-              @change="handleSyncToExternalChange"
-            >同步到业务系统（调「角色新增」接口）</el-checkbox>
-            <div class="form-tip">
-              <span v-if="roleCreateApiReady" style="color:#67c23a">可选接口目标：与花名册系统解耦（如 Camstar人员管理）</span>
-              <span v-else style="color:#e6a23c">未找到已启用的「角色新增」接口。请到「人员接口接入」配置并启用；若已配在 Camstar人员管理，刷新后应能勾选</span>
-            </div>
-          </el-form-item>
-          <el-form-item v-if="form.syncToExternal" label="接口目标" prop="apiSubSystemId">
-            <el-select v-model="form.apiSubSystemId" placeholder="请选择调用哪个系统的角色新增接口" style="width: 100%">
-              <el-option
-                v-for="item in roleCreateApis"
-                :key="item.subSystemId"
-                :label="item.systemName"
-                :value="item.subSystemId"
-              />
-            </el-select>
-          </el-form-item>
-          <el-form-item v-if="form.syncToExternal" label="车间" prop="workshopCode">
-            <el-select
-              v-model="form.workshopCode"
-              placeholder="按花名册系统自动带出，如 MES4200 → 4200"
-              filterable
-              allow-create
-              style="width: 100%"
-            >
-              <el-option
-                v-for="item in workshopOptions"
-                :key="item.workshopCode"
-                :label="workshopOptionLabel(item)"
-                :value="item.workshopCode"
-              />
-            </el-select>
-            <div class="form-tip">花名册系统 MES4200 会自动带出车间 4200</div>
-            <div v-if="syncRoleNamePreview" class="form-tip">将同步角色名：<b>{{ syncRoleNamePreview }}</b></div>
-          </el-form-item>
-        </template>
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
         <el-button @click="cancel">取 消</el-button>
-      </div>
-    </el-dialog>
-
-    <!-- 补注册：选接口目标；角色名无车间前缀时再选车间 -->
-    <el-dialog title="注册到业务系统" :visible.sync="registerOpen" width="520px" append-to-body>
-      <el-form ref="registerForm" :model="registerForm" :rules="registerRules" label-width="90px">
-        <el-form-item label="角色名称">
-          <el-input :value="registerForm.name" disabled />
-        </el-form-item>
-        <el-form-item label="接口目标" prop="apiSubSystemId">
-          <el-select v-model="registerForm.apiSubSystemId" placeholder="请选择调用哪个系统的角色新增接口" style="width: 100%">
-            <el-option
-              v-for="item in roleCreateApis"
-              :key="item.subSystemId"
-              :label="item.systemName"
-              :value="item.subSystemId"
-            />
-          </el-select>
-        </el-form-item>
-        <el-form-item v-if="registerNeedWorkshop" label="车间" prop="workshopCode">
-          <el-select
-            v-model="registerForm.workshopCode"
-            placeholder="按花名册系统自动带出，如 MES4200 → 4200"
-            filterable
-            allow-create
-            style="width: 100%"
-          >
-            <el-option
-              v-for="item in workshopOptions"
-              :key="item.workshopCode"
-              :label="workshopOptionLabel(item)"
-              :value="item.workshopCode"
-            />
-          </el-select>
-          <div class="form-tip">角色名无车间前缀时，用花名册系统带出的车间（MES4200 → 4200），同步为 车间编号_角色名称</div>
-        </el-form-item>
-      </el-form>
-      <div slot="footer" class="dialog-footer">
-        <el-button type="primary" :loading="registerSubmitting" :disabled="!roleCreateApiReady" @click="submitRegister">确 定</el-button>
-        <el-button @click="registerOpen = false">取 消</el-button>
       </div>
     </el-dialog>
 
@@ -364,13 +247,9 @@ import {
   getSubSystemRoleMenuIds,
   getSubSystemRolePage,
   importSubSystemRoleTemplate,
-  registerSubSystemRole,
   updateSubSystemRole,
-  updateSubSystemRoleRegisterStatus,
   updateSubSystemRoleStatus
 } from '@/api/system/subSystemRole'
-import { getSubSystemRoleCreateApis } from '@/api/system/subSystemApiConfig'
-import { getSubSystemWorkshopSimpleList } from '@/api/system/subSystemWorkshop'
 import { getSubSystemRoleQuickNavList, saveSubSystemRoleQuickNav } from '@/api/system/subSystem/roleQuickNav'
 import { buildSubSystemRoleQuickNavCheckTree, getSubSystemQuickNavLeafIds } from '@/utils/roleQuickNavMenus'
 import { restoreRoleMenuCheckedKeys } from '@/utils/roleMenuTree'
@@ -395,21 +274,10 @@ export default {
       clientList: [],
       clientKeyword: '',
       selectedClient: null,
-      workshopOptions: [],
-      roleCreateApis: [],
       title: '',
       open: false,
       openMenu: false,
       openQuickNav: false,
-      registerOpen: false,
-      registerSubmitting: false,
-      registerNeedWorkshop: false,
-      registerForm: {
-        id: undefined,
-        name: '',
-        apiSubSystemId: undefined,
-        workshopCode: undefined
-      },
       quickNavSaving: false,
       quickNavForm: {},
       quickNavMenuTree: [],
@@ -435,7 +303,6 @@ export default {
         name: undefined,
         code: undefined,
         status: undefined,
-        roleRegistered: undefined,
         createTime: []
       },
       form: {},
@@ -447,46 +314,13 @@ export default {
         name: [{ required: true, message: '角色名称不能为空', trigger: 'blur' }],
         code: [{ required: true, message: '角色标识不能为空', trigger: 'blur' }],
         sort: [{ required: true, message: '角色顺序不能为空', trigger: 'blur' }],
-        status: [{ required: true, message: '状态不能为空', trigger: 'change' }],
-        apiSubSystemId: [{ required: true, message: '请选择接口目标', trigger: 'change' }],
-        workshopCode: [{ required: true, message: '请选择车间', trigger: 'change' }]
+        status: [{ required: true, message: '状态不能为空', trigger: 'change' }]
       }
     }
   },
   computed: {
     statusDictDatas() {
       return getDictDatas(DICT_TYPE.COMMON_STATUS)
-    },
-    roleCreateApiReady() {
-      return (this.roleCreateApis || []).length > 0
-    },
-    syncRoleNamePreview() {
-      if (!this.form || !this.form.syncToExternal) {
-        return ''
-      }
-      const workshop = (this.form.workshopCode || '').trim()
-      const name = (this.form.name || '').trim()
-      if (!workshop || !name) {
-        return ''
-      }
-      const prefix = workshop + '_'
-      return name.startsWith(prefix) ? name : (prefix + name)
-    },
-    formRules() {
-      if (this.form && this.form.syncToExternal && !this.form.id) {
-        return this.rules
-      }
-      const { workshopCode, apiSubSystemId, ...rest } = this.rules
-      return rest
-    },
-    registerRules() {
-      const rules = {
-        apiSubSystemId: [{ required: true, message: '请选择接口目标', trigger: 'change' }]
-      }
-      if (this.registerNeedWorkshop) {
-        rules.workshopCode = [{ required: true, message: '请选择车间', trigger: 'change' }]
-      }
-      return rules
     },
     uploadAction() {
       const id = this.selectedClient && this.selectedClient.id
@@ -509,67 +343,9 @@ export default {
   created() {
     ensureDictDatas(DICT_TYPE.COMMON_STATUS).finally(() => {
       this.loadClientList()
-      this.loadRoleCreateApis()
     })
   },
   methods: {
-    workshopOptionLabel(item) {
-      if (!item) {
-        return ''
-      }
-      const name = item.workshopName || item.deptName || ''
-      return name ? (item.workshopCode + ' / ' + name) : item.workshopCode
-    },
-    /** MES4200 / mes4200 → 4200 */
-    inferWorkshopFromClient() {
-      const c = this.selectedClient
-      if (!c) {
-        return undefined
-      }
-      const text = [c.name, c.clientId].filter(Boolean).join(' ')
-      const m = String(text).match(/(\d{3,})/g)
-      return m && m.length ? m[m.length - 1] : undefined
-    },
-    defaultWorkshopCode() {
-      if ((this.workshopOptions || []).length === 1) {
-        return this.workshopOptions[0].workshopCode
-      }
-      const inferred = this.inferWorkshopFromClient()
-      if (!inferred) {
-        return undefined
-      }
-      const hit = (this.workshopOptions || []).find(w => String(w.workshopCode) === String(inferred))
-      return hit ? hit.workshopCode : inferred
-    },
-    handleSyncToExternalChange(val) {
-      if (val && !this.form.workshopCode) {
-        this.form.workshopCode = this.defaultWorkshopCode()
-      }
-    },
-    loadRoleCreateApis() {
-      return getSubSystemRoleCreateApis().then(res => {
-        this.roleCreateApis = res.data || []
-      }).catch(() => {
-        this.roleCreateApis = []
-      })
-    },
-    defaultApiSubSystemId() {
-      if (!(this.roleCreateApis || []).length) {
-        return undefined
-      }
-      return this.roleCreateApis[0].subSystemId
-    },
-    loadWorkshopOptions() {
-      if (!this.selectedClient || !this.selectedClient.id) {
-        this.workshopOptions = []
-        return Promise.resolve()
-      }
-      return getSubSystemWorkshopSimpleList(this.selectedClient.id).then(res => {
-        this.workshopOptions = res.data || []
-      }).catch(() => {
-        this.workshopOptions = []
-      })
-    },
     loadClientList() {
       return this.withClientsLoading(() => {
         return getSubSystemClientSimpleList(true).then(res => {
@@ -588,12 +364,9 @@ export default {
       this.queryParams.name = undefined
       this.queryParams.code = undefined
       this.queryParams.status = undefined
-      this.queryParams.roleRegistered = undefined
       this.queryParams.createTime = []
       this.queryParams.pageNo = 1
-      this.workshopOptions = []
       this.getList()
-      this.loadWorkshopOptions()
     },
     getList() {
       if (!this.selectedClient) {
@@ -633,10 +406,6 @@ export default {
         code: undefined,
         sort: 0,
         status: CommonStatusEnum.ENABLE,
-        roleRegistered: '0',
-        syncToExternal: false,
-        apiSubSystemId: undefined,
-        workshopCode: undefined,
         dataScope: undefined,
         deptCheckStrictly: false,
         menuCheckStrictly: true
@@ -655,17 +424,8 @@ export default {
     handleAdd() {
       this.ensureSubSystemBoundBeforeAction('新增角色', { requireConfirm: false }).then(() => {
         this.resetFormData()
-        this.form.apiSubSystemId = this.defaultApiSubSystemId()
         this.open = true
         this.title = '添加业务系统角色'
-        Promise.all([this.loadRoleCreateApis(), this.loadWorkshopOptions()]).then(() => {
-          if (!this.form.apiSubSystemId) {
-            this.form.apiSubSystemId = this.defaultApiSubSystemId()
-          }
-          if (!this.form.workshopCode) {
-            this.form.workshopCode = this.defaultWorkshopCode()
-          }
-        })
       }).catch(() => {})
     },
     handleImport() {
@@ -717,10 +477,7 @@ export default {
           name: res.data.name,
           code: res.data.code,
           sort: res.data.sort,
-          status: res.data.status,
-          roleRegistered: res.data.roleRegistered || '0',
-          syncToExternal: false,
-          workshopCode: undefined
+          status: res.data.status
         }
         this.open = true
         this.title = '修改业务系统角色'
@@ -746,15 +503,6 @@ export default {
           sort: this.form.sort,
           status: this.form.status
         }
-        if (this.form.id) {
-          payload.roleRegistered = this.form.roleRegistered
-        } else {
-          payload.syncToExternal = !!this.form.syncToExternal
-          if (payload.syncToExternal) {
-            payload.workshopCode = this.form.workshopCode || this.defaultWorkshopCode()
-            payload.apiSubSystemId = this.form.apiSubSystemId
-          }
-        }
         this.submitting = true
         const request = this.form.id ? updateSubSystemRole : createSubSystemRole
         request(payload).then(() => {
@@ -766,61 +514,6 @@ export default {
           this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
         }).finally(() => {
           this.submitting = false
-        })
-      })
-    },
-    handleToggleRegister(row) {
-      const next = row.roleRegistered === '1' ? '0' : '1'
-      const action = next === '1' ? '已注册' : '未注册'
-      this.$modal.confirm('将角色「' + row.name + '」的接口注册状态改为【' + action + '】？').then(() => {
-        return updateSubSystemRoleRegisterStatus(row.id, next)
-      }).then(() => {
-        row.roleRegistered = next
-        this.$modal.msgSuccess('已改为' + action)
-      }).catch(() => {})
-    },
-    handleRegister(row) {
-      if (!row || row.roleRegistered === '1') {
-        return
-      }
-      const name = row.name || ''
-      const idx = name.indexOf('_')
-      const parsedWorkshop = idx > 0 ? name.substring(0, idx) : ''
-      Promise.all([this.loadRoleCreateApis(), this.loadWorkshopOptions()]).then(() => {
-        if (!this.roleCreateApiReady) {
-          this.$modal.msgWarning('未找到已启用的「角色新增」接口，请先在「人员接口接入」配置并启用')
-          return
-        }
-        this.registerNeedWorkshop = !parsedWorkshop
-        this.registerForm = {
-          id: row.id,
-          name,
-          apiSubSystemId: this.defaultApiSubSystemId(),
-          workshopCode: parsedWorkshop || this.defaultWorkshopCode()
-        }
-        this.registerOpen = true
-        this.$nextTick(() => {
-          if (this.$refs.registerForm) {
-            this.$refs.registerForm.clearValidate()
-          }
-        })
-      })
-    },
-    submitRegister() {
-      this.$refs.registerForm.validate(valid => {
-        if (!valid) {
-          return
-        }
-        this.registerSubmitting = true
-        registerSubSystemRole(this.registerForm.id, {
-          apiSubSystemId: this.registerForm.apiSubSystemId,
-          workshopCode: this.registerForm.workshopCode || this.defaultWorkshopCode()
-        }).then(() => {
-          this.$modal.msgSuccess('注册成功')
-          this.registerOpen = false
-          this.getList()
-        }).finally(() => {
-          this.registerSubmitting = false
         })
       })
     },
@@ -998,12 +691,5 @@ export default {
   background: #fff none;
   border-radius: 4px;
   width: 100%;
-}
-
-.form-tip {
-  margin-top: 4px;
-  line-height: 1.4;
-  font-size: 12px;
-  color: #909399;
 }
 </style>
