@@ -155,8 +155,8 @@
       </el-col>
     </el-row>
 
-    <!-- 新增/修改 -->
-    <el-dialog :title="title" :visible.sync="open" width="560px" append-to-body>
+    <!-- 新增/修改：关闭销毁表单，避免下次 resetFields 踩到上次残留字段 -->
+    <el-dialog :title="title" :visible.sync="open" width="560px" append-to-body destroy-on-close>
       <el-form ref="form" :model="form" :rules="formRules" label-width="110px">
         <el-form-item label="业务系统">
           <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
@@ -641,7 +641,12 @@ export default {
         deptCheckStrictly: false,
         menuCheckStrictly: true
       }
-      this.resetForm('form')
+      // 只清校验，不调用 resetFields。关过一次后再 resetFields，ElementUI 会对没有 prop 的表单项执行 indexOf，直接报错，修改弹窗打不开
+      this.$nextTick(() => {
+        if (this.$refs.form && typeof this.$refs.form.clearValidate === 'function') {
+          this.$refs.form.clearValidate()
+        }
+      })
     },
     cancel() {
       this.open = false
@@ -705,7 +710,6 @@ export default {
       this.$refs.upload.submit()
     },
     handleUpdate(row) {
-      this.resetFormData()
       getSubSystemRole(row.id).then(res => {
         this.form = {
           id: res.data.id,
@@ -720,6 +724,11 @@ export default {
         }
         this.open = true
         this.title = '修改业务系统角色'
+        this.$nextTick(() => {
+          if (this.$refs.form && typeof this.$refs.form.clearValidate === 'function') {
+            this.$refs.form.clearValidate()
+          }
+        })
       }).catch(() => {
         this.$modal.msgError('加载角色信息失败，请重试')
       })

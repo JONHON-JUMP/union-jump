@@ -19,7 +19,6 @@ import cn.jonhon.jump.module.system.dal.mysql.user.AdminUserMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemApiConfigMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUsersMapper;
-import cn.jonhon.jump.module.system.framework.subsystemapi.CamstarEmployeeApiAdapter;
 import cn.jonhon.jump.module.system.framework.subsystemapi.ExternalApiException;
 import cn.jonhon.jump.module.system.framework.subsystemapi.SubSystemEmployeeApi;
 import cn.jonhon.jump.module.system.framework.subsystemapi.SubSystemEmployeeApiFactory;
@@ -224,81 +223,6 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
             }
         }
         return results;
-    }
-
-    private static final String CAMSTAR_LOGIN_ROLE_ID = "001bda8000000001";
-
-    @Override
-    public void syncCamstarUserRoles(Long apiSubSystemId, String userCode, String userName,
-                                      String workshopCode, String teamCode, List<String> roleNames) {
-        if (apiSubSystemId == null) {
-            throw exception0(BAD_REQUEST.getCode(), "请选择接口目标");
-        }
-        if (StrUtil.isBlank(userCode) || StrUtil.isBlank(workshopCode)) {
-            throw exception0(BAD_REQUEST.getCode(), "同步 Camstar 角色需要工号和车间编号");
-        }
-        String workshop = workshopCode.trim();
-        SubSystemEmployeeApi api = getApi(apiSubSystemId);
-        if (!(api instanceof CamstarEmployeeApiAdapter)) {
-            throw exception0(BAD_REQUEST.getCode(), "该接口目标不是 Camstar，不能同步人员角色");
-        }
-        CamstarEmployeeApiAdapter camstar = (CamstarEmployeeApiAdapter) api;
-        Map<String, String> nameToId;
-        try {
-            nameToId = camstar.queryRoleIds(workshop);
-        } catch (ExternalApiException e) {
-            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
-        }
-        List<String> roleIds = new ArrayList<>();
-        roleIds.add(CAMSTAR_LOGIN_ROLE_ID);
-        if (roleNames != null) {
-            for (String name : roleNames) {
-                if (StrUtil.isBlank(name)) {
-                    continue;
-                }
-                String camstarId = matchCamstarRoleId(nameToId, name.trim(), workshop);
-                if (StrUtil.isBlank(camstarId)) {
-                    throw exception0(BAD_REQUEST.getCode(),
-                            "Camstar 未找到角色「" + name.trim() + "」，请先在角色管理同步到该系统");
-                }
-                if (!roleIds.contains(camstarId)) {
-                    roleIds.add(camstarId);
-                }
-            }
-        }
-        SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
-        dto.setUserCode(userCode.trim());
-        dto.setUserName(StrUtil.blankToDefault(StrUtil.trim(userName), userCode.trim()));
-        dto.setWorkshopCode(workshop);
-        dto.setRoleOnly(true);
-        dto.setUserRoleIdStr(String.join(",", roleIds));
-        try {
-            camstar.updateFollowingCreateSession(dto);
-        } catch (ExternalApiException e) {
-            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
-        }
-    }
-
-    /** 角色名可能是「工艺员」，也可能是同步后的「4200_工艺员」，两边都试一次 */
-    private static String matchCamstarRoleId(Map<String, String> nameToId, String roleName, String workshopCode) {
-        String prefixed = workshopCode + "_" + roleName;
-        String direct = nameToId.get(roleName);
-        if (StrUtil.isNotBlank(direct)) {
-            return direct;
-        }
-        if (!roleName.startsWith(workshopCode + "_")) {
-            String withWorkshop = nameToId.get(prefixed);
-            if (StrUtil.isNotBlank(withWorkshop)) {
-                return withWorkshop;
-            }
-        } else {
-            String bare = roleName.substring((workshopCode + "_").length());
-            String withoutWorkshop = nameToId.get(bare);
-            if (StrUtil.isNotBlank(withoutWorkshop)) {
-                return withoutWorkshop;
-            }
-        }
-        return null;
     }
 
     /** 车间优先：花名册已填 > 注册弹窗指定 > 花名册系统车间对照 > 接口目标车间对照 */

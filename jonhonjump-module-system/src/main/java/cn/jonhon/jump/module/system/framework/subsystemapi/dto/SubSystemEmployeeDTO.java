@@ -30,14 +30,5 @@ public class SubSystemEmployeeDTO {
     private String cardNo;
     /** 在职状态：1 在职 0 离职 */
     private String onDuty;
-    /**
-     * Camstar 角色 ID，逗号分隔（ROLEDEF.roleId，不是角色名）。
-     * 含内置 Login：001bda8000000001
-     */
-    private String userRoleIdStr;
-    /**
-     * 为 true 时 Camstar 只改人员角色，不回写菜单、主页、工位、班组、密码。
-     */
-    private Boolean roleOnly;
 
 }

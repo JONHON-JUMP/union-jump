@@ -43,7 +43,6 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
     private final EndpointSpec updateEndpoint;
     private final EndpointSpec deleteEndpoint;
     private final EndpointSpec teamComboEndpoint;
-    private final EndpointSpec roleQueryEndpoint;
     private final EndpointSpec authEndpoint;
     private final String cookieName;
     private final String authUserCode;
@@ -60,7 +59,6 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         this.deleteEndpoint = requireSpec(specs, ApiEndpointSpecs.DELETE, "删除接口");
         // 可选接口：未配置接口行时为 null（调用前判空）
         this.teamComboEndpoint = specs.get(ApiEndpointSpecs.TEAM_COMBO);
-        this.roleQueryEndpoint = specs.get(ApiEndpointSpecs.ROLE_QUERY);
         JsonNode auth = parseJson(StrUtil.blankToDefault(config.getAuthConfig(), "{}"));
         this.authUserCode = text(auth, "userCode", "");
         this.cookieName = text(auth, "cookieName", DEFAULT_COOKIE_NAME);
@@ -106,43 +104,6 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         requireEnabled(updateEndpoint, "修改");
         Map<String, Object> item = toCamstarEmployee(employee);
         JsonNode resp = executeWithRelogin(updateEndpoint, Collections.singletonList(item));
-        checkSuccess(resp);
-    }
-
-    /**
-     * 按车间查 Camstar 角色名 → roleId。请求方式和人员注册相同：同一个客户端、同一份会话 Cookie。
-     */
-    public Map<String, String> queryRoleIds(String workshopCode) {
-        requireEnabled(roleQueryEndpoint, "角色查询");
-        Map<String, Object> body = new HashMap<>();
-        body.put("workshopCode", workshopCode);
-        JsonNode resp = executeWithRelogin(sameSessionAsCreate(roleQueryEndpoint), body);
-        JsonNode rows = resp.has("rows") && resp.get("rows").isArray() ? resp.get("rows")
-                : (resp.has("data") && resp.get("data").isArray() ? resp.get("data") : null);
-        Map<String, String> nameToId = new HashMap<>();
-        if (rows == null) {
-            return nameToId;
-        }
-        for (JsonNode row : rows) {
-            String roleName = firstNonBlank(text(row, "roleName", ""),
-                    firstNonBlank(text(row, "RoleName", ""), text(row, "text", "")));
-            String roleId = firstNonBlank(text(row, "roleId", ""),
-                    firstNonBlank(text(row, "RoleId", ""), text(row, "value", "")));
-            if (StrUtil.isNotBlank(roleName) && StrUtil.isNotBlank(roleId)) {
-                nameToId.put(roleName.trim(), roleId.trim());
-            }
-        }
-        return nameToId;
-    }
-
-    /**
-     * 给人挂角色。表里没有单独的「人员关联角色」接口，Camstar 也没有。
-     * 用已有的修改人员接口（与注册人员同一条 addOrUpdateUser），会话开关跟新增人员一致。
-     */
-    public void updateFollowingCreateSession(SubSystemEmployeeDTO employee) {
-        requireEnabled(updateEndpoint, "修改");
-        Map<String, Object> item = toCamstarEmployee(employee);
-        JsonNode resp = executeWithRelogin(sameSessionAsCreate(updateEndpoint), Collections.singletonList(item));
         checkSuccess(resp);
     }
 
@@ -271,24 +232,9 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         this.cookieValue = encodeSessionCookie(authUserCode);
     }
 
-    /** Cookie 值 = Base64(工号)，与人员注册使用的会话值相同。不再做百分号编码，% 不是合法 Base64。 */
+    /** Cookie 值 = Base64(工号)。 */
     public static String encodeSessionCookie(String userCode) {
         return Base64.getEncoder().encodeToString(userCode.getBytes(StandardCharsets.UTF_8));
-    }
-
-    /** 地址、方法用目标接口的，是否带 Cookie 与人员注册的新增接口相同。 */
-    private EndpointSpec sameSessionAsCreate(EndpointSpec source) {
-        if (source == null || createEndpoint == null || createEndpoint.isWithSession()) {
-            return source;
-        }
-        EndpointSpec spec = new EndpointSpec();
-        spec.setUrl(source.getUrl());
-        spec.setPath(source.getPath());
-        spec.setMethod(source.getMethod());
-        spec.setName(source.getName());
-        spec.setEnabled(source.getEnabled());
-        spec.setWithSession(false);
-        return spec;
     }
 
     private Map<String, Object> toCamstarEmployee(SubSystemEmployeeDTO dto) {
@@ -307,12 +253,6 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         }
         if (StrUtil.isNotBlank(dto.getCardNo())) {
             item.put("cardNo", dto.getCardNo());
-        }
-        if (StrUtil.isNotBlank(dto.getUserRoleIdStr())) {
-            item.put("userRoleIdStr", dto.getUserRoleIdStr());
-        }
-        if (Boolean.TRUE.equals(dto.getRoleOnly())) {
-            item.put("roleOnly", true);
         }
         return item;
     }

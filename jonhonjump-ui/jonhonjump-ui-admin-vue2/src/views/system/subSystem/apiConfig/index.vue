@@ -145,7 +145,6 @@
                 <el-option label="查询人员" value="query" />
                 <el-option label="新增人员（用户同步用）" value="create" />
                 <el-option label="修改人员" value="update" />
-                <el-option label="人员分配角色（分配角色同步用）" value="assign_role" />
                 <el-option label="删除人员" value="delete" />
                 <el-option label="班组下拉" value="team_combo" />
                 <el-option label="角色查询" value="role_query" />
@@ -154,7 +153,6 @@
               </el-select>
               <div class="form-tip">同一用途只能配置一个接口；设置用途后自动归入对应分组</div>
               <div class="form-tip" v-if="editApi.purpose === 'create'">用户管理 → 添加用户 → 同步业务系统，将调用本接口</div>
-              <div class="form-tip" v-else-if="editApi.purpose === 'assign_role'">花名册 → 分配角色 → 勾选「调用接口更新 Camstar 人员角色」时调用本接口（请求体自动带 roleOnly=true，只改角色）</div>
             </el-form-item>
             <el-form-item label="启用">
               <el-switch v-model="editApi.enabled" />
@@ -243,7 +241,7 @@ import {
   updateSubSystemApiConfig
 } from '@/api/system/subSystemApiConfig'
 
-const PURPOSES = ['query', 'create', 'update', 'delete', 'team_combo', 'assign_role', 'role_query', 'role_create', 'role_delete']
+const PURPOSES = ['query', 'create', 'update', 'delete', 'team_combo', 'role_query', 'role_create', 'role_delete']
 
 /** 用途 → 显示名 */
 const PURPOSE_LABELS = {
@@ -253,7 +251,6 @@ const PURPOSE_LABELS = {
   update: '修改人员',
   delete: '删除人员',
   team_combo: '班组下拉',
-  assign_role: '人员分配角色',
   role_query: '角色查询',
   role_create: '角色新增',
   role_delete: '角色删除'
@@ -284,11 +281,6 @@ const CAMSTAR_SAMPLES = {
   }],
   delete: { userCode: '00078' },
   team_combo: { workshopCode: '4200' },
-  // 人员分配角色：请求体 roleOnly=true，只增删角色不改菜单/主页/工位/班组/密码
-  assign_role: [{
-    userCode: '00078', userName: '张三', workshopCode: '4200',
-    roleOnly: true, userRoleIdStr: '001bda8000000001,角色查询返回的roleId'
-  }],
   // Camstar 角色（裸角色，不挂页面）：全部 POST；新增/删除要求会话工号挂「管理员/Administrator」角色
   role_query: { workshopCode: '4200' },
   role_create: [{ roleName: 'JUMP测试角色', workshopCode: '4200' }],
@@ -375,7 +367,6 @@ function defaultEndpoints(host) {
     mk('query', '查询人员', '/BasicData/Employee/getEmployeeInfo'),
     mk('create', '新增人员', '/BasicData/Employee/addOrUpdateUser'),
     mk('update', '修改人员', '/BasicData/Employee/addOrUpdateUser'),
-    mk('assign_role', '人员分配角色', '/BasicData/Employee/addOrUpdateUser'),
     mk('delete', '删除人员', '/BasicData/Employee/deleteEmployeeInfo'),
     mk('role_query', '角色查询', '/BasicData/Role/getRoleInfo'),
     mk('role_create', '角色新增', '/BasicData/Role/updateRoleInfo'),
@@ -486,7 +477,7 @@ export default {
     },
     /** 人员/角色接口：Cookie 从系统级会话设置自动带，不在本页重复配置 */
     isWithSessionPurpose() {
-      const purposes = ['query', 'create', 'update', 'delete', 'team_combo', 'assign_role', 'role_query', 'role_create', 'role_delete']
+      const purposes = ['query', 'create', 'update', 'delete', 'team_combo', 'role_query', 'role_create', 'role_delete']
       return purposes.indexOf(this.editApi && this.editApi.purpose) >= 0
     },
     currentSession() {

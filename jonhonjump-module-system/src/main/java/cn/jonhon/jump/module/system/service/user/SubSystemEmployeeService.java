@@ -42,10 +42,4 @@ public interface SubSystemEmployeeService {
      */
     List<SubSystemUserRegisterRespVO> registerEmployees(SubSystemUserRegisterReqVO reqVO);
 
-    /**
-     * 把 JUMP 已选角色同步到 Camstar 人员：按角色名匹配 roleId，调 addOrUpdateUser 的 userRoleIdStr。
-     */
-    void syncCamstarUserRoles(Long apiSubSystemId, String userCode, String userName,
-                               String workshopCode, String teamCode, List<String> roleNames);
-
 }

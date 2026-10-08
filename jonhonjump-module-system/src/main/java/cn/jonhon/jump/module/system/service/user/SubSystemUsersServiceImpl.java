@@ -52,8 +52,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     @Resource
     private SubSystemUserRoleMapper subSystemUserRoleMapper;
     @Resource
-    private SubSystemEmployeeService subSystemEmployeeService;
-    @Resource
     private SubSystemUserPostMapper subSystemUserPostMapper;
     @Resource
     private SubSystemRoleMenuMapper subSystemRoleMenuMapper;
@@ -450,33 +448,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         SubSystemUsersDO user = validateSubSystemUserExists(reqVO.getId());
         assignUserRoles(reqVO.getId(), user.getSubSystemId(), reqVO.getRoleIds());
         subSystemPermissionContextService.evictBySubSystemUserId(reqVO.getId());
-        if (Boolean.TRUE.equals(reqVO.getSyncCamstar())) {
-            syncCamstarRoles(user, reqVO);
-        }
-    }
-
-    /** 勾选同步时：JUMP 角色名 → Camstar roleId，再调人员更新接口挂上 */
-    private void syncCamstarRoles(SubSystemUsersDO user, SubSystemUsersAssignRoleReqVO reqVO) {
-        if (reqVO.getApiSubSystemId() == null) {
-            throw exception0(BAD_REQUEST.getCode(), "同步 Camstar 角色请选择接口目标");
-        }
-        String workshop = StrUtil.trim(user.getWorkshopId());
-        if (StrUtil.isBlank(workshop)) {
-            throw exception0(BAD_REQUEST.getCode(), "该用户未填车间编号，无法同步 Camstar 角色");
-        }
-        String bare = StrUtil.blankToDefault(user.getUsername(), "").trim();
-        String userCode = bare;
-        if ("1".equals(user.getUsernameWithWorkshop()) && !bare.startsWith(workshop + "_")) {
-            userCode = workshop + "_" + bare;
-        }
-        List<String> roleNames = CollUtil.isEmpty(reqVO.getRoleIds())
-                ? Collections.emptyList()
-                : subSystemRoleMapper.selectBatchIds(reqVO.getRoleIds()).stream()
-                .map(SubSystemRoleDO::getName)
-                .filter(StrUtil::isNotBlank)
-                .collect(Collectors.toList());
-        subSystemEmployeeService.syncCamstarUserRoles(
-                reqVO.getApiSubSystemId(), userCode, user.getNickname(), workshop, user.getTeamId(), roleNames);
     }
     @Override
     public List<Long> getSubSystemUserRoleIds(Long id) {
