@@ -145,6 +145,7 @@
                 <el-option label="查询人员" value="query" />
                 <el-option label="新增人员（用户同步用）" value="create" />
                 <el-option label="修改人员" value="update" />
+                <el-option label="人员分配角色（分配角色同步用）" value="assign_role" />
                 <el-option label="删除人员" value="delete" />
                 <el-option label="班组下拉" value="team_combo" />
                 <el-option label="角色查询" value="role_query" />
@@ -153,6 +154,7 @@
               </el-select>
               <div class="form-tip">同一用途只能配置一个接口；设置用途后自动归入对应分组</div>
               <div class="form-tip" v-if="editApi.purpose === 'create'">用户管理 → 添加用户 → 同步业务系统，将调用本接口</div>
+              <div class="form-tip" v-else-if="editApi.purpose === 'assign_role'">花名册 → 分配角色 → 勾选「同步外部」时调用本接口（自动按 查现状→合并角色→原样回写 构造请求体，只改角色不动其他字段）</div>
             </el-form-item>
             <el-form-item label="启用">
               <el-switch v-model="editApi.enabled" />
@@ -241,7 +243,7 @@ import {
   updateSubSystemApiConfig
 } from '@/api/system/subSystemApiConfig'
 
-const PURPOSES = ['query', 'create', 'update', 'delete', 'team_combo', 'role_query', 'role_create', 'role_delete']
+const PURPOSES = ['query', 'create', 'update', 'assign_role', 'delete', 'team_combo', 'role_query', 'role_create', 'role_delete']
 
 /** 用途 → 显示名 */
 const PURPOSE_LABELS = {
@@ -249,6 +251,7 @@ const PURPOSE_LABELS = {
   query: '查询人员',
   create: '新增人员',
   update: '修改人员',
+  assign_role: '人员分配角色',
   delete: '删除人员',
   team_combo: '班组下拉',
   role_query: '角色查询',
@@ -281,6 +284,13 @@ const CAMSTAR_SAMPLES = {
   }],
   delete: { userCode: '00078' },
   team_combo: { workshopCode: '4200' },
+  // 人员分配角色：真实调用时按「查现状→合并角色→原样回写」构造请求体（现状字段回显 + userRoleIdStr 全量差量），此处仅示例
+  assign_role: [{
+    userCode: '00078', userName: '张三', workshopCode: '4200',
+    teamCode: '查询回显', workCenterId: '查询回显', menuId: '查询回显', homePageCode: '查询回显',
+    domainName: '查询回显', cardNo: '', erpNo: '',
+    userRoleIdStr: '001bda8000000001,角色查询返回的roleId（现有角色∪本次分配）'
+  }],
   // Camstar 角色（裸角色，不挂页面）：全部 POST；新增/删除要求会话工号挂「管理员/Administrator」角色
   role_query: { workshopCode: '4200' },
   role_create: [{ roleName: 'JUMP测试角色', workshopCode: '4200' }],
@@ -367,6 +377,7 @@ function defaultEndpoints(host) {
     mk('query', '查询人员', '/BasicData/Employee/getEmployeeInfo'),
     mk('create', '新增人员', '/BasicData/Employee/addOrUpdateUser'),
     mk('update', '修改人员', '/BasicData/Employee/addOrUpdateUser'),
+    mk('assign_role', '人员分配角色', '/BasicData/Employee/addOrUpdateUser'),
     mk('delete', '删除人员', '/BasicData/Employee/deleteEmployeeInfo'),
     mk('role_query', '角色查询', '/BasicData/Role/getRoleInfo'),
     mk('role_create', '角色新增', '/BasicData/Role/updateRoleInfo'),
@@ -477,7 +488,7 @@ export default {
     },
     /** 人员/角色接口：Cookie 从系统级会话设置自动带，不在本页重复配置 */
     isWithSessionPurpose() {
-      const purposes = ['query', 'create', 'update', 'delete', 'team_combo', 'role_query', 'role_create', 'role_delete']
+      const purposes = ['query', 'create', 'update', 'assign_role', 'delete', 'team_combo', 'role_query', 'role_create', 'role_delete']
       return purposes.indexOf(this.editApi && this.editApi.purpose) >= 0
     },
     currentSession() {
@@ -505,7 +516,8 @@ export default {
     nodeIcon(data) {
       return data.type === 'api' ? 'el-icon-document' : 'el-icon-folder-opened'
     },
-    loadAll() {
+    loadAll(opts) {
+      opts = opts || {}
       this.loading = true
       const keepKey = this.currentNode && this.currentNode.nodeKey
       return Promise.all([getSubSystemClientSimpleList(), getSubSystemApiConfigList()]).then(([clients, configs]) => {
@@ -533,12 +545,13 @@ export default {
           this.$set(this.sessionMap, c.subSystemId, sessionFromConfig(c))
         })
         this.$nextTick(() => {
-          const keep = this.findTreeNode(keepKey)
-          const firstApi = this.firstApiNode()
-          const first = keep || firstApi
-          if (first) {
-            this.handleNodeClick(first)
-            if (this.$refs.tree) this.$refs.tree.setCurrentKey(first.nodeKey)
+          // 保存会删掉旧接口行再插入，id 变了，按旧 nodeKey 会找不到，测试结果被当成「换了节点」清掉
+          const kept = (opts.subSystemId && this.findApiNode(opts.subSystemId, opts.purpose, opts.name))
+            || this.findTreeNode(keepKey)
+            || this.firstApiNode()
+          if (kept) {
+            this.handleNodeClick(kept, { keepResult: !!opts.keepResult })
+            if (this.$refs.tree) this.$refs.tree.setCurrentKey(kept.nodeKey)
           } else {
             this.currentNode = null
           }
@@ -553,6 +566,23 @@ export default {
       const walk = (nodes) => {
         ;(nodes || []).forEach(n => {
           if (n.nodeKey === key) found = n
+          walk(n.children)
+        })
+      }
+      walk(this.treeData)
+      return found
+    },
+    findApiNode(subSystemId, purpose, name) {
+      let found = null
+      const walk = (nodes) => {
+        ;(nodes || []).forEach(n => {
+          if (found || n.subSystemId !== subSystemId) {
+            walk(n.children)
+            return
+          }
+          if (n.type === 'api' && ((purpose && n.purpose === purpose) || (!purpose && name && n.label === name))) {
+            found = n
+          }
           walk(n.children)
         })
       }
@@ -587,13 +617,14 @@ export default {
         status: 0
       }
     },
-    handleNodeClick(data) {
+    handleNodeClick(data, options) {
       if (!data) return
-      // loadAll 刷新后会重选当前节点：同一节点不重复清空响应/参数（否则测试结果一闪而过）
+      // 保存后接口 id 会变，nodeKey 对不上。测试刚写入的响应不能因为这次刷新被清掉
+      const keepResult = !!(options && options.keepResult)
       const sameNode = !!(this.currentNode && this.currentNode.nodeKey === data.nodeKey)
       this.applyMeta(data.subSystemId)
       this.currentNode = data
-      if (!sameNode) {
+      if (!sameNode && !keepResult) {
         this.testResult = ''
         this.sessionTestResult = ''
       }
@@ -609,7 +640,7 @@ export default {
           enabled: ep.enabled !== false,
           withSession: ep.withSession !== false
         }
-        if (!sameNode) {
+        if (!sameNode && !keepResult) {
           const sample = CAMSTAR_SAMPLES[ep.purpose] || {}
           this.testBody = JSON.stringify(sample, null, 2)
         }
@@ -730,7 +761,7 @@ export default {
         baseUrl: baseUrl || 'http://127.0.0.1',
         authType: sessionOn ? 'cookie_sso' : 'none',
         authConfig: sessionHasUrl ? stringifySession(Object.assign({}, session, { enabled: sessionOn })) : '',
-        // 一行一接口：整系统接口行一起提交（后端级联全删全插）
+        // 一行一接口：整系统接口行一起提交（后端按 id/用途差量更新，行 id 保留、不再全删全插）
         endpoints: endpoints.map((e, i) => ({
           id: e.id || undefined,
           purpose: e.purpose || '',
@@ -858,12 +889,13 @@ export default {
         })
       }).then(res => {
         const data = res.data || {}
+        // 测试结束后不再刷新左侧树。保存会重插接口行、编号变化，刷新会把刚拿到的响应清掉
         this.testResult = [
           (data.method || '') + ' ' + (data.url || ''),
+          '请求 ' + (data.requestBody || ''),
           data.success === false ? '失败' : '成功',
-          data.responseBody || ''
+          data.responseBody || '（对方返回空内容）'
         ].join('\n')
-        this.loadAll()
       }).catch(err => {
         this.testResult = (err && (err.msg || err.message)) || String(err)
       }).finally(() => {

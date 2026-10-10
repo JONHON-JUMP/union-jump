@@ -19,6 +19,12 @@ public final class ApiEndpointSpecs {
     public static final String UPDATE = "update";
     public static final String DELETE = "delete";
     public static final String TEAM_COMBO = "team_combo";
+    /**
+     * 人员分配角色（花名册「分配角色」勾选同步时调用）。
+     * Camstar 与「修改人员」同为 addOrUpdateUser：适配器按 查现状→合并角色→原样回写 执行，
+     * 只改 userRoleIdStr，不覆盖班组/菜单/主页/工位/密码等字段。
+     */
+    public static final String ASSIGN_ROLE = "assign_role";
     public static final String ROLE_QUERY = "role_query";
     public static final String ROLE_CREATE = "role_create";
     public static final String ROLE_DELETE = "role_delete";

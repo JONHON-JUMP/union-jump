@@ -30,6 +30,11 @@ public interface SubSystemUsersMapper extends BaseMapperX<SubSystemUsersDO> {
                 .eq(SubSystemUsersDO::getMainUserId, mainUserId));
     }
 
+    default List<SubSystemUsersDO> selectListByUsername(String username) {
+        return selectList(new LambdaQueryWrapperX<SubSystemUsersDO>()
+                .eq(SubSystemUsersDO::getUsername, username));
+    }
+
     default SubSystemUsersDO selectBySubSystemIdAndUsername(Long subSystemId, String username) {
         return selectOne(new LambdaQueryWrapperX<SubSystemUsersDO>()
                 .eq(SubSystemUsersDO::getSubSystemId, subSystemId)
@@ -56,15 +61,17 @@ public interface SubSystemUsersMapper extends BaseMapperX<SubSystemUsersDO> {
                 .inIfPresent(SubSystemUsersDO::getTeamId, teamCodes)
                 .betweenIfPresent(SubSystemUsersDO::getCreateTime, reqVO.getCreateTime())
                 .orderByDesc(SubSystemUsersDO::getId);
-        // 展示状态：unlinked=未关联；0=已关联且正常；1=已关联且禁用
+        // 展示状态：unlinked=未关联（空或 <=0）；0=已挂真实 JUMP 用户且正常；1=已挂且禁用
         String status = reqVO.getStatus();
         if ("unlinked".equals(status) || "2".equals(status)) {
-            wrapper.isNull(SubSystemUsersDO::getMainUserId);
+            wrapper.and(w -> w.isNull(SubSystemUsersDO::getMainUserId)
+                    .or()
+                    .le(SubSystemUsersDO::getMainUserId, 0));
         } else if ("0".equals(status)) {
-            wrapper.isNotNull(SubSystemUsersDO::getMainUserId);
+            wrapper.gt(SubSystemUsersDO::getMainUserId, 0);
             wrapper.eq(SubSystemUsersDO::getStatus, "0");
         } else if ("1".equals(status)) {
-            wrapper.isNotNull(SubSystemUsersDO::getMainUserId);
+            wrapper.gt(SubSystemUsersDO::getMainUserId, 0);
             wrapper.eq(SubSystemUsersDO::getStatus, "1");
         }
         return selectPage(reqVO, wrapper);

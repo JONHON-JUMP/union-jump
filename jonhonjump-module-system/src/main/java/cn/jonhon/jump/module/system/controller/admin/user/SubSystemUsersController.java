@@ -224,6 +224,17 @@ public class SubSystemUsersController {
 
 
 
+    @PutMapping("/bind-external-employee")
+    @Operation(summary = "关联或解除外部人员（userCode 为空表示解除）")
+    @PreAuthorize("@ss.hasPermission('sub-system:user:update')")
+    public CommonResult<Boolean> bindExternalEmployee(@RequestParam("id") Long id,
+                                                      @RequestParam(value = "userCode", required = false) String userCode,
+                                                      @RequestParam(value = "workshopCode", required = false) String workshopCode,
+                                                      @RequestParam(value = "apiSubSystemId", required = false) Long apiSubSystemId) {
+        subSystemUsersService.bindExternalEmployee(id, userCode, workshopCode, apiSubSystemId);
+        return success(true);
+    }
+
     @PutMapping("/update-register-status")
 
     @Operation(summary = "修改人员接口注册状态（0未注册 1已注册；人工在对方系统建过人可标已注册，改回未注册可重推）")
@@ -297,15 +308,13 @@ public class SubSystemUsersController {
 
     @PutMapping("/assign-role")
 
-    @Operation(summary = "分配外部系统用户角色")
+    @Operation(summary = "分配外部系统用户角色（勾选同步时返回外部同步结果，失败不回滚本地）")
 
     @PreAuthorize("@ss.hasPermission('sub-system:user:update')")
 
-    public CommonResult<Boolean> assignSubSystemUserRole(@Valid @RequestBody SubSystemUsersAssignRoleReqVO reqVO) {
+    public CommonResult<SubSystemUsersAssignRoleRespVO> assignSubSystemUserRole(@Valid @RequestBody SubSystemUsersAssignRoleReqVO reqVO) {
 
-        subSystemUsersService.assignSubSystemUserRole(reqVO);
-
-        return success(true);
+        return success(subSystemUsersService.assignSubSystemUserRole(reqVO));
 
     }
 

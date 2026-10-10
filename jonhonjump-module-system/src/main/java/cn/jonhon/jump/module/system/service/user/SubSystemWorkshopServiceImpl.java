@@ -118,27 +118,56 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
 
     @Override
     public List<SubSystemWorkshopSimpleRespVO> getWorkshopSimpleList(Long subSystemId, Long deptId) {
-        List<SubSystemWorkshopDO> list = Collections.emptyList();
+        if (subSystemId == null && deptId == null) {
+            return Collections.emptyList();
+        }
+        List<SubSystemWorkshopDO> list;
         if (subSystemId != null) {
             if (subSystemMapper.selectById(subSystemId) == null) {
                 throw exception(SUB_SYSTEM_NOT_EXISTS);
             }
             // 可管系统范围校验：受限角色只能取授权系统的车间下拉
             subSystemAccessService.checkAccessible(subSystemId);
-            if (deptId != null) {
-                list = subSystemWorkshopMapper.selectListBySubSystemIdAndDeptId(subSystemId, deptId);
-            }
-            if (CollUtil.isEmpty(list)) {
-                list = subSystemWorkshopMapper.selectListBySubSystemId(subSystemId);
-            }
-        }
-        if (CollUtil.isEmpty(list) && deptId != null) {
+            // 指定了部门就只拿该部门的对照；没指定则只拿本系统已对照的部门，不落到全库
+            list = deptId != null
+                    ? subSystemWorkshopMapper.selectListBySubSystemIdAndDeptId(subSystemId, deptId)
+                    : subSystemWorkshopMapper.selectListBySubSystemId(subSystemId);
+        } else {
             list = subSystemWorkshopMapper.selectListByDeptId(deptId);
         }
-        if (CollUtil.isEmpty(list)) {
-            list = subSystemWorkshopMapper.selectList();
+        List<SubSystemWorkshopSimpleRespVO> options = distinctByCode(list);
+        // 车间页把多条部门对照都落在同一个默认系统上。打开制造二部 MES 时只留属于这个系统的那条，
+        // 例如 mes4200 / 制造二部 只保留 4200，不把测试部门的 33 放进下拉。
+        if (subSystemId == null || deptId != null || options.size() <= 1) {
+            return options;
         }
-        return distinctByCode(list);
+        SubSystemDO sys = subSystemMapper.selectById(subSystemId);
+        List<SubSystemWorkshopSimpleRespVO> matched = options.stream()
+                .filter(vo -> belongsToSystem(vo, sys))
+                .collect(Collectors.toList());
+        return CollUtil.isEmpty(matched) ? options : matched;
+    }
+
+    /** 车间编码对上系统编号（mes4200→4200），或部门/车间名称包含在系统名里 */
+    private boolean belongsToSystem(SubSystemWorkshopSimpleRespVO vo, SubSystemDO sys) {
+        if (vo == null || sys == null) {
+            return false;
+        }
+        String hint = extractWorkshopHint(sys);
+        if (StrUtil.isNotBlank(hint) && hint.equals(StrUtil.trim(vo.getWorkshopCode()))) {
+            return true;
+        }
+        return nameBelongs(sys.getSystemName(), vo.getDeptName())
+                || nameBelongs(sys.getSystemName(), vo.getWorkshopName());
+    }
+
+    private static boolean nameBelongs(String systemName, String part) {
+        if (StrUtil.isBlank(systemName) || StrUtil.isBlank(part) || part.trim().length() < 2) {
+            return false;
+        }
+        String left = systemName.trim();
+        String right = part.trim();
+        return left.contains(right) || right.contains(left);
     }
 
     private List<SubSystemWorkshopSimpleRespVO> distinctByCode(List<SubSystemWorkshopDO> list) {

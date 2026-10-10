@@ -33,6 +33,17 @@ public interface SubSystemRoleService {
      */
     void registerSubSystemRole(Long id, SubSystemRoleRegisterReqVO reqVO);
 
+    /**
+     * 按车间列出外部系统（Camstar）已有角色（角色名 + roleId），供「关联外部角色」选择
+     */
+    List<SubSystemExternalRoleRespVO> getExternalRoleList(Long apiSubSystemId, String workshopCode);
+
+    /**
+     * 关联/解除外部系统角色：把外部 roleId 绑到本地角色上（external_role_id），
+     * 之后分配角色同步按该 ID 上挂；传空解除关联
+     */
+    void bindExternalRole(Long id, String externalRoleId);
+
     List<SubSystemMenuSimpleRespVO> getMenuSimpleList(Long subSystemId);
 
     Set<Long> getRoleMenuIds(Long roleId);

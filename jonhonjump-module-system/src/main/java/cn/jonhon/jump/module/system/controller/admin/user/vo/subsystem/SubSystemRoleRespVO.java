@@ -40,6 +40,9 @@ public class SubSystemRoleRespVO {
     @Schema(description = "角色接口注册状态（0未注册 1已注册）")
     private String roleRegistered;
 
+    @Schema(description = "外部系统角色 ID（Camstar roleId；空=未关联，分配角色时不参与外部同步）")
+    private String externalRoleId;
+
     @Schema(description = "数据范围")
     private Integer dataScope;
 

@@ -103,11 +103,32 @@ public class SubSystemRoleController {
     }
 
     @PostMapping("/register")
-    @Operation(summary = "未注册角色调对方「角色新增」接口补注册（成功自动置已注册）")
+    @Operation(summary = "未注册角色调对方「角色新增」接口补注册（成功自动置已注册并回存外部 roleId）")
     @PreAuthorize("@ss.hasPermission('sub-system:role:update')")
     public CommonResult<Boolean> registerSubSystemRole(@RequestParam("id") Long id,
                                                        @Valid @RequestBody(required = false) SubSystemRoleRegisterReqVO reqVO) {
         subSystemRoleService.registerSubSystemRole(id, reqVO != null ? reqVO : new SubSystemRoleRegisterReqVO());
+        return success(true);
+    }
+
+    @PostMapping("/external-role-list")
+    @Operation(summary = "按车间列出外部系统已有角色（角色名 + roleId），供「关联外部角色」选择")
+    @PreAuthorize("@ss.hasPermission('sub-system:role:list')")
+    public CommonResult<List<SubSystemExternalRoleRespVO>> getExternalRoleList(
+            @Valid @RequestBody SubSystemExternalRoleQueryReqVO reqVO) {
+        return success(subSystemRoleService.getExternalRoleList(reqVO.getApiSubSystemId(), reqVO.getWorkshopCode()));
+    }
+
+    @PutMapping("/bind-external-role")
+    @Operation(summary = "关联/解除外部系统角色（绑定外部 roleId，分配角色同步按 ID 上挂；传空解除）")
+    @Parameters({
+            @Parameter(name = "id", description = "本地角色编号", required = true),
+            @Parameter(name = "externalRoleId", description = "外部角色 ID（空=解除关联）")
+    })
+    @PreAuthorize("@ss.hasPermission('sub-system:role:update')")
+    public CommonResult<Boolean> bindExternalRole(@RequestParam("id") Long id,
+                                                  @RequestParam(value = "externalRoleId", required = false) String externalRoleId) {
+        subSystemRoleService.bindExternalRole(id, externalRoleId);
         return success(true);
     }
 

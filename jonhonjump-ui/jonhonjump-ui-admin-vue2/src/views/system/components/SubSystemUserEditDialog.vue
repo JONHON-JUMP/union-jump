@@ -50,10 +50,11 @@
         </el-col>
         <el-col :span="12">
           <el-form-item label="车间">
+            <el-input v-if="workshopOptions.length <= 1" :value="workshopFixedText()" disabled placeholder="暂无车间对照" />
             <el-select
+              v-else
               v-model="form.workshopId"
-              placeholder="请从车间对照中选择"
-              clearable
+              placeholder="请选择已对照的部门车间"
               filterable
               style="width: 100%"
               :disabled="identityLocked"
@@ -66,7 +67,8 @@
                 :value="item.workshopCode"
               />
             </el-select>
-            <div v-if="workshopHint" class="form-tip">{{ workshopHint }}</div>
+            <div v-if="workshopOptions.length === 1" class="form-tip">车间与部门是一对一，已确定</div>
+            <div v-else-if="workshopHint" class="form-tip">{{ workshopHint }}</div>
           </el-form-item>
         </el-col>
         <el-col :span="12">
@@ -83,7 +85,7 @@
           </el-form-item>
         </el-col>
       </el-row>
-      <el-divider content-position="left">岗位 / 角色 / 主页面</el-divider>
+      <el-divider content-position="left">岗位 / 角色</el-divider>
       <el-form-item label="岗位">
         <el-select v-model="form.postIds" multiple placeholder="请选择岗位" style="width: 100%">
           <el-option
@@ -95,8 +97,7 @@
         </el-select>
       </el-form-item>
       <el-form-item label="角色">
-        <el-select v-model="form.roleIds" multiple placeholder="请选择角色" style="width: 100%"
-                   @change="handleRoleIdsChange">
+        <el-select v-model="form.roleIds" multiple placeholder="请选择角色" style="width: 100%">
           <el-option
             v-for="item in roleOptions"
             :key="item.id"
@@ -104,19 +105,6 @@
             :value="item.id"
           />
         </el-select>
-      </el-form-item>
-      <el-form-item label="主页面" prop="homeMenuId">
-        <treeselect
-          v-model="form.homeMenuId"
-          :options="menuPageOptions"
-          :normalizer="homeMenuNormalizer"
-          :show-count="true"
-          :disable-branch-nodes="true"
-          :disabled="!form.roleIds || form.roleIds.length === 0"
-          placeholder="请先选择角色，再选择主页面"
-          clearable
-          style="width: 100%"
-        />
       </el-form-item>
       <el-form-item label="状态" prop="status">
         <el-radio-group v-model="form.status">
@@ -141,8 +129,6 @@
 </template>
 
 <script>
-import Treeselect from '@riophae/vue-treeselect'
-import '@riophae/vue-treeselect/dist/vue-treeselect.css'
 import {
   bindSubSystemMainUser,
   createSubSystemUser,
@@ -152,14 +138,12 @@ import {
   getSubSystemTeamSimpleList,
   getSubSystemUser,
   getSubSystemUserByUsername,
-  getSubSystemUserHomeMenuTree,
   updateSubSystemUser
 } from '@/api/system/subSystemUsers'
 import { getSubSystemWorkshopByDept, getSubSystemWorkshopSimpleList } from '@/api/system/subSystemWorkshop'
 
 export default {
   name: 'SubSystemUserEditDialog',
-  components: { Treeselect },
   props: {
     visible: {
       type: Boolean,
@@ -200,7 +184,6 @@ export default {
       postOptions: [],
       teamOptions: [],
       workshopOptions: [],
-      menuPageOptions: [],
       matchOk: false,
       matchHint: '',
       workshopHint: '',
@@ -260,16 +243,6 @@ export default {
     }
   },
   methods: {
-    homeMenuNormalizer(node) {
-      if (node.children && !node.children.length) {
-        delete node.children
-      }
-      return {
-        id: node.id,
-        label: node.name,
-        children: node.children
-      }
-    },
     resetFormData() {
       this.form = {
         id: undefined,
@@ -289,7 +262,6 @@ export default {
       this.postOptions = []
       this.teamOptions = []
       this.workshopOptions = []
-      this.menuPageOptions = []
       this.matchOk = false
       this.matchHint = ''
       this.workshopHint = ''
@@ -297,6 +269,10 @@ export default {
       if (this.$refs.form) {
         this.$refs.form.clearValidate()
       }
+    },
+    workshopFixedText() {
+      const item = (this.workshopOptions || [])[0]
+      return item ? this.workshopOptionLabel(item) : ''
     },
     workshopOptionLabel(item) {
       const name = item.workshopName || '车间'
@@ -314,12 +290,22 @@ export default {
         this.workshopOptions = []
         return Promise.resolve()
       }
-      return getSubSystemWorkshopSimpleList(subSystemId).then(res => {
-        this.workshopOptions = res.data || []
-        if (this.workshopOptions.length === 0) {
+      const deptId = this.mainUserDeptId
+      const load = (id) => getSubSystemWorkshopSimpleList(subSystemId, id).then(res => res.data || [])
+      const apply = (list) => {
+        this.workshopOptions = list || []
+        if (this.workshopOptions.length === 1) {
+          this.form.workshopId = this.workshopOptions[0].workshopCode
+          this.workshopDeptId = this.workshopOptions[0].deptId
+          this.workshopHint = ''
+        } else if (!this.workshopOptions.length) {
           this.workshopHint = '暂无车间对照，请先在「车间对照」中维护'
         }
-      }).catch(() => {
+      }
+      const request = deptId
+        ? load(deptId).then(list => (list.length ? list : load(undefined)))
+        : load(undefined)
+      return request.then(apply).catch(() => {
         this.workshopOptions = []
         this.workshopHint = '车间对照加载失败'
       })
@@ -346,7 +332,6 @@ export default {
         this.postOptions = []
         this.teamOptions = []
         this.workshopOptions = []
-        this.menuPageOptions = []
         return Promise.resolve()
       }
       return Promise.all([
@@ -359,30 +344,31 @@ export default {
       const deptId = this.workshopDeptId || this.mainUserDeptId
       return this.loadTeamOptions(subSystemId, deptId)
     },
-    /** 历史手工录入的车间编号若不在对照中，补一条可选项，避免下拉空白 */
+    /** 只接受已对照的车间。一对一直接用那一条，对照外的编号不放进下拉 */
     ensureWorkshopOption(workshopCode) {
-      if (!workshopCode) {
+      const codes = (this.workshopOptions || []).map(w => w.workshopCode)
+      if (codes.length === 1) {
+        this.form.workshopId = codes[0]
         return
       }
-      const exists = (this.workshopOptions || []).some(w => w.workshopCode === workshopCode)
-      if (exists) {
-        return
+      if (workshopCode && codes.indexOf(workshopCode) < 0) {
+        this.form.workshopId = undefined
       }
-      this.workshopOptions = (this.workshopOptions || []).concat([{
-        workshopCode,
-        workshopName: workshopCode + '（未在对照中）',
-        deptId: undefined,
-        deptName: undefined
-      }])
     },
     /**
      * 同步车间选中与班组过滤。
      * clearTeam=true 表示用户主动改车间；加载已有数据时不要清班组。
      */
     syncWorkshopSelection(workshopCode, clearTeam) {
-      this.ensureWorkshopOption(workshopCode)
-      const hit = (this.workshopOptions || []).find(w => w.workshopCode === workshopCode)
-      this.form.workshopId = workshopCode || undefined
+      const codes = (this.workshopOptions || []).map(w => w.workshopCode)
+      let code = workshopCode
+      if (codes.length === 1) {
+        code = codes[0]
+      } else if (code && codes.indexOf(code) < 0) {
+        code = undefined
+      }
+      const hit = (this.workshopOptions || []).find(w => w.workshopCode === code)
+      this.form.workshopId = code || undefined
       this.workshopDeptId = hit ? hit.deptId : undefined
       if (clearTeam) {
         this.form.teamId = undefined
@@ -470,7 +456,7 @@ export default {
         this.matchOk = true
         this.matchHint = `已匹配业务系统用户「${data.username}」，确认后写入关联；可同时修改车间、班组、岗位、角色等`
         this.applyRosterToForm(data)
-        return this.preferWorkshopFromDept(subSystemId, !!data.workshopId).then(() => this.loadHomeMenuOptions())
+        return this.preferWorkshopFromDept(subSystemId, !!data.workshopId)
       }).catch(() => {
         this.matchOk = false
         this.matchHint = '匹配业务系统用户失败'
@@ -490,39 +476,6 @@ export default {
       this.form.postIds = data.postIds || []
       this.workshopHint = ''
       this.workshopDeptId = undefined
-    },
-    loadHomeMenuOptions() {
-      const subSystemId = this.form.subSystemId
-      const roleIds = this.form.roleIds || []
-      if (!subSystemId || roleIds.length === 0) {
-        this.menuPageOptions = []
-        return Promise.resolve()
-      }
-      return getSubSystemUserHomeMenuTree(subSystemId, roleIds).then(res => {
-        this.menuPageOptions = res.data || []
-      })
-    },
-    handleRoleIdsChange() {
-      const currentHomeMenuId = this.form.homeMenuId
-      this.loadHomeMenuOptions().then(() => {
-        if (currentHomeMenuId && !this.isHomeMenuInTree(currentHomeMenuId, this.menuPageOptions)) {
-          this.form.homeMenuId = undefined
-        }
-      })
-    },
-    isHomeMenuInTree(menuId, nodes) {
-      if (!nodes || nodes.length === 0) {
-        return false
-      }
-      for (const node of nodes) {
-        if (node.id === menuId) {
-          return true
-        }
-        if (this.isHomeMenuInTree(menuId, node.children)) {
-          return true
-        }
-      }
-      return false
     },
     openBind() {
       this.resetFormData()
@@ -548,7 +501,7 @@ export default {
         return this.loadSubOptions(data.subSystemId).then(() => {
           this.applyRosterToForm(data)
           this.form.mainUserId = data.mainUserId
-          return this.preferWorkshopFromDept(data.subSystemId, !!data.workshopId).then(() => this.loadHomeMenuOptions())
+          return this.preferWorkshopFromDept(data.subSystemId, !!data.workshopId)
         })
       }).catch(() => {
         this.dialogVisible = false

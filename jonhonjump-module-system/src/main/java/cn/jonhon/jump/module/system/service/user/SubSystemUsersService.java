@@ -132,6 +132,18 @@ public interface SubSystemUsersService {
     Long bindMainUser(Long subSystemId, Long mainUserId);
 
     /**
+     * 新建 JUMP 用户时：花名册用户名完全相同、且该行还没挂到仍存在的 JUMP 用户（空、0、已删除）则写入 mainUserId。
+     * 同一业务系统里该主用户已挂过别的行则跳过。打开列表或详情不会调用。
+     */
+    void bindMatchingRosters(Long mainUserId, String username);
+
+    /**
+     * 把花名册行关联到已存在的外部人员。userCode 为空表示解除关联。
+     * 外部用户名必须是本地用户名，或 车间编号_本地用户名。
+     */
+    void bindExternalEmployee(Long id, String userCode, String workshopCode, Long apiSubSystemId);
+
+    /**
      * 从主系统用户登记子系统花名册（纯本地，不调外部接口；upsert 语义）
      *
      * 仅登记已绑定 OAuth 的门户业务系统；车间按部门对照尽力带出，可后补
@@ -204,7 +216,11 @@ public interface SubSystemUsersService {
 
     List<SubSystemMenuTreeRespVO> getUserHomeMenuTree(Long subSystemId, List<Long> roleIds);
 
-    void assignSubSystemUserRole(@Valid SubSystemUsersAssignRoleReqVO reqVO);
+    /**
+     * 分配外部系统用户角色（角色入库唯一入口）。
+     * 勾选同步时调对方接口上挂/解除：外部失败不回滚本地分配，结果经 RespVO 明示
+     */
+    SubSystemUsersAssignRoleRespVO assignSubSystemUserRole(@Valid SubSystemUsersAssignRoleReqVO reqVO);
 
 
 

@@ -18,4 +18,10 @@ public class SubSystemUsersAssignRoleReqVO {
     @NotNull(message = "角色编号列表不能为空")
     private List<Long> roleIds;
 
+    @Schema(description = "是否同步到外部系统（勾选后调对方接口上挂/解除；本地已入库不回滚）", example = "false")
+    private Boolean syncToExternal;
+
+    @Schema(description = "接口目标系统 ID（勾选同步时必填，与人员注册的接口目标相同）", example = "9")
+    private Long apiSubSystemId;
+
 }

@@ -24,10 +24,12 @@ import org.springframework.validation.annotation.Validated;
 
 import javax.annotation.Resource;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -122,7 +124,8 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     public void deleteApiConfig(Long id) {
         SubSystemApiConfigDO config = validateApiConfigExists(id);
         subSystemApiConfigMapper.deleteById(id);
-        subSystemApiEndpointMapper.deleteListBySubSystemId(config.getSubSystemId());
+        // 接入系统删除：接口行是纯配置字典，物理级联清理，不留 deleted=1 死行
+        subSystemApiEndpointMapper.physicalDeleteBySubSystemId(config.getSubSystemId());
         subSystemEmployeeApiFactory.invalidate(config.getSubSystemId());
     }
 
@@ -167,8 +170,11 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         Object body = parseTestBody(reqVO.getRequestBody());
         boolean isAuthKey = "auth".equalsIgnoreCase(StrUtil.nullToEmpty(reqVO.getApiKey()).trim());
         // auth 接口：测试体可覆盖 token；默认用 authConfig.userCode 生成
+        // 其它接口去掉空字符串。Camstar 会把空工号、空姓名当成查询条件，结果一条都没有
         if (isAuthKey) {
             body = enrichAuthTestBody(config, body);
+        } else {
+            body = omitBlankValues(body);
         }
         ExternalApiHttpClient httpClient = new ExternalApiHttpClient(
                 config.getBaseUrl(), config.getConnectTimeoutMs(), config.getReadTimeoutMs());
@@ -226,7 +232,7 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         try {
             raw = httpClient.execute(endpoint, Collections.singletonList(item), buildAuthHeaders(config, endpoint));
         } catch (ExternalApiException e) {
-            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, toRoleCreateError(e.getMessage()));
         }
         JsonNode resp;
         try {
@@ -234,9 +240,20 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         } catch (Exception e) {
             throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, "响应解析失败：" + StrUtil.brief(raw, 300));
         }
-        if (resp.path("code").asInt(0) != 200) {
-            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, resp.path("message").asText("未知错误"));
+        if (!isExternalSuccess(resp)) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, toRoleCreateError(resp.path("message").asText("未知错误")));
         }
+    }
+
+    /** Camstar 同名（WCF New 失败）转成可操作提示，其余错误原样抛出 */
+    private static String toRoleCreateError(String message) {
+        String text = StrUtil.blankToDefault(message, "未知错误");
+        String lower = text.toLowerCase();
+        if (text.contains("已存在") || text.contains("重复")
+                || lower.contains("already exist") || lower.contains("duplicate")) {
+            return "Camstar 已存在同名角色。若本地角色还没建，请取消同步先保存，再使用【关联外部】；本地角色已存在则直接【关联外部】";
+        }
+        return text;
     }
 
     @Override
@@ -279,6 +296,9 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         if (!endpoint.isEnabled()) {
             throw exception(SUB_SYSTEM_API_ENDPOINT_DISABLED, "role_query");
         }
+        // 角色查询固定按 POST 发（JSON 请求体，Camstar MVC 靠 POST+JSON 绑定参数）：
+        // 接口行即使被配成 GET 也按 POST 调用，避免 GET 请求被网关/对方系统拦截
+        endpoint.setMethod("POST");
         Map<String, Object> body = new HashMap<>();
         body.put("workshopCode", workshopCode);
         ExternalApiHttpClient httpClient = new ExternalApiHttpClient(
@@ -292,26 +312,55 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         } catch (Exception e) {
             throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
         }
-        if (resp.path("code").asInt(0) != 200) {
+        if (!isExternalSuccess(resp)) {
             throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, resp.path("message").asText("角色查询失败"));
         }
-        JsonNode rows = resp.has("rows") && resp.get("rows").isArray() ? resp.get("rows")
-                : (resp.has("data") && resp.get("data").isArray() ? resp.get("data") : null);
+        JsonNode rows = firstArray(resp, "rows", "Rows", "data", "Data");
+        if (rows == null && resp.path("data").isObject()) {
+            rows = firstArray(resp.get("data"), "rows", "Rows", "list", "data");
+        }
         Map<String, String> nameToId = new HashMap<>();
         if (rows == null) {
             return nameToId;
         }
         for (JsonNode row : rows) {
+            if (row == null || !row.isObject()) {
+                continue;
+            }
             // getRoleInfo 是 roleName/roleId；getRoleComboByFactory 是 text/value
-            String roleName = firstNonBlank(row.path("roleName").asText(""),
-                    firstNonBlank(row.path("RoleName").asText(""), row.path("text").asText("")));
-            String roleId = firstNonBlank(row.path("roleId").asText(""),
-                    firstNonBlank(row.path("RoleId").asText(""), row.path("value").asText("")));
+            String roleName = firstText(row, "roleName", "RoleName", "ROLENAME", "text", "Text");
+            String roleId = firstText(row, "roleId", "RoleId", "ROLEID", "roleID", "value", "Value");
             if (StrUtil.isNotBlank(roleName) && StrUtil.isNotBlank(roleId)) {
                 nameToId.put(roleName.trim(), roleId.trim());
             }
         }
         return nameToId;
+    }
+
+    /** Camstar AjaxResult.code 可能是数字 200，也可能是枚举名 success */
+    private static boolean isExternalSuccess(JsonNode resp) {
+        JsonNode code = resp.get("code");
+        if (code == null || code.isNull()) {
+            return false;
+        }
+        if (code.isNumber()) {
+            return code.asInt() == 200;
+        }
+        String text = code.asText("");
+        return "200".equals(text) || "success".equalsIgnoreCase(text);
+    }
+
+    private static JsonNode firstArray(JsonNode node, String... fields) {
+        if (node == null || fields == null) {
+            return null;
+        }
+        for (String field : fields) {
+            JsonNode child = node.get(field);
+            if (child != null && child.isArray()) {
+                return child;
+            }
+        }
+        return null;
     }
 
     private String firstNonBlank(String a, String b) {
@@ -404,6 +453,33 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         return "";
     }
 
+    /** 去掉空字符串，避免 Camstar 把空工号/空姓名写成查询条件后一条都查不出来 */
+    @SuppressWarnings("unchecked")
+    private Object omitBlankValues(Object body) {
+        if (body instanceof Map) {
+            Map<String, Object> out = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : ((Map<?, ?>) body).entrySet()) {
+                if (entry.getKey() == null) {
+                    continue;
+                }
+                Object value = omitBlankValues(entry.getValue());
+                if (value == null || (value instanceof String && StrUtil.isBlank((String) value))) {
+                    continue;
+                }
+                out.put(String.valueOf(entry.getKey()), value);
+            }
+            return out;
+        }
+        if (body instanceof List) {
+            List<Object> out = new ArrayList<>();
+            for (Object item : (List<?>) body) {
+                out.add(omitBlankValues(item));
+            }
+            return out;
+        }
+        return body;
+    }
+
     private Object parseTestBody(String requestBody) {
         if (StrUtil.isBlank(requestBody)) {
             return Collections.emptyMap();
@@ -491,14 +567,21 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     }
 
     /**
-     * 级联保存接口行：先逻辑删旧行再整批插入；同一用途只能一个接口（空用途除外）。
+     * 差量保存接口行：按传入 id / 用途 复用现有行，只插入新增、只物理删除真正移除的行。
+     * 行 ID 跨保存保持稳定（前端树节点与测试结果不再错位），表里也不再堆积 deleted=1 的死行
+     * （旧实现是整批逻辑删 + 重插，每保存一次就留下一整套死行且 ID 全变）。
+     * 同一用途只能一个接口（空用途除外）。
      */
     private void saveEndpoints(Long subSystemId, List<SubSystemApiEndpointVO> endpoints) {
-        subSystemApiEndpointMapper.deleteListBySubSystemId(subSystemId);
-        if (CollUtil.isEmpty(endpoints)) {
-            return;
-        }
+        List<SubSystemApiEndpointDO> existingList = subSystemApiEndpointMapper.selectListBySubSystemId(subSystemId);
+        Map<Long, SubSystemApiEndpointDO> byId = convertMap(existingList, SubSystemApiEndpointDO::getId);
+        Map<String, SubSystemApiEndpointDO> byPurpose = existingList.stream()
+                .filter(e -> StrUtil.isNotBlank(e.getPurpose()))
+                .collect(Collectors.toMap(SubSystemApiEndpointDO::getPurpose, e -> e, (a, b) -> a));
+
         Set<String> purposes = new HashSet<>();
+        Set<Long> usedIds = new HashSet<>();
+        List<SubSystemApiEndpointDO> toInsert = new ArrayList<>();
         int index = 0;
         for (SubSystemApiEndpointVO vo : endpoints) {
             String purpose = StrUtil.nullToEmpty(vo.getPurpose()).trim();
@@ -516,8 +599,37 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
             endpoint.setEnabled(!Boolean.FALSE.equals(vo.getEnabled()) ? 1 : 0);
             endpoint.setWithSession(!Boolean.FALSE.equals(vo.getWithSession()) ? 1 : 0);
             endpoint.setSort(vo.getSort() == null ? (index + 1) * 10 : vo.getSort());
-            subSystemApiEndpointMapper.insert(endpoint);
+
+            // 复用现有行：优先按传入 id（前端编辑时保留行 id），其次按用途匹配（同一系统一个用途一行）
+            SubSystemApiEndpointDO target = null;
+            if (vo.getId() != null) {
+                SubSystemApiEndpointDO idRow = byId.get(vo.getId());
+                if (idRow != null && usedIds.add(idRow.getId())) {
+                    target = idRow;
+                }
+            }
+            if (target == null && !purpose.isEmpty()) {
+                SubSystemApiEndpointDO purposeRow = byPurpose.get(purpose);
+                if (purposeRow != null && usedIds.add(purposeRow.getId())) {
+                    target = purposeRow;
+                }
+            }
+            if (target != null) {
+                endpoint.setId(target.getId());
+                subSystemApiEndpointMapper.updateById(endpoint);
+            } else {
+                toInsert.add(endpoint);
+            }
             index++;
+        }
+        if (CollUtil.isNotEmpty(toInsert)) {
+            subSystemApiEndpointMapper.insertBatch(toInsert);
+        }
+        // 只物理删除本次提交中不存在的行（真正被移除的接口）
+        for (SubSystemApiEndpointDO existing : existingList) {
+            if (!usedIds.contains(existing.getId())) {
+                subSystemApiEndpointMapper.physicalDeleteById(existing.getId());
+            }
         }
     }
 

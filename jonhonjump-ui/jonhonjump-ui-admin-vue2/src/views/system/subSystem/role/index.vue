@@ -104,15 +104,29 @@
               <el-switch v-model="scope.row.status" :active-value="0" :inactive-value="1" @change="handleStatusChange(scope.row)"/>
             </template>
           </el-table-column>
+          <el-table-column label="外部关联" align="center" width="110">
+            <template v-slot="scope">
+              <el-tag :type="scope.row.externalRoleId ? 'success' : 'info'" size="mini">
+                {{ scope.row.externalRoleId ? '已关联外部' : '未关联' }}
+              </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="外部角色ID" prop="externalRoleId" min-width="170" :show-overflow-tooltip="true">
+            <template v-slot="scope">
+              <span>{{ scope.row.externalRoleId || '—' }}</span>
+            </template>
+          </el-table-column>
           <el-table-column label="创建时间" align="center" prop="createTime" width="180">
             <template v-slot="scope">
               <span>{{ parseTime(scope.row.createTime) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" align="center" width="260" class-name="small-padding fixed-width">
+          <el-table-column label="操作" align="center" width="330" class-name="small-padding fixed-width">
             <template v-slot="scope">
               <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
                          v-hasPermi="['sub-system:role:update']">修改</el-button>
+              <el-button size="mini" type="text" icon="el-icon-connection" @click="handleBind(scope.row)"
+                         v-hasPermi="['sub-system:role:update']">关联外部</el-button>
               <el-button size="mini" type="text" icon="el-icon-circle-check" @click="handleMenu(scope.row)"
                          v-hasPermi="['sub-system:role:update']">菜单权限</el-button>
               <el-button size="mini" type="text" icon="el-icon-menu" @click="handleQuickNav(scope.row)"
@@ -130,7 +144,7 @@
 
     <!-- 新增/修改：关闭销毁表单，避免下次 resetFields 踩到上次残留字段 -->
     <el-dialog :title="title" :visible.sync="open" width="560px" append-to-body destroy-on-close>
-      <el-form ref="form" :model="form" :rules="rules" label-width="110px">
+      <el-form ref="form" :model="form" :rules="formRules" label-width="110px">
         <el-form-item label="业务系统">
           <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
         </el-form-item>
@@ -148,10 +162,129 @@
             <el-radio v-for="dict in statusDictDatas" :key="parseInt(dict.value)" :label="parseInt(dict.value)">{{ dict.label }}</el-radio>
           </el-radio-group>
         </el-form-item>
+        <template v-if="!form.id">
+          <el-form-item label="同步注册">
+            <el-checkbox
+              v-model="form.syncToExternal"
+              :disabled="!roleCreateApiReady"
+              @change="handleSyncToExternalChange"
+            >同步注册到外部系统（调「角色新增」接口）</el-checkbox>
+            <div class="form-tip">
+              <span v-if="roleCreateApiReady">新建后同时在对方系统建同名角色，成功后自动回存外部角色 ID</span>
+              <span v-else style="color:#e6a23c">未找到已启用的「角色新增」接口。请到【接口管理】配置并启用；若已配在 Camstar人员管理，刷新后应能勾选</span>
+            </div>
+          </el-form-item>
+          <el-form-item v-if="form.syncToExternal" label="接口目标" prop="apiSubSystemId">
+            <el-select v-model="form.apiSubSystemId" placeholder="请选择调用哪个系统的角色新增接口" style="width: 100%">
+              <el-option
+                v-for="item in roleCreateApis"
+                :key="item.subSystemId"
+                :label="item.systemName"
+                :value="item.subSystemId"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="form.syncToExternal" label="车间" prop="workshopCode">
+            <el-input v-if="workshopOptions.length <= 1" :value="workshopFixedText()" disabled placeholder="暂无车间对照" />
+            <el-select
+              v-else
+              v-model="form.workshopCode"
+              placeholder="请选择已对照的部门车间"
+              filterable
+              style="width: 100%"
+            >
+              <el-option
+                v-for="item in workshopOptions"
+                :key="item.workshopCode"
+                :label="workshopOptionLabel(item)"
+                :value="item.workshopCode"
+              />
+            </el-select>
+            <div v-if="workshopOptions.length === 1" class="form-tip">车间与部门是一对一，已确定</div>
+            <div class="form-tip">对方系统角色名固定为 车间编号_角色名称</div>
+            <div v-if="syncRoleNamePreview" class="form-tip">将同步角色名：<b>{{ syncRoleNamePreview }}</b></div>
+          </el-form-item>
+        </template>
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
         <el-button @click="cancel">取 消</el-button>
+      </div>
+    </el-dialog>
+
+    <!-- 关联外部角色：绑定外部系统已有角色的 roleId，之后分配角色按 ID 同步 -->
+    <el-dialog title="关联外部角色" :visible.sync="bindOpen" width="560px" append-to-body
+               custom-class="bind-external-role-dialog" :close-on-click-modal="false">
+      <el-form :model="bindForm" label-width="100px">
+        <el-form-item label="角色名称">
+          <el-input :value="bindForm.name + (bindForm.externalRoleId ? '（已关联 ' + bindForm.externalRoleId + '）' : '')" disabled />
+        </el-form-item>
+        <el-form-item label="接口目标" required>
+          <el-select v-model="bindForm.apiSubSystemId" placeholder="请选择外部系统" style="width: 100%"
+                     :disabled="bindLoading" @change="onBindFilterChange">
+            <el-option
+              v-for="item in roleCreateApis"
+              :key="item.subSystemId"
+              :label="item.systemName"
+              :value="item.subSystemId"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="车间" required>
+          <el-input v-if="workshopOptions.length <= 1" :value="workshopFixedText()" disabled placeholder="暂无车间对照" />
+          <el-select
+            v-else
+            v-model="bindForm.workshopCode"
+            placeholder="请选择已对照的部门车间"
+            filterable
+            style="width: 100%"
+            :disabled="bindLoading"
+            @change="onBindFilterChange"
+          >
+            <el-option
+              v-for="item in workshopOptions"
+              :key="item.workshopCode"
+              :label="workshopOptionLabel(item)"
+              :value="item.workshopCode"
+            />
+          </el-select>
+          <div v-if="workshopOptions.length === 1" class="form-tip">车间与部门是一对一，已确定</div>
+        </el-form-item>
+        <el-form-item label="外部角色">
+          <div style="margin-bottom: 6px">
+            <el-button size="mini" type="primary" plain :loading="bindLoading"
+                       :disabled="!bindForm.apiSubSystemId || !bindForm.workshopCode"
+                       @click="loadExternalRoles">查询外部角色</el-button>
+            <el-button size="mini" type="primary" plain :loading="bindRegistering"
+                       :disabled="!bindForm.apiSubSystemId || !bindForm.workshopCode"
+                       @click="pushRegisterFromBind">新增外部角色</el-button>
+          </div>
+          <el-select
+            ref="externalRoleSelect"
+            :key="'ext-role-' + externalRoles.length + '-' + (bindForm.workshopCode || '')"
+            v-model="bindForm.externalRoleId"
+            filterable
+            clearable
+            :loading="bindLoading"
+            :placeholder="bindLoading ? '正在查询外部角色…' : '选择对应的角色（角色名 + roleId）'"
+            popper-class="external-role-dropdown"
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in externalRoles"
+              :key="item.roleId"
+              :label="item.roleName + '（' + item.roleId + '）'"
+              :value="item.roleId"
+            />
+          </el-select>
+          <div v-if="externalRoleTip" class="form-tip">{{ externalRoleTip }}</div>
+          <div class="form-tip">绑定后「分配角色」勾选同步时按此 ID 上挂；对方系统手工挂的其他角色不受影响</div>
+        </el-form-item>
+      </el-form>
+      <div slot="footer" class="dialog-footer">
+        <el-button v-if="bindForm.bound" type="danger" plain :loading="bindSubmitting" @click="submitBind(true)">解除关联</el-button>
+        <el-button type="primary" :loading="bindSubmitting" :disabled="!bindForm.externalRoleId" @click="submitBind(false)">保存关联</el-button>
+        <el-button @click="bindOpen = false">取 消</el-button>
       </div>
     </el-dialog>
 
@@ -238,18 +371,23 @@
 <script>
 import {
   assignSubSystemRoleMenu,
+  bindSubSystemExternalRole,
   createSubSystemRole,
   deleteSubSystemRole,
   deleteSubSystemRoleList,
   getSubSystemClientSimpleList,
+  getSubSystemExternalRoleList,
   getSubSystemMenuSimpleList,
   getSubSystemRole,
   getSubSystemRoleMenuIds,
   getSubSystemRolePage,
   importSubSystemRoleTemplate,
+  registerSubSystemRole,
   updateSubSystemRole,
   updateSubSystemRoleStatus
 } from '@/api/system/subSystemRole'
+import { getSubSystemRoleCreateApis } from '@/api/system/subSystemApiConfig'
+import { getSubSystemWorkshopSimpleList } from '@/api/system/subSystemWorkshop'
 import { getSubSystemRoleQuickNavList, saveSubSystemRoleQuickNav } from '@/api/system/subSystem/roleQuickNav'
 import { buildSubSystemRoleQuickNavCheckTree, getSubSystemQuickNavLeafIds } from '@/utils/roleQuickNavMenus'
 import { restoreRoleMenuCheckedKeys } from '@/utils/roleMenuTree'
@@ -274,6 +412,15 @@ export default {
       clientList: [],
       clientKeyword: '',
       selectedClient: null,
+      workshopOptions: [],
+      roleCreateApis: [],
+      bindOpen: false,
+      bindLoading: false,
+      bindSubmitting: false,
+      bindRegistering: false,
+      externalRoles: [],
+      externalRoleTip: '',
+      bindForm: {},
       title: '',
       open: false,
       openMenu: false,
@@ -321,6 +468,30 @@ export default {
   computed: {
     statusDictDatas() {
       return getDictDatas(DICT_TYPE.COMMON_STATUS)
+    },
+    roleCreateApiReady() {
+      return (this.roleCreateApis || []).length > 0
+    },
+    syncRoleNamePreview() {
+      if (!this.form || !this.form.syncToExternal) {
+        return ''
+      }
+      const workshop = (this.form.workshopCode || '').trim()
+      const name = (this.form.name || '').trim()
+      if (!workshop || !name) {
+        return ''
+      }
+      const prefix = workshop + '_'
+      return name.startsWith(prefix) ? name : (prefix + name)
+    },
+    formRules() {
+      if (this.form && this.form.syncToExternal && !this.form.id) {
+        return Object.assign({}, this.rules, {
+          apiSubSystemId: [{ required: true, message: '请选择接口目标', trigger: 'change' }],
+          workshopCode: [{ required: true, message: '请选择车间', trigger: 'change' }]
+        })
+      }
+      return this.rules
     },
     uploadAction() {
       const id = this.selectedClient && this.selectedClient.id
@@ -408,7 +579,10 @@ export default {
         status: CommonStatusEnum.ENABLE,
         dataScope: undefined,
         deptCheckStrictly: false,
-        menuCheckStrictly: true
+        menuCheckStrictly: true,
+        syncToExternal: false,
+        apiSubSystemId: undefined,
+        workshopCode: undefined
       }
       // 只清校验，不调用 resetFields。关过一次后再 resetFields，ElementUI 会对没有 prop 的表单项执行 indexOf，直接报错，修改弹窗打不开
       this.$nextTick(() => {
@@ -426,7 +600,69 @@ export default {
         this.resetFormData()
         this.open = true
         this.title = '添加业务系统角色'
+        this.loadRoleCreateApis()
+        this.loadWorkshopOptions()
       }).catch(() => {})
+    },
+    /** 可选「角色新增」接口目标（接口管理中 role_create 已启用） */
+    loadRoleCreateApis() {
+      return getSubSystemRoleCreateApis().then(res => {
+        this.roleCreateApis = res.data || []
+        if (!this.form.apiSubSystemId && this.roleCreateApis.length === 1) {
+          this.form.apiSubSystemId = this.roleCreateApis[0].subSystemId
+        }
+      }).catch(() => {
+        this.roleCreateApis = []
+      })
+    },
+    loadWorkshopOptions() {
+      const id = this.selectedClient ? this.selectedClient.id : null
+      if (!id) {
+        this.workshopOptions = []
+        return Promise.resolve()
+      }
+      return getSubSystemWorkshopSimpleList(id).then(res => {
+        this.workshopOptions = res.data || []
+        this.lockWorkshopToMappings()
+      }).catch(() => {
+        this.workshopOptions = []
+      })
+    },
+    mappedWorkshopCode(current) {
+      const codes = (this.workshopOptions || []).map(w => w.workshopCode)
+      if (codes.length === 1) {
+        return codes[0]
+      }
+      return current && codes.indexOf(current) >= 0 ? current : undefined
+    },
+    workshopFixedText() {
+      const item = (this.workshopOptions || [])[0]
+      return item ? this.workshopOptionLabel(item) : ''
+    },
+    lockWorkshopToMappings() {
+      if (this.open) {
+        this.form.workshopCode = this.mappedWorkshopCode(this.form.workshopCode)
+      }
+      if (this.bindOpen && this.bindForm) {
+        this.bindForm.workshopCode = this.mappedWorkshopCode(this.bindForm.workshopCode)
+      }
+    },
+    workshopOptionLabel(item) {
+      const name = item.workshopName || '车间'
+      const code = item.workshopCode || ''
+      const dept = item.deptName ? (' / ' + item.deptName) : ''
+      return name + '（' + code + '）' + dept
+    },
+    handleSyncToExternalChange() {
+      if (!this.form.syncToExternal) {
+        return
+      }
+      if (!this.roleCreateApis.length) {
+        this.loadRoleCreateApis()
+      }
+      if (!this.workshopOptions.length) {
+        this.loadWorkshopOptions()
+      }
     },
     handleImport() {
       this.ensureSubSystemBoundBeforeAction('导入').then(() => {
@@ -503,10 +739,16 @@ export default {
           sort: this.form.sort,
           status: this.form.status
         }
+        if (!this.form.id && this.form.syncToExternal) {
+          payload.syncToExternal = true
+          payload.apiSubSystemId = this.form.apiSubSystemId
+          payload.workshopCode = this.form.workshopCode
+        }
         this.submitting = true
         const request = this.form.id ? updateSubSystemRole : createSubSystemRole
         request(payload).then(() => {
-          this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
+          this.$modal.msgSuccess(this.form.id ? '修改成功'
+            : (this.form.syncToExternal ? '新增成功，已同步注册并关联外部角色' : '新增成功'))
           this.open = false
           this.getList()
           this.loadClientList()
@@ -515,6 +757,111 @@ export default {
         }).finally(() => {
           this.submitting = false
         })
+      })
+    },
+    /** 关联外部角色：把对方系统已有角色的 roleId 绑到本地角色 */
+    handleBind(row) {
+      this.bindForm = {
+        id: row.id,
+        subSystemId: row.subSystemId,
+        name: row.name,
+        externalRoleId: row.externalRoleId || undefined,
+        apiSubSystemId: undefined,
+        workshopCode: this.inferWorkshopFromRoleName(row.name),
+        bound: !!row.externalRoleId,
+        boundRoleId: row.externalRoleId || undefined
+      }
+      this.externalRoles = []
+      this.externalRoleTip = ''
+      this.bindOpen = true
+      Promise.all([this.loadRoleCreateApis(), this.loadWorkshopOptions()]).then(() => {
+        if (!this.bindForm.apiSubSystemId && this.roleCreateApis.length === 1) {
+          this.bindForm.apiSubSystemId = this.roleCreateApis[0].subSystemId
+        }
+        this.bindForm.workshopCode = this.mappedWorkshopCode(this.bindForm.workshopCode)
+      })
+    },
+    onBindFilterChange() {
+      this.bindForm.externalRoleId = this.bindForm.boundRoleId || undefined
+      this.externalRoles = []
+      this.externalRoleTip = ''
+    },
+    /** 角色名带「车间_」前缀时直接取前缀当车间 */
+    inferWorkshopFromRoleName(name) {
+      const n = (name || '').trim()
+      const idx = n.indexOf('_')
+      return idx > 0 ? n.substring(0, idx) : undefined
+    },
+    loadExternalRoles(silent) {
+      if (!this.bindForm.apiSubSystemId || !this.bindForm.workshopCode) {
+        this.externalRoleTip = '请先选择接口目标和车间'
+        if (!silent) {
+          this.$modal.msgWarning(this.externalRoleTip)
+        }
+        return
+      }
+      this.bindLoading = true
+      this.externalRoleTip = ''
+      getSubSystemExternalRoleList(this.bindForm.apiSubSystemId, this.bindForm.workshopCode).then(res => {
+        this.externalRoles = res.data || []
+        if (!this.externalRoles.length) {
+          this.externalRoleTip = '该车间在对方系统没有查到角色'
+          if (!silent) {
+            this.$modal.msgWarning(this.externalRoleTip)
+          }
+          return
+        }
+        this.externalRoleTip = '共 ' + this.externalRoles.length + ' 个，点开下拉按角色名或 roleId 选择'
+        const current = this.bindForm.externalRoleId
+        const stillThere = current && this.externalRoles.some(item => item.roleId === current)
+        if (stillThere) {
+          return
+        }
+        const wanted = (this.bindForm.name || '').trim().toLowerCase()
+        const hit = this.externalRoles.find(item => (item.roleName || '').trim().toLowerCase() === wanted)
+        if (hit) {
+          this.bindForm.externalRoleId = hit.roleId
+        }
+      }).catch(() => {
+        this.externalRoles = []
+        this.externalRoleTip = '查询外部角色失败，请确认接口目标和车间后点「查询外部角色」'
+      }).finally(() => {
+        this.bindLoading = false
+      })
+    },
+    /** 对方系统没有对应角色时，直接调「角色新增」注册（后端自动按 车间_角色名 推送并回存 roleId） */
+    pushRegisterFromBind() {
+      if (!this.bindForm.apiSubSystemId || !this.bindForm.workshopCode) {
+        this.$modal.msgWarning('请先选择接口目标和车间')
+        return
+      }
+      this.$modal.confirm('将调「角色新增」接口按 车间编号_角色名称 注册到对方系统？').then(() => {
+        this.bindRegistering = true
+        return registerSubSystemRole(this.bindForm.id, {
+          apiSubSystemId: this.bindForm.apiSubSystemId,
+          workshopCode: this.bindForm.workshopCode
+        })
+      }).then(() => {
+        this.$modal.msgSuccess('注册成功')
+        this.getList()
+        return this.loadExternalRoles()
+      }).catch(() => {}).finally(() => {
+        this.bindRegistering = false
+      })
+    },
+    /** 保存/解除关联（解除后该角色不参与外部同步） */
+    submitBind(unbind) {
+      const action = unbind ? '解除关联' : '保存关联'
+      const roleId = unbind ? '' : this.bindForm.externalRoleId
+      this.bindSubmitting = true
+      bindSubSystemExternalRole(this.bindForm.id, roleId).then(() => {
+        this.$modal.msgSuccess(action + '成功')
+        this.bindOpen = false
+        this.getList()
+      }).catch(() => {
+        this.$modal.msgError(action + '失败，请重试')
+      }).finally(() => {
+        this.bindSubmitting = false
       })
     },
     handleDelete(row) {
@@ -691,5 +1038,16 @@ export default {
   background: #fff none;
   border-radius: 4px;
   width: 100%;
+}
+
+::v-deep .bind-external-role-dialog .el-dialog__body {
+  overflow: visible;
+}
+</style>
+
+<style lang="scss">
+/* 下拉挂到 body，必须压过对话框，否则选项点不到 */
+.external-role-dropdown {
+  z-index: 4000 !important;
 }
 </style>

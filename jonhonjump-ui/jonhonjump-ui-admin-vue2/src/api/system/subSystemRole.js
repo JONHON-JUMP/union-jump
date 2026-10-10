@@ -72,6 +72,24 @@ export function registerSubSystemRole(id, data) {
   })
 }
 
+/** 按车间列出外部系统已有角色（角色名 + roleId），供「关联外部角色」选择 */
+export function getSubSystemExternalRoleList(apiSubSystemId, workshopCode) {
+  return request({
+    url: '/system/sub-system-role/external-role-list',
+    method: 'post',
+    data: { apiSubSystemId, workshopCode }
+  })
+}
+
+/** 关联/解除外部系统角色（externalRoleId 为空 = 解除关联） */
+export function bindSubSystemExternalRole(id, externalRoleId) {
+  return request({
+    url: '/system/sub-system-role/bind-external-role?id=' + id
+      + '&externalRoleId=' + encodeURIComponent(externalRoleId == null ? '' : externalRoleId),
+    method: 'put'
+  })
+}
+
 export function getSubSystemMenuSimpleList(subSystemId) {
   return request({
     url: '/system/sub-system-role/menu-simple-list',

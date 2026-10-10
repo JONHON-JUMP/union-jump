@@ -31,8 +31,8 @@ public class SubSystemApiConfigController {
     @Resource
     private SubSystemApiConfigService subSystemApiConfigService;
 
-    @GetMapping("/role-create-apis")
-    @Operation(summary = "获得已启用「角色新增」接口的接入系统列表（与门户角色系统解耦）")
+    @PostMapping("/role-create-apis")
+    @Operation(summary = "获得已启用「角色新增」接口的接入系统列表（与门户角色系统解耦；POST，环境网关拦截 GET 带参请求）")
     @PreAuthorize("@ss.hasPermission('sub-system:role:list')")
     public CommonResult<List<SubSystemRegisterableApiRespVO>> listRoleCreateApis() {
         return success(subSystemApiConfigService.listRoleCreateApis());

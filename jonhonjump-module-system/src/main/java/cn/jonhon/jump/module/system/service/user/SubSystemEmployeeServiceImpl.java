@@ -14,11 +14,14 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
+import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemRoleDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemUsersDO;
 import cn.jonhon.jump.module.system.dal.mysql.user.AdminUserMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemApiConfigMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
+import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemRoleMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUsersMapper;
+import cn.jonhon.jump.module.system.framework.subsystemapi.CamstarEmployeeApiAdapter;
 import cn.jonhon.jump.module.system.framework.subsystemapi.ExternalApiException;
 import cn.jonhon.jump.module.system.framework.subsystemapi.SubSystemEmployeeApi;
 import cn.jonhon.jump.module.system.framework.subsystemapi.SubSystemEmployeeApiFactory;
@@ -34,8 +37,10 @@ import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeConstants.BAD_REQUEST;
@@ -61,6 +66,8 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     private SubSystemMapper subSystemMapper;
     @Resource
     private SubSystemUsersMapper subSystemUsersMapper;
+    @Resource
+    private SubSystemRoleMapper subSystemRoleMapper;
     @Resource
     private AdminUserMapper adminUserMapper;
     @Resource
@@ -162,6 +169,34 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     }
 
     @Override
+    public List<SubSystemEmployeeRespVO> listExternalEmployees(Long apiSubSystemId, String workshopCode, String userCode) {
+        if (apiSubSystemId == null) {
+            throw exception0(BAD_REQUEST.getCode(), "请选择接口目标");
+        }
+        if (StrUtil.isBlank(workshopCode)) {
+            throw exception0(BAD_REQUEST.getCode(), "请选择车间");
+        }
+        SubSystemEmployeeQueryDTO query = new SubSystemEmployeeQueryDTO();
+        query.setPage(1);
+        query.setRows(200);
+        query.setWorkshopCode(workshopCode.trim());
+        if (StrUtil.isNotBlank(userCode)) {
+            query.setUserCode(userCode.trim());
+        }
+        try {
+            SubSystemEmployeePageRespDTO page = getApi(apiSubSystemId).page(query);
+            if (page.getList() == null) {
+                return Collections.emptyList();
+            }
+            return page.getList().stream()
+                    .map(dto -> BeanUtils.toBean(dto, SubSystemEmployeeRespVO.class))
+                    .collect(Collectors.toList());
+        } catch (ExternalApiException e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
+    }
+
+    @Override
     public List<SubSystemUserRegisterRespVO> registerEmployees(SubSystemUserRegisterReqVO reqVO) {
         // 接口目标必须已配置且新增接口启用（未配置时 getApi 会抛具体业务异常）
         getApi(reqVO.getApiSubSystemId());
@@ -225,6 +260,47 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         return results;
     }
 
+    @Override
+    public void syncUserRoles(Long apiSubSystemId, Long rosterSubSystemId, String userCode, List<Long> jumpRoleIds) {
+        if (apiSubSystemId == null) {
+            throw exception0(BAD_REQUEST.getCode(), "请选择接口目标");
+        }
+        if (StrUtil.isBlank(userCode)) {
+            throw exception0(BAD_REQUEST.getCode(), "同步外部角色需要用户名");
+        }
+        SubSystemEmployeeApi api = getApi(apiSubSystemId);
+        if (!(api instanceof CamstarEmployeeApiAdapter)) {
+            throw exception0(BAD_REQUEST.getCode(), "该接口目标不是 Camstar，暂不支持角色同步");
+        }
+        // 目标角色：本次勾选角色中已关联外部 roleId 的；未关联的直接报错引导先绑定
+        List<SubSystemRoleDO> roles = CollUtil.isEmpty(jumpRoleIds)
+                ? Collections.emptyList() : subSystemRoleMapper.selectListByIds(jumpRoleIds);
+        Set<String> targetRoleIds = new LinkedHashSet<>();
+        List<String> unboundRoleNames = new ArrayList<>();
+        for (SubSystemRoleDO role : roles) {
+            if (StrUtil.isBlank(role.getExternalRoleId())) {
+                unboundRoleNames.add(role.getName());
+            } else {
+                targetRoleIds.add(role.getExternalRoleId().trim());
+            }
+        }
+        if (!unboundRoleNames.isEmpty()) {
+            throw exception0(BAD_REQUEST.getCode(), "角色【" + String.join("、", unboundRoleNames)
+                    + "】未关联外部角色，请先在业务角色管理中「关联外部角色」，或取消勾选同步");
+        }
+        // JUMP 管辖角色全集：花名册系统下所有已关联外部 roleId 的角色（同步只在这个范围内增删）
+        Set<String> managedRoleIds = subSystemRoleMapper.selectListBySubSystemId(rosterSubSystemId).stream()
+                .map(SubSystemRoleDO::getExternalRoleId)
+                .filter(StrUtil::isNotBlank)
+                .map(String::trim)
+                .collect(Collectors.toSet());
+        try {
+            ((CamstarEmployeeApiAdapter) api).assignRoles(userCode.trim(), managedRoleIds, targetRoleIds);
+        } catch (ExternalApiException e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
+    }
+
     /** 车间优先：花名册已填 > 注册弹窗指定 > 花名册系统车间对照 > 接口目标车间对照 */
     private SubSystemEmployeeDTO buildEmployeeDTO(SubSystemUsersDO roster, Long apiSubSystemId, String overrideWorkshopCode,
                                                   boolean usernameWithWorkshop) {
@@ -236,8 +312,10 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         // Camstar 用户名全局唯一：勾选拼接时以 车间编号_工号 注册，同一工号可登录不同车间 MES
         dto.setUserCode(usernameWithWorkshop && StrUtil.isNotBlank(workshopCode)
                 ? workshopCode.trim() + "_" + roster.getUsername() : roster.getUsername());
-        dto.setUserName(StrUtil.blankToDefault(roster.getNickname(),
-                mainUser != null ? mainUser.getNickname() : null));
+        // Camstar 的 userName 是姓名，校验文案写成「用户名」。花名册没填姓名时用登录用户名，避免对方报【用户名】不允许为空
+        String userName = StrUtil.blankToDefault(StrUtil.trim(roster.getNickname()),
+                mainUser != null ? StrUtil.trim(mainUser.getNickname()) : null);
+        dto.setUserName(StrUtil.blankToDefault(userName, StrUtil.trim(roster.getUsername())));
         dto.setTeamCode(roster.getTeamId());
         if (mainUser != null) {
             dto.setDomainName(mainUser.getDomainNo());

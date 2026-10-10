@@ -127,6 +127,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         }
         // 2.3 登记子系统花名册（纯本地事务，不调外部接口；外部系统推送后续单独处理）
         subSystemUsersService.registerFromMainUser(user, createReqVO.getSubSystemIds());
+        // 其它业务系统里已有同名花名册用户时，直接挂上，不用再手动关联
+        subSystemUsersService.bindMatchingRosters(user.getId(), user.getUsername());
 
         // 3. 记录操作日志上下文
         LogRecordContext.putVariable("user", user);
@@ -589,6 +591,7 @@ public class AdminUserServiceImpl implements AdminUserService {
                     return;
                 }
                 respVO.getCreateUsernames().add(importUser.getUsername());
+                subSystemUsersService.bindMatchingRosters(newUser.getId(), newUser.getUsername());
                 return;
             }
             // 2.2.2 如果存在，判断是否允许更新

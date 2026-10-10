@@ -26,8 +26,7 @@ public interface SubSystemWorkshopService {
     void deleteSubSystemWorkshopList(List<Long> ids);
 
     /**
-     * 车间精简列表（用户新增下拉）
-     * 优先：系统 + 部门映射；没有则该系统全部；再没有则全部车间（去重）
+     * 车间精简列表。只返回指定业务系统（以及指定部门）已维护的对照，不带出其它部门。
      */
     List<SubSystemWorkshopSimpleRespVO> getWorkshopSimpleList(Long subSystemId, Long deptId);
 

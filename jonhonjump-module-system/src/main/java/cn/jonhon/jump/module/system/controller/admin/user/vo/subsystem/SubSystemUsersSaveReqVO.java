@@ -49,9 +49,6 @@ public class SubSystemUsersSaveReqVO {
     @Schema(description = "备注")
     private String remark;
 
-    @Schema(description = "角色编号列表")
-    private List<Long> roleIds;
-
     @Schema(description = "岗位编号列表")
     private List<Long> postIds;
 

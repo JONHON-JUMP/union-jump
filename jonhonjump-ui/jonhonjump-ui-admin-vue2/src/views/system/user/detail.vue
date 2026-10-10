@@ -45,13 +45,13 @@
         <el-table-column label="班组名称" prop="teamName" width="120" :show-overflow-tooltip="true" />
         <el-table-column label="岗位" prop="postNames" width="120" :show-overflow-tooltip="true" />
         <el-table-column label="角色" prop="roleNames" width="120" :show-overflow-tooltip="true" />
-        <el-table-column label="状态" prop="status" width="90" align="center">
+        <el-table-column label="JUMP用户" width="110" align="center">
           <template v-slot="scope">
             <el-tag
               :type="!scope.row.mainUserId ? 'info' : (scope.row.status === '1' ? 'danger' : 'success')"
               size="mini"
             >
-              {{ !scope.row.mainUserId ? '未关联' : (scope.row.status === '1' ? '禁用' : '正常') }}
+              {{ !scope.row.mainUserId ? '无' : (scope.row.status === '1' ? '有（禁用）' : '有') }}
             </el-tag>
           </template>
         </el-table-column>
@@ -130,6 +130,11 @@ export default {
     }
   },
   created() {
+    if (this.$route.name === 'SystemUserDetail') {
+      this.loadDetail()
+    }
+  },
+  activated() {
     if (this.$route.name === 'SystemUserDetail') {
       this.loadDetail()
     }

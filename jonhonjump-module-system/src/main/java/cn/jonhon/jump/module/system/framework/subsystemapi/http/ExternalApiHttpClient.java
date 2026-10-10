@@ -7,6 +7,7 @@ import cn.jonhon.jump.framework.common.util.json.JsonUtils;
 import cn.jonhon.jump.module.system.framework.subsystemapi.ExternalApiException;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -43,8 +44,24 @@ public class ExternalApiHttpClient {
                     cn.hutool.http.Method.valueOf(endpoint.methodUpper()), url)
                     .timeout((int) Math.min(Integer.MAX_VALUE, connectTimeoutMs))
                     .setReadTimeout((int) Math.min(Integer.MAX_VALUE, readTimeoutMs));
-            if (extraHeaders != null) {
-                request.addHeaders(extraHeaders);
+            if (extraHeaders != null && !extraHeaders.isEmpty()) {
+                String cookieHeader = null;
+                Map<String, String> rest = new HashMap<>();
+                for (Map.Entry<String, String> entry : extraHeaders.entrySet()) {
+                    if (entry.getKey() != null && "cookie".equalsIgnoreCase(entry.getKey())) {
+                        cookieHeader = entry.getValue();
+                    } else if (entry.getKey() != null) {
+                        rest.put(entry.getKey(), entry.getValue());
+                    }
+                }
+                if (!rest.isEmpty()) {
+                    request.addHeaders(rest);
+                }
+                // 走 cookie() 覆盖整条 Cookie 头。addHeaders 再叠加 Hutool 的 Cookie 仓库时，
+                // 两条 Cookie 可能被逗号拼成一条，Base64 末尾的 = 后面会跟上非法字符。
+                if (cookieHeader != null && !cookieHeader.isEmpty()) {
+                    request.cookie(cookieHeader);
+                }
             }
             if ("GET".equals(endpoint.methodUpper()) && body instanceof Map) {
                 request.form((Map<String, Object>) body);

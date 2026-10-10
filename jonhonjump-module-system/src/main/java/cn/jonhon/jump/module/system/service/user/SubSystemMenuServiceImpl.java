@@ -29,7 +29,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeConstants.BAD_REQUEST;
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception0;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertMap;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertSet;
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.*;
@@ -87,6 +89,7 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         validateSubSystemExists(createReqVO.getSubSystemId());
         validateParentMenu(createReqVO.getSubSystemId(), createReqVO.getParentId(), null);
         validateMenuName(createReqVO.getSubSystemId(), createReqVO.getParentId(), createReqVO.getName(), null);
+        validateMenuPath(createReqVO);
         normalizeMenuStyle(createReqVO);
 
         SubSystemMenuDO menu = convertToDO(createReqVO);
@@ -102,6 +105,7 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         validateSubSystemExists(updateReqVO.getSubSystemId());
         validateParentMenu(updateReqVO.getSubSystemId(), updateReqVO.getParentId(), updateReqVO.getId());
         validateMenuName(updateReqVO.getSubSystemId(), updateReqVO.getParentId(), updateReqVO.getName(), updateReqVO.getId());
+        validateMenuPath(updateReqVO);
         normalizeMenuStyle(updateReqVO);
 
         SubSystemMenuDO updateObj = convertToDO(updateReqVO);
@@ -277,6 +281,16 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         SubSystemMenuDO parentMenu = subSystemMenuMapper.selectById(parentId);
         if (parentMenu == null || !ObjectUtil.equal(parentMenu.getSubSystemId(), subSystemId)) {
             throw exception(SUB_SYSTEM_MENU_PARENT_NOT_EXISTS);
+        }
+    }
+
+    /** 只有菜单必须填路由地址；目录和按钮可空 */
+    private void validateMenuPath(SubSystemMenuSaveReqVO reqVO) {
+        if (!MenuTypeEnum.MENU.getType().equals(reqVO.getType())) {
+            return;
+        }
+        if (StrUtil.isBlank(reqVO.getPath())) {
+            throw exception0(BAD_REQUEST.getCode(), "路由地址不能为空");
         }
     }
 

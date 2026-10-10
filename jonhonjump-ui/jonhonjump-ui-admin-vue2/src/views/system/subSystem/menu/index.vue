@@ -188,7 +188,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item v-if="form.type !== MenuTypeEnum.BUTTON" label="路由地址" prop="path">
+            <el-form-item v-if="form.type !== MenuTypeEnum.BUTTON" label="路由地址" prop="path" :required="form.type === MenuTypeEnum.MENU">
               <el-input v-model="form.path" placeholder="完整 http 地址；hash 路由连同 # 一起填，如 http://192.168.240.123:8080/#/pageA" />
             </el-form-item>
           </el-col>
@@ -340,7 +340,22 @@ export default {
       rules: {
         name: [{ required: true, message: '菜单名称不能为空', trigger: 'blur' }],
         sort: [{ required: true, message: '菜单顺序不能为空', trigger: 'blur' }],
-        status: [{ required: true, message: '状态不能为空', trigger: 'blur' }]
+        status: [{ required: true, message: '状态不能为空', trigger: 'blur' }],
+        // 只有菜单必填并显示红星；目录可空，按钮不渲染该行
+        path: [{
+          validator: (rule, value, callback) => {
+            if (this.form.type !== SystemMenuTypeEnum.MENU) {
+              callback()
+              return
+            }
+            if (value == null || String(value).trim() === '') {
+              callback(new Error('路由地址不能为空'))
+              return
+            }
+            callback()
+          },
+          trigger: 'blur'
+        }]
       },
       MenuTypeEnum: SystemMenuTypeEnum
     }

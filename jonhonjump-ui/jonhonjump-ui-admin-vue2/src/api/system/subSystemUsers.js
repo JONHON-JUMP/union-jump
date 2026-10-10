@@ -101,6 +101,14 @@ export function updateSubSystemUserStatus(id, status) {
 }
 
 // 修改人员接口注册状态（0未注册 1已注册）
+export function bindExternalEmployee(id, userCode, workshopCode, apiSubSystemId) {
+  return request({
+    url: '/system/sub-system-users/bind-external-employee',
+    method: 'put',
+    params: { id, userCode, workshopCode, apiSubSystemId }
+  })
+}
+
 export function updateSubSystemUserRegisterStatus(id, employeeRegistered) {
   return request({
     url: '/system/sub-system-users/update-register-status?id=' + id + '&employeeRegistered=' + employeeRegistered,

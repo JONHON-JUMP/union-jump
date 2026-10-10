@@ -4,6 +4,7 @@ import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserImportExcelVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserImportRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUsersAssignRoleReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUsersSaveReqVO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemRoleDO;
@@ -79,6 +80,7 @@ public class SubSystemUserImportService {
                     continue;
                 }
                 String username = row.getUsername().trim();
+                // 角色入库唯一入口是「分配角色」：导入填了角色标识时，走统一入口写角色
                 List<Long> roleIds = StrUtil.isBlank(row.getRoleCodes())
                         ? null
                         : resolveRoleIds(subSystemId, row.getRoleCodes());
@@ -90,10 +92,12 @@ public class SubSystemUserImportService {
                     createReq.setNickname(row.getNickname());
                     createReq.setWorkshopId(row.getWorkshopId());
                     createReq.setTeamId(row.getTeamId());
-                    createReq.setRoleIds(roleIds != null ? roleIds : new ArrayList<>());
                     createReq.setStatus(normalizeStatus(row.getStatus()));
                     createReq.setRemark(row.getRemark());
-                    subSystemUsersService.createSubSystemUser(createReq);
+                    Long createdId = subSystemUsersService.createSubSystemUser(createReq);
+                    if (CollUtil.isNotEmpty(roleIds)) {
+                        assignImportedRoles(createdId, roleIds);
+                    }
                     resp.getCreateKeys().add(rowKey);
                 } else if (!updateSupport) {
                     resp.getFailureKeys().put(rowKey, "该用户名已存在（未勾选更新）");
@@ -106,12 +110,14 @@ public class SubSystemUserImportService {
                     updateReq.setNickname(StrUtil.blankToDefault(row.getNickname(), exist.getNickname()));
                     updateReq.setWorkshopId(StrUtil.blankToDefault(row.getWorkshopId(), exist.getWorkshopId()));
                     updateReq.setTeamId(StrUtil.blankToDefault(row.getTeamId(), exist.getTeamId()));
-                    updateReq.setRoleIds(roleIds);
                     updateReq.setStatus(StrUtil.blankToDefault(normalizeStatus(row.getStatus()), exist.getStatus()));
                     updateReq.setRemark(StrUtil.blankToDefault(row.getRemark(), exist.getRemark()));
                     updateReq.setHomeMenuId(exist.getHomeMenuId());
                     updateReq.setPostIds(null);
                     subSystemUsersService.updateSubSystemUser(updateReq);
+                    if (CollUtil.isNotEmpty(roleIds)) {
+                        assignImportedRoles(exist.getId(), roleIds);
+                    }
                     resp.getUpdateKeys().add(rowKey);
                 }
             } catch (Exception ex) {
@@ -119,6 +125,14 @@ public class SubSystemUserImportService {
             }
         }
         return resp;
+    }
+
+    /** 导入的角色标识走「分配角色」统一入口写角色（不勾选外部同步） */
+    private void assignImportedRoles(Long userId, List<Long> roleIds) {
+        SubSystemUsersAssignRoleReqVO assignReq = new SubSystemUsersAssignRoleReqVO();
+        assignReq.setId(userId);
+        assignReq.setRoleIds(roleIds);
+        subSystemUsersService.assignSubSystemUserRole(assignReq);
     }
 
     private List<Long> resolveRoleIds(Long subSystemId, String roleCodes) {
