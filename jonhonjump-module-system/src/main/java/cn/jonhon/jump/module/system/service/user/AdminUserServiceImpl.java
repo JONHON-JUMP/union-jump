@@ -111,7 +111,8 @@ public class AdminUserServiceImpl implements AdminUserService {
                 throw exception(USER_COUNT_MAX, tenant.getAccountCount());
             }
         });
-        // 1.2 校验正确性
+        // 1.2 校验正确性。用户名称先去掉首尾空格，避免和花名册对不上
+        createReqVO.setUsername(StrUtil.trim(createReqVO.getUsername()));
         validateUserForCreateOrUpdate(null, createReqVO.getUsername(),
                 createReqVO.getMobile(), createReqVO.getEmail(), createReqVO.getDeptId(), createReqVO.getPostIds());
         // 2.1 插入用户（user_uid 由生成器保证全局唯一，禁止外部指定）
@@ -149,6 +150,7 @@ public class AdminUserServiceImpl implements AdminUserService {
             }
         });
         // 1.3 校验正确性
+        registerReqVO.setUsername(StrUtil.trim(registerReqVO.getUsername()));
         validateUserForCreateOrUpdate(null, registerReqVO.getUsername(), null, null, null, null);
 
         // 2. 插入用户
@@ -166,6 +168,7 @@ public class AdminUserServiceImpl implements AdminUserService {
             success = SYSTEM_USER_UPDATE_SUCCESS)
     public void updateUser(UserSaveReqVO updateReqVO) {
         updateReqVO.setPassword(null); // 特殊：此处不更新密码
+        updateReqVO.setUsername(StrUtil.trim(updateReqVO.getUsername()));
         // 1. 校验正确性
         AdminUserDO oldUser = validateUserForCreateOrUpdate(updateReqVO.getId(), updateReqVO.getUsername(),
                 updateReqVO.getMobile(), updateReqVO.getEmail(), updateReqVO.getDeptId(), updateReqVO.getPostIds());
@@ -555,6 +558,7 @@ public class AdminUserServiceImpl implements AdminUserService {
         AtomicInteger index = new AtomicInteger(1);
         importUsers.forEach(importUser -> {
             int currentIndex = index.getAndIncrement();
+            importUser.setUsername(StrUtil.trim(importUser.getUsername()));
             // 2.1.1 校验字段是否符合要求
             try {
                 UserSaveReqVO saveReqVO = BeanUtils.toBean(importUser, UserSaveReqVO.class);

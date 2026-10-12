@@ -1,5 +1,6 @@
 package cn.jonhon.jump.module.system.controller.admin.user;
 
+import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.excel.core.util.ExcelUtils;
@@ -55,7 +56,12 @@ public class SubSystemRoleController {
     @Operation(summary = "创建外部系统角色")
     @PreAuthorize("@ss.hasPermission('sub-system:role:create')")
     public CommonResult<Long> createSubSystemRole(@Valid @RequestBody SubSystemRoleSaveReqVO createReqVO) {
-        return success(subSystemRoleService.createSubSystemRole(createReqVO));
+        SubSystemRoleCreateRespVO created = subSystemRoleService.createSubSystemRole(createReqVO);
+        CommonResult<Long> result = success(created.getId());
+        if (StrUtil.isNotBlank(created.getWarning())) {
+            result.setMsg(created.getWarning());
+        }
+        return result;
     }
 
     @PutMapping("/update")
@@ -107,8 +113,13 @@ public class SubSystemRoleController {
     @PreAuthorize("@ss.hasPermission('sub-system:role:update')")
     public CommonResult<Boolean> registerSubSystemRole(@RequestParam("id") Long id,
                                                        @Valid @RequestBody(required = false) SubSystemRoleRegisterReqVO reqVO) {
-        subSystemRoleService.registerSubSystemRole(id, reqVO != null ? reqVO : new SubSystemRoleRegisterReqVO());
-        return success(true);
+        String warning = subSystemRoleService.registerSubSystemRole(id,
+                reqVO != null ? reqVO : new SubSystemRoleRegisterReqVO());
+        CommonResult<Boolean> result = success(true);
+        if (StrUtil.isNotBlank(warning)) {
+            result.setMsg(warning);
+        }
+        return result;
     }
 
     @PostMapping("/external-role-list")

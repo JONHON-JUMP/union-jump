@@ -156,7 +156,7 @@
                 <span>{{ parseTime(scope.row.createTime) }}</span>
               </template>
             </el-table-column>
-            <el-table-column label="操作" align="center" width="300" class-name="small-padding fixed-width">
+            <el-table-column label="操作" align="center" width="300" fixed="right" class-name="small-padding fixed-width">
               <template v-slot="scope">
                 <el-button size="mini" type="text" icon="el-icon-connection" @click="handleBind(scope.row)"
                            v-hasPermi="['sub-system:user:update']">关联外部</el-button>

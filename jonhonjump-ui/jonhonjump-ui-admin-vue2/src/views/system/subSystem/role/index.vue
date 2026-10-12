@@ -89,9 +89,9 @@
         </el-row>
 
         <el-table v-loading="loading" :data="roleList" @selection-change="handleRowCheckboxChange">
-          <el-table-column type="selection" width="55"/>
-          <el-table-column label="角色编号" prop="id" width="120" />
-          <el-table-column label="角色名称" prop="name" :show-overflow-tooltip="true" width="150" />
+          <el-table-column type="selection" width="55" fixed="left" />
+          <el-table-column label="角色编号" prop="id" width="120" fixed="left" />
+          <el-table-column label="角色名称" prop="name" :show-overflow-tooltip="true" width="150" fixed="left" />
           <el-table-column label="角色标识" prop="code" :show-overflow-tooltip="true" width="150" />
           <el-table-column label="角色类型" prop="type" width="80">
             <template v-slot="scope">
@@ -121,7 +121,7 @@
               <span>{{ parseTime(scope.row.createTime) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" align="center" width="330" class-name="small-padding fixed-width">
+          <el-table-column label="操作" align="center" width="330" fixed="right" class-name="small-padding fixed-width">
             <template v-slot="scope">
               <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
                          v-hasPermi="['sub-system:role:update']">修改</el-button>
@@ -746,9 +746,13 @@ export default {
         }
         this.submitting = true
         const request = this.form.id ? updateSubSystemRole : createSubSystemRole
-        request(payload).then(() => {
-          this.$modal.msgSuccess(this.form.id ? '修改成功'
-            : (this.form.syncToExternal ? '新增成功，已同步注册并关联外部角色' : '新增成功'))
+        request(payload).then(res => {
+          if (!this.form.id && res && res.msg) {
+            this.$modal.msgWarning(res.msg)
+          } else {
+            this.$modal.msgSuccess(this.form.id ? '修改成功'
+              : (this.form.syncToExternal ? '新增成功，已同步注册并关联外部角色' : '新增成功'))
+          }
           this.open = false
           this.getList()
           this.loadClientList()
@@ -841,8 +845,15 @@ export default {
           apiSubSystemId: this.bindForm.apiSubSystemId,
           workshopCode: this.bindForm.workshopCode
         })
-      }).then(() => {
-        this.$modal.msgSuccess('注册成功')
+      }).then(res => {
+        if (!res) {
+          return
+        }
+        if (res.msg) {
+          this.$modal.msgWarning(res.msg)
+        } else {
+          this.$modal.msgSuccess('注册成功')
+        }
         this.getList()
         return this.loadExternalRoles()
       }).catch(() => {}).finally(() => {

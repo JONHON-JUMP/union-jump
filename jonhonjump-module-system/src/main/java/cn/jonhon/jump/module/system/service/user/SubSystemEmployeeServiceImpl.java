@@ -37,6 +37,7 @@ import javax.annotation.Resource;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -206,8 +207,17 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         List<SubSystemUsersDO> rosters = subSystemUsersMapper.selectBatchIds(reqVO.getIds());
         Map<Long, SubSystemUsersDO> rosterMap = rosters.stream()
                 .collect(Collectors.toMap(SubSystemUsersDO::getId, r -> r, (a, b) -> a));
+        Set<Long> rosterSubSystemIds = new HashSet<>();
+        for (Long id : reqVO.getIds()) {
+            SubSystemUsersDO roster = rosterMap.get(id);
+            if (roster != null && roster.getSubSystemId() != null) {
+                rosterSubSystemIds.add(roster.getSubSystemId());
+            }
+        }
+        if (rosterSubSystemIds.size() > 1) {
+            throw exception0(BAD_REQUEST.getCode(), "所选用户分属不同业务系统，请分批注册");
+        }
         List<SubSystemUserRegisterRespVO> results = new ArrayList<>(reqVO.getIds().size());
-        Long rosterSubSystemId = null;
         for (Long id : reqVO.getIds()) {
             SubSystemUsersDO roster = rosterMap.get(id);
             SubSystemUserRegisterRespVO result = new SubSystemUserRegisterRespVO();
@@ -226,12 +236,6 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                 result.setSuccess(false).setMessage(e.getMessage());
                 continue;
             }
-            // 同一批须同属一个花名册系统（注册状态打在该系统名册行上）
-            if (rosterSubSystemId == null) {
-                rosterSubSystemId = roster.getSubSystemId();
-            } else if (!rosterSubSystemId.equals(roster.getSubSystemId())) {
-                throw exception0(BAD_REQUEST.getCode(), "所选用户分属不同业务系统，请分批注册");
-            }
             if ("1".equals(roster.getEmployeeRegistered())) {
                 result.setSuccess(true).setMessage("已注册，跳过推送");
                 continue;
@@ -243,10 +247,18 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                     result.setSuccess(false).setMessage("车间编码为空：请在注册时选择车间，或先在花名册维护该用户的车间（选业务系统不等于选车间）");
                     continue;
                 }
-                getApi(reqVO.getApiSubSystemId()).create(dto);
-                markRegistered(roster.getId(), dto.getWorkshopCode(), usernameWithWorkshop,
-                        resolveApiType(reqVO.getApiSubSystemId()));
+                boolean alreadyExists = externalEmployeeExists(reqVO.getApiSubSystemId(), dto.getUserCode());
+                if (!alreadyExists) {
+                    getApi(reqVO.getApiSubSystemId()).create(dto);
+                }
+                String markMessage = markRegisteredWithRetry(roster.getId(), dto.getWorkshopCode(),
+                        usernameWithWorkshop, resolveApiType(reqVO.getApiSubSystemId()));
                 result.setSuccess(true);
+                if (alreadyExists) {
+                    result.setMessage("对方已有该人员，已标记为已注册");
+                } else if (markMessage != null) {
+                    result.setMessage(markMessage);
+                }
             } catch (ExternalApiException e) {
                 log.warn("[registerEmployees] rosterId={} apiSubSystemId={} 调用新增人员接口失败",
                         roster.getId(), reqVO.getApiSubSystemId(), e);
@@ -348,6 +360,57 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         }
         // 花名册系统本身带车间：MES4200 / mes4200 → 4200，或该系统只有一条车间对照
         return subSystemWorkshopService.inferWorkshopCode(roster.getSubSystemId());
+    }
+
+    /**
+     * 注册前按工号精确核对。查不到或查询失败都按「对方还没有」处理，继续走新增。
+     * 查询是模糊条件，只认返回列表里工号完全一致的行。
+     */
+    private boolean externalEmployeeExists(Long apiSubSystemId, String userCode) {
+        if (StrUtil.isBlank(userCode)) {
+            return false;
+        }
+        try {
+            SubSystemEmployeeQueryDTO query = new SubSystemEmployeeQueryDTO();
+            query.setUserCode(userCode.trim());
+            query.setPage(1);
+            query.setRows(20);
+            SubSystemEmployeePageRespDTO page = getApi(apiSubSystemId).page(query);
+            if (page == null || CollUtil.isEmpty(page.getList())) {
+                return false;
+            }
+            String wanted = userCode.trim();
+            for (SubSystemEmployeeDTO row : page.getList()) {
+                if (row != null && wanted.equalsIgnoreCase(StrUtil.trim(row.getUserCode()))) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            log.warn("[registerEmployees] 注册前查询对方人员失败，继续尝试新增。userCode={}", userCode, e);
+            return false;
+        }
+    }
+
+    /**
+     * 对方人员已建出之后再写本地注册状态。第一次失败再试一次；仍失败则告诉管理员不要再次注册。
+     */
+    private String markRegisteredWithRetry(Long rosterId, String workshopCode, boolean usernameWithWorkshop,
+                                           String apiType) {
+        try {
+            markRegistered(rosterId, workshopCode, usernameWithWorkshop, apiType);
+            return null;
+        } catch (Exception first) {
+            log.warn("[registerEmployees] rosterId={} 写入注册状态失败，准备重试", rosterId, first);
+            try {
+                markRegistered(rosterId, workshopCode, usernameWithWorkshop, apiType);
+                return "对方人员已创建，本地注册状态已补记";
+            } catch (Exception second) {
+                log.warn("[registerEmployees] rosterId={} 写入注册状态再次失败", rosterId, second);
+                throw new IllegalStateException(
+                        "对方系统已有该人员，但本地注册状态写入失败。请在列表将接口注册改为已注册，不要再次注册。");
+            }
+        }
     }
 
     private void markRegistered(Long rosterId, String workshopCode, boolean usernameWithWorkshop, String apiType) {

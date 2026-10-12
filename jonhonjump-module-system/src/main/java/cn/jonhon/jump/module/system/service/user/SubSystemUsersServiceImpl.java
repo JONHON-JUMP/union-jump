@@ -21,7 +21,9 @@ import cn.jonhon.jump.module.system.util.MenuStyleHelper;
 import lombok.extern.slf4j.Slf4j;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.validation.annotation.Validated;
 import javax.annotation.Resource;
 import java.util.*;
@@ -76,6 +78,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     private SubSystemAccessService subSystemAccessService;
     @Resource
     private SubSystemEmployeeService subSystemEmployeeService;
+    @Resource
+    private PlatformTransactionManager transactionManager;
     @Resource
     private SubSystemApiConfigMapper subSystemApiConfigMapper;
     @Override
@@ -178,6 +182,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     @Transactional(rollbackFor = Exception.class)
     public Long createSubSystemUser(SubSystemUsersSaveReqVO createReqVO) {
         validateSubSystemExists(createReqVO.getSubSystemId());
+        createReqVO.setUsername(StrUtil.trim(createReqVO.getUsername()));
         validateUsernameUnique(createReqVO.getSubSystemId(), createReqVO.getUsername(), null);
         if (createReqVO.getMainUserId() != null) {
             validateMainUserExists(createReqVO.getMainUserId());
@@ -268,7 +273,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (existByMain != null) {
             return existByMain.getId();
         }
-        SubSystemUsersDO roster = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, mainUser.getUsername());
+        SubSystemUsersDO roster = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId,
+                StrUtil.trim(mainUser.getUsername()));
         if (roster == null) {
             throw exception(SUB_SYSTEM_USER_USERNAME_NOT_FOUND);
         }
@@ -321,6 +327,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                     .set(SubSystemUsersDO::getUsernameWithWorkshop, "0")
                     .set(SubSystemUsersDO::getRegisteredApiType, null);
             subSystemUsersMapper.update(null, wrapper);
+            subSystemPermissionContextService.evictBySubSystemUserId(id);
             return;
         }
         String bare = StrUtil.trim(roster.getUsername());
@@ -354,6 +361,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             wrapper.set(SubSystemUsersDO::getWorkshopId, workshop);
         }
         subSystemUsersMapper.update(null, wrapper);
+        subSystemPermissionContextService.evictBySubSystemUserId(id);
     }
 
     private static cn.jonhon.jump.framework.common.exception.ServiceException externalUserMismatch(String code, String bare) {
@@ -425,7 +433,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     }
 
     private void upsertRosterFromMainUser(AdminUserDO mainUser, Long subSystemId, String workshopCode) {
-        SubSystemUsersDO roster = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, mainUser.getUsername());
+        String username = StrUtil.trim(mainUser.getUsername());
+        SubSystemUsersDO roster = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, username);
         if (roster != null) {
             // 已绑其他主用户 → 同 bindMainUser 语义，报错并回滚整个建用户事务
             if (!canAutoBind(roster.getMainUserId()) && !Objects.equals(roster.getMainUserId(), mainUser.getId())) {
@@ -445,7 +454,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         SubSystemUsersDO subUser = new SubSystemUsersDO();
         subUser.setSubSystemId(subSystemId);
         subUser.setMainUserId(mainUser.getId());
-        subUser.setUsername(mainUser.getUsername());
+        subUser.setUsername(username);
         subUser.setNickname(mainUser.getNickname());
         subUser.setWorkshopId(workshopCode);
         subUser.setStatus("0");
@@ -460,6 +469,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     public void updateSubSystemUser(SubSystemUsersSaveReqVO updateReqVO) {
         SubSystemUsersDO existUser = validateSubSystemUserExists(updateReqVO.getId());
         validateSubSystemExists(updateReqVO.getSubSystemId());
+        updateReqVO.setUsername(StrUtil.trim(updateReqVO.getUsername()));
         validateUsernameUnique(updateReqVO.getSubSystemId(), updateReqVO.getUsername(), updateReqVO.getId());
         if (updateReqVO.getMainUserId() != null
                 && (!Objects.equals(existUser.getSubSystemId(), updateReqVO.getSubSystemId())
@@ -511,6 +521,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         updateObj.setId(id);
         updateObj.setEmployeeRegistered("1".equals(employeeRegistered) ? "1" : "0");
         subSystemUsersMapper.updateById(updateObj);
+        subSystemPermissionContextService.evictBySubSystemUserId(id);
     }
     @Override
     public List<SubSystemRoleSimpleRespVO> getRoleSimpleList(Long subSystemId) {
@@ -558,11 +569,14 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         return buildMenuTree(displayMenus, 0L);
     }
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public SubSystemUsersAssignRoleRespVO assignSubSystemUserRole(SubSystemUsersAssignRoleReqVO reqVO) {
-        SubSystemUsersDO user = validateSubSystemUserExists(reqVO.getId());
-        assignUserRoles(reqVO.getId(), user.getSubSystemId(), reqVO.getRoleIds());
-        subSystemPermissionContextService.evictBySubSystemUserId(reqVO.getId());
+        // 本地角色先提交并释放连接，再调外部接口。避免 Camstar 慢或不可达时占着数据库连接。
+        SubSystemUsersDO user = new TransactionTemplate(transactionManager).execute(status -> {
+            SubSystemUsersDO existing = validateSubSystemUserExists(reqVO.getId());
+            assignUserRoles(reqVO.getId(), existing.getSubSystemId(), reqVO.getRoleIds());
+            subSystemPermissionContextService.evictBySubSystemUserId(reqVO.getId());
+            return existing;
+        });
         SubSystemUsersAssignRoleRespVO respVO = new SubSystemUsersAssignRoleRespVO();
         respVO.setExternalSynced(false);
         if (!Boolean.TRUE.equals(reqVO.getSyncToExternal())) {
