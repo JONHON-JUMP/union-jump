@@ -75,6 +75,8 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     private SubSystemWorkshopService subSystemWorkshopService;
     @Resource
     private SubSystemAccessService subSystemAccessService;
+    @Resource
+    private SubSystemPermissionContextService subSystemPermissionContextService;
 
     @Override
     public PageResult<SubSystemEmployeeRespVO> getEmployeePage(SubSystemEmployeePageReqVO pageReqVO) {
@@ -425,6 +427,8 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
             updateObj.setWorkshopId(workshopCode.trim());
         }
         subSystemUsersMapper.updateById(updateObj);
+        // 注册状态/拼接方式/车间变了，门户权限包中的外部身份（车间_工号）一并失效
+        subSystemPermissionContextService.evictBySubSystemUserId(rosterId);
     }
 
     /** 所调「新增人员」接口的适配器类型（注册成功后记录在行上） */
