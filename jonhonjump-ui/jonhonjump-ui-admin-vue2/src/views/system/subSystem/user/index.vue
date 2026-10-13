@@ -1174,15 +1174,23 @@ export default {
         ids: [this.bindForm.id]
       }).then(res => {
         const results = res.data || []
+        // 接口没返回任何结果时不能当成注册成功
+        if (!results.length) {
+          this.$modal.msgError('外部系统未返回注册结果，请刷新后重试')
+          return
+        }
         const fail = results.filter(r => !r.success)
         if (fail.length) {
           this.$modal.msgError(fail[0].message || '注册失败')
           return
         }
-        this.$modal.msgSuccess('已在外部系统建人并关联')
+        // 展示后端真实结果（如"已注册，跳过推送"），避免把跳过推送误当成真的调了接口
+        this.$modal.msgSuccess(results[0].message || '已在外部系统建人并关联')
         this.bindForm.employeeRegistered = '1'
         this.getList()
         this.loadExternalEmployees(true)
+      }).catch(() => {
+        // 失败原因（后端连接异常/业务错误）由全局拦截器统一提示，这里保证不再误报成功
       }).finally(() => {
         this.bindRegistering = false
       })

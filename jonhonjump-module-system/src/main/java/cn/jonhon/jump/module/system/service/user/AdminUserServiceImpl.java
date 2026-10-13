@@ -22,9 +22,12 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserPageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSaveReqVO;
 import cn.jonhon.jump.module.system.dal.dataobject.dept.DeptDO;
 import cn.jonhon.jump.module.system.dal.dataobject.dept.UserPostDO;
+import cn.jonhon.jump.module.system.dal.dataobject.permission.RoleDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 import cn.jonhon.jump.module.system.dal.mysql.dept.UserPostMapper;
+import cn.jonhon.jump.module.system.dal.mysql.permission.RoleMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.AdminUserMapper;
+import cn.jonhon.jump.module.system.enums.permission.RoleCodeEnum;
 import cn.jonhon.jump.module.system.service.dept.DeptService;
 import cn.jonhon.jump.module.system.service.dept.PostService;
 import cn.jonhon.jump.module.system.service.oauth2.OAuth2TokenService;
@@ -73,6 +76,8 @@ public class AdminUserServiceImpl implements AdminUserService {
     private PostService postService;
     @Resource
     private PermissionService permissionService;
+    @Resource
+    private RoleMapper roleMapper;
     @Resource
     private PasswordEncoder passwordEncoder;
     @Resource
@@ -130,6 +135,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         subSystemUsersService.registerFromMainUser(user, createReqVO.getSubSystemIds());
         // 其它业务系统里已有同名花名册用户时，直接挂上，不用再手动关联
         subSystemUsersService.bindMatchingRosters(user.getId(), user.getUsername());
+        // 2.4 分配默认角色，保证新建用户开箱即有基础权限
+        assignDefaultRole(user);
 
         // 3. 记录操作日志上下文
         LogRecordContext.putVariable("user", user);
@@ -137,6 +144,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public Long registerUser(AuthRegisterReqVO registerReqVO) {
         // 1.1 校验是否开启注册
         if (ObjUtil.notEqual(configApi.getConfigValueByKey(USER_REGISTER_ENABLED_KEY), "true")) {
@@ -159,7 +167,30 @@ public class AdminUserServiceImpl implements AdminUserService {
         user.setPassword(encodePassword(registerReqVO.getPassword())); // 加密密码
         user.setUserUid(null);
         userUidGenerator.insertWithUniqueUid(user, () -> userMapper.insert(user));
+        // 3. 分配默认角色，保证注册用户开箱即有基础权限
+        assignDefaultRole(user);
         return user.getId();
+    }
+
+    /**
+     * 给注册用户分配默认角色（普通角色）
+     * <p>
+     * 优先按编码匹配初始化脚本中的普通角色，匹配不到再按名称匹配库里已有的同名角色；
+     * 角色不存在或被停用时仅记录告警、不阻断注册，由管理员后续手动分配
+     *
+     * @param user 注册成功后的用户
+     */
+    private void assignDefaultRole(AdminUserDO user) {
+        RoleDO role = roleMapper.selectByCode(RoleCodeEnum.COMMON.getCode());
+        if (role == null) {
+            role = roleMapper.selectByName(RoleCodeEnum.COMMON.getName());
+        }
+        if (role == null || ObjUtil.notEqual(role.getStatus(), CommonStatusEnum.ENABLE.getStatus())) {
+            log.warn("[assignDefaultRole][注册用户({}) 找不到启用的默认角色({})，跳过分配]",
+                    user.getId(), RoleCodeEnum.COMMON.getName());
+            return;
+        }
+        permissionService.assignUserRole(user.getId(), Collections.singleton(role.getId()));
     }
 
     @Override
@@ -596,6 +627,8 @@ public class AdminUserServiceImpl implements AdminUserService {
                 }
                 respVO.getCreateUsernames().add(importUser.getUsername());
                 subSystemUsersService.bindMatchingRosters(newUser.getId(), newUser.getUsername());
+                // 导入新建的用户同样分配默认角色（普通角色）
+                assignDefaultRole(newUser);
                 return;
             }
             // 2.2.2 如果存在，判断是否允许更新
