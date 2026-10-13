@@ -274,12 +274,21 @@
             </div>
           </el-form-item>
         </template>
-        <el-form-item v-if="form.id" label="关联车间编号">
-          <el-tag v-if="form.usernameWithWorkshop === '1'" type="success" size="mini">是（{{ form.workshopId ? (form.workshopId + '_' + form.username) : '车间编号_工号' }}）</el-tag>
-          <el-tag v-else type="info" size="mini">否（用工号注册）</el-tag>
-          <div class="form-tip">
-            调「新增人员」接口注册时按弹窗勾选写入；是否拼接决定对接系统侧的用户名形态{{ form.registeredApiType ? '（注册接口：' + form.registeredApiType + '）' : '' }}
+        <el-form-item v-if="form.id" label="外部关联">
+          <el-radio-group v-model="form.employeeRegistered">
+            <el-radio label="0">未关联</el-radio>
+            <el-radio label="1">已关联外部</el-radio>
+          </el-radio-group>
+          <div v-if="form.employeeRegistered === '1'" style="margin-top: 6px">
+            <el-radio-group v-model="form.usernameWithWorkshop" size="mini">
+              <el-radio label="0" border>对方账号：工号</el-radio>
+              <el-radio label="1" border>车间编号_工号</el-radio>
+            </el-radio-group>
+            <div class="form-tip">
+              对方系统已有该人员时可手动标记，不调用接口；形态决定后续同步角色使用的账号名{{ form.registeredApiType ? '（注册接口：' + form.registeredApiType + '）' : '' }}
+            </div>
           </div>
+          <div v-else class="form-tip">标记未关联后，可重新通过【关联外部】或【同步注册】对接对方系统</div>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input v-model="form.remark" type="textarea" placeholder="请输入备注" />
@@ -410,7 +419,7 @@
         <el-form-item label="外部人员">
           <div style="margin-bottom: 6px">
             <el-button size="mini" type="primary" plain :loading="bindLoading"
-                       :disabled="!bindForm.apiSubSystemId || !bindForm.workshopCode"
+                       :disabled="!bindForm.apiSubSystemId"
                        @click="loadExternalEmployees">查询外部人员</el-button>
             <el-button size="mini" type="primary" plain :loading="bindRegistering"
                        :disabled="!bindForm.apiSubSystemId || !bindForm.workshopCode"
@@ -428,7 +437,7 @@
             <el-option
               v-for="item in externalEmployees"
               :key="item.userCode"
-              :label="(item.userName || item.userCode) + '（' + item.userCode + '）'"
+              :label="(item.userName || item.userCode) + '（' + item.userCode + (item.workshopName || item.workshopCode ? '，' + (item.workshopName || item.workshopCode) : '') + '）'"
               :value="item.userCode"
             />
           </el-select>
@@ -913,9 +922,13 @@ export default {
           delete payload.teamId
           delete payload.postIds
         }
-        // 内联注册仅新增路径可走，checkbox 绑定为 boolean
+        // 内联注册仅新增路径可走，checkbox 绑定为 boolean；编辑路径保留形态字段供手动维护外部关联
         const usernameWithWorkshop = !!payload.usernameWithWorkshop
-        delete payload.usernameWithWorkshop
+        if (isAdd) {
+          delete payload.usernameWithWorkshop
+          // 新增时外部关联状态由系统管理，不随表单提交
+          delete payload.employeeRegistered
+        }
         delete payload.registeredApiType
         const shouldRegister = isAdd && syncToExternal && !!apiSubSystemId
         this.submitting = true
@@ -1112,22 +1125,35 @@ export default {
       this.externalEmployeeTip = ''
     },
     loadExternalEmployees(silent) {
-      if (!this.bindForm.apiSubSystemId || !this.bindForm.workshopCode) {
+      if (!this.bindForm.apiSubSystemId) {
         if (!silent) {
-          this.$modal.msgWarning('请先选择接口目标和车间')
+          this.$modal.msgWarning('请先选择接口目标')
+        }
+        return
+      }
+      if (!this.bindForm.username) {
+        if (!silent) {
+          this.$modal.msgWarning('当前记录没有工号，无法查询外部人员')
         }
         return
       }
       this.bindLoading = true
-      listExternalEmployees(this.bindForm.apiSubSystemId, this.bindForm.workshopCode).then(res => {
+      // 默认全系统按工号查（与接口管理「查询人员」相同），不按车间拉固定条数。
+      // 车间仍传给后端，仅用于再查一次「车间编号_工号」
+      listExternalEmployees(this.bindForm.apiSubSystemId,
+        this.bindForm.workshopCode,
+        this.bindForm.username).then(res => {
         const list = res.data || []
         this.externalEmployees = list
         this.externalEmployeeTip = list.length
-          ? ('共 ' + list.length + ' 人。请选择与本地用户名相同，或 车间编号_用户名 的人员')
-          : '没有查到外部人员'
-        const bare = this.bindForm.username
-        const prefixed = this.bindForm.workshopCode + '_' + bare
-        const hit = list.find(item => item.userCode === prefixed) || list.find(item => item.userCode === bare)
+          ? ('共 ' + list.length + ' 人（按工号全系统查询）。请选择与本地用户名相同，或 车间编号_用户名 的人员')
+          : '没有查到该工号的外部人员'
+        const bare = (this.bindForm.username || '').trim()
+        const workshop = (this.bindForm.workshopCode || '').trim()
+        const prefixed = workshop ? (workshop + '_' + bare) : ''
+        const sameCode = (a, b) => a && b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase()
+        const hit = (prefixed && list.find(item => sameCode(item.userCode, prefixed)))
+          || list.find(item => sameCode(item.userCode, bare))
         if (hit) {
           this.bindForm.userCode = hit.userCode
           this.bindForm.usernameWithWorkshop = hit.userCode === prefixed

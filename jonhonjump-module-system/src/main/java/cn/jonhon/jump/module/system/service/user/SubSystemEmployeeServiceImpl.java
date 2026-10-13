@@ -176,27 +176,14 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         if (apiSubSystemId == null) {
             throw exception0(BAD_REQUEST.getCode(), "请选择接口目标");
         }
-        if (StrUtil.isBlank(workshopCode)) {
-            throw exception0(BAD_REQUEST.getCode(), "请选择车间");
+        if (StrUtil.isBlank(userCode)) {
+            throw exception0(BAD_REQUEST.getCode(), "请按工号查询外部人员");
         }
-        SubSystemEmployeeQueryDTO query = new SubSystemEmployeeQueryDTO();
-        query.setPage(1);
-        query.setRows(200);
-        query.setWorkshopCode(workshopCode.trim());
-        if (StrUtil.isNotBlank(userCode)) {
-            query.setUserCode(userCode.trim());
-        }
-        try {
-            SubSystemEmployeePageRespDTO page = getApi(apiSubSystemId).page(query);
-            if (page.getList() == null) {
-                return Collections.emptyList();
-            }
-            return page.getList().stream()
-                    .map(dto -> BeanUtils.toBean(dto, SubSystemEmployeeRespVO.class))
-                    .collect(Collectors.toList());
-        } catch (ExternalApiException e) {
-            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
-        }
+        // 与接口管理「查询人员」相同：带工号、不传车间。按车间拉固定条数会把新建用户截在页外
+        List<SubSystemEmployeeDTO> rows = queryEmployeesByUserCode(apiSubSystemId, userCode.trim(), workshopCode, true);
+        return rows.stream()
+                .map(dto -> BeanUtils.toBean(dto, SubSystemEmployeeRespVO.class))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -249,7 +236,20 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                     result.setSuccess(false).setMessage("车间编码为空：请在注册时选择车间，或先在花名册维护该用户的车间（选业务系统不等于选车间）");
                     continue;
                 }
-                boolean alreadyExists = externalEmployeeExists(reqVO.getApiSubSystemId(), dto.getUserCode());
+                // 按工号全系统核对（其他车间以 车间_工号 形态注册的也算同一工号），防止同一工号在对方系统重复建号
+                SubSystemEmployeeDTO existing = findExternalEmployee(reqVO.getApiSubSystemId(), roster.getUsername(),
+                        dto.getWorkshopCode());
+                if (existing != null && !StrUtil.trim(dto.getUserCode())
+                        .equalsIgnoreCase(StrUtil.trim(existing.getUserCode()))) {
+                    String workshopInfo = StrUtil.blankToDefault(StrUtil.trim(existing.getWorkshopName()),
+                            StrUtil.trim(existing.getWorkshopCode()));
+                    result.setSuccess(false).setMessage("工号 " + roster.getUsername() + " 已在对方系统注册（账号 "
+                            + StrUtil.trim(existing.getUserCode())
+                            + (StrUtil.isBlank(workshopInfo) ? "" : "，车间 " + workshopInfo)
+                            + "），本次未注册。如属人员调动，请先在对方系统调整原账号后重试");
+                    continue;
+                }
+                boolean alreadyExists = existing != null;
                 if (!alreadyExists) {
                     getApi(reqVO.getApiSubSystemId()).create(dto);
                 }
@@ -365,33 +365,93 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     }
 
     /**
-     * 注册前按工号精确核对。查不到或查询失败都按「对方还没有」处理，继续走新增。
-     * 查询是模糊条件，只认返回列表里工号完全一致的行。
+     * 按工号全系统查询，与接口管理「查询人员」同一条 getEmployeeInfo：带 userCode，不传车间。
+     * Camstar 工号是精确条件，裸工号查不到「车间_工号」，所以已知车间时再按完整账号查一次。
+     * 返回列表里只保留同一工号（含其他车间的 车间_工号）。
+     *
+     * @param failOnPrimary 裸工号这一查失败时是否抛出；补查失败只记日志
      */
-    private boolean externalEmployeeExists(Long apiSubSystemId, String userCode) {
-        if (StrUtil.isBlank(userCode)) {
-            return false;
+    private List<SubSystemEmployeeDTO> queryEmployeesByUserCode(Long apiSubSystemId, String userCode,
+                                                                String workshopCode, boolean failOnPrimary) {
+        String bare = bareEmployeeCode(userCode);
+        Map<String, SubSystemEmployeeDTO> merged = new LinkedHashMap<>();
+        boolean primaryOk = appendEmployeesByCode(apiSubSystemId, bare, bare, merged, failOnPrimary);
+        if (StrUtil.isNotBlank(workshopCode)) {
+            String prefixed = workshopCode.trim() + "_" + bare;
+            if (!prefixed.equalsIgnoreCase(bare)) {
+                appendEmployeesByCode(apiSubSystemId, prefixed, bare, merged, false);
+            }
         }
+        if (!userCode.trim().equalsIgnoreCase(bare)) {
+            appendEmployeesByCode(apiSubSystemId, userCode.trim(), bare, merged, false);
+        }
+        if (!primaryOk && merged.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    /** 按一个账号名查一页，收进工号完全一致、或工号部分与 wantedBare 一致的行。 */
+    private boolean appendEmployeesByCode(Long apiSubSystemId, String queryCode, String wantedBare,
+                                          Map<String, SubSystemEmployeeDTO> merged, boolean required) {
         try {
             SubSystemEmployeeQueryDTO query = new SubSystemEmployeeQueryDTO();
-            query.setUserCode(userCode.trim());
+            query.setUserCode(queryCode);
             query.setPage(1);
             query.setRows(20);
             SubSystemEmployeePageRespDTO page = getApi(apiSubSystemId).page(query);
-            if (page == null || CollUtil.isEmpty(page.getList())) {
-                return false;
-            }
-            String wanted = userCode.trim();
-            for (SubSystemEmployeeDTO row : page.getList()) {
-                if (row != null && wanted.equalsIgnoreCase(StrUtil.trim(row.getUserCode()))) {
-                    return true;
+            List<SubSystemEmployeeDTO> rows = page == null || page.getList() == null
+                    ? Collections.emptyList() : page.getList();
+            for (SubSystemEmployeeDTO row : rows) {
+                if (row == null || StrUtil.isBlank(row.getUserCode())) {
+                    continue;
                 }
+                String code = row.getUserCode().trim();
+                if (!queryCode.equalsIgnoreCase(code) && !wantedBare.equalsIgnoreCase(bareEmployeeCode(code))) {
+                    continue;
+                }
+                merged.putIfAbsent(code.toLowerCase(), row);
             }
-            return false;
+            return true;
         } catch (Exception e) {
-            log.warn("[registerEmployees] 注册前查询对方人员失败，继续尝试新增。userCode={}", userCode, e);
+            if (required) {
+                if (e instanceof ExternalApiException) {
+                    throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, ((ExternalApiException) e).getMessage());
+                }
+                throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+            }
+            log.warn("[listExternalEmployees][按工号({})查询外部人员失败]", queryCode, e);
             return false;
         }
+    }
+
+    /**
+     * 注册前按工号全系统核对：账号名完全一致，或为「车间_工号」形态且工号部分一致，均视为已存在。
+     * 查不到或查询失败都按「对方还没有」处理，继续走新增。
+     */
+    private SubSystemEmployeeDTO findExternalEmployee(Long apiSubSystemId, String userCode, String workshopCode) {
+        if (StrUtil.isBlank(userCode)) {
+            return null;
+        }
+        try {
+            List<SubSystemEmployeeDTO> rows = queryEmployeesByUserCode(apiSubSystemId, userCode.trim(), workshopCode, false);
+            return CollUtil.isEmpty(rows) ? null : rows.get(0);
+        } catch (Exception e) {
+            log.warn("[registerEmployees] 注册前查询对方人员失败，继续尝试新增。userCode={}", userCode, e);
+            return null;
+        }
+    }
+
+    /**
+     * 去掉「车间_」前缀取工号部分。拼接规则为 车间编号_工号，工号本身约定不含下划线。
+     */
+    private String bareEmployeeCode(String userCode) {
+        String code = StrUtil.trim(userCode);
+        if (StrUtil.isEmpty(code)) {
+            return code;
+        }
+        int idx = code.lastIndexOf('_');
+        return idx >= 0 ? code.substring(idx + 1) : code;
     }
 
     /**

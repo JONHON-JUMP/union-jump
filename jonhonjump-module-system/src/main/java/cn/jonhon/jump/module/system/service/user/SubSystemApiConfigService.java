@@ -68,8 +68,10 @@ public interface SubSystemApiConfigService {
     List<SubSystemRegisterableApiRespVO> listRoleCreateApis();
 
     /**
-     * 按车间查对方角色：roleName → Camstar roleId（role_query / getRoleInfo）
+     * 查对方角色：roleName → Camstar roleId（role_query / getRoleInfo）。
+     * workshopCode、roleName 都可空；空字符串不传，避免对方按空条件滤成 0 条。
+     * 带 roleName 时按角色名查，避免只按车间拉列表时新建角色被截断漏掉。
      */
-    Map<String, String> queryExternalRoleIds(Long subSystemId, String workshopCode);
+    Map<String, String> queryExternalRoleIds(Long subSystemId, String workshopCode, String roleName);
 
 }

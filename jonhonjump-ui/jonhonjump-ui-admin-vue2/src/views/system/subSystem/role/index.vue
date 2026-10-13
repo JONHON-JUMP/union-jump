@@ -806,23 +806,27 @@ export default {
       }
       this.bindLoading = true
       this.externalRoleTip = ''
-      getSubSystemExternalRoleList(this.bindForm.apiSubSystemId, this.bindForm.workshopCode).then(res => {
+      getSubSystemExternalRoleList(this.bindForm.apiSubSystemId, this.bindForm.workshopCode, this.bindForm.name).then(res => {
         this.externalRoles = res.data || []
         if (!this.externalRoles.length) {
-          this.externalRoleTip = '该车间在对方系统没有查到角色'
+          this.externalRoleTip = '没有查到外部角色（已按车间列表和当前角色名查询）'
           if (!silent) {
             this.$modal.msgWarning(this.externalRoleTip)
           }
           return
         }
-        this.externalRoleTip = '共 ' + this.externalRoles.length + ' 个，点开下拉按角色名或 roleId 选择'
+        this.externalRoleTip = '共 ' + this.externalRoles.length + ' 个。当前角色名已按全系统补查，点开下拉按角色名或 roleId 选择'
         const current = this.bindForm.externalRoleId
         const stillThere = current && this.externalRoles.some(item => item.roleId === current)
         if (stillThere) {
           return
         }
         const wanted = (this.bindForm.name || '').trim().toLowerCase()
+        const workshop = (this.bindForm.workshopCode || '').trim().toLowerCase()
+        const prefixed = workshop && wanted.indexOf(workshop + '_') !== 0
+          ? (workshop + '_' + wanted) : ''
         const hit = this.externalRoles.find(item => (item.roleName || '').trim().toLowerCase() === wanted)
+          || (prefixed ? this.externalRoles.find(item => (item.roleName || '').trim().toLowerCase() === prefixed) : null)
         if (hit) {
           this.bindForm.externalRoleId = hit.roleId
         }

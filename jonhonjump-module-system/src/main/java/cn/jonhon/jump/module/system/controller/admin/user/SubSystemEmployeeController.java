@@ -85,11 +85,11 @@ public class SubSystemEmployeeController {
     }
 
     @GetMapping("/external-list")
-    @Operation(summary = "按车间查询外部系统已有人员（关联外部用）")
+    @Operation(summary = "按工号全系统查询外部人员（关联外部用）；不按车间截断列表")
     @PreAuthorize("@ss.hasAnyPermissions('sub-system:user:update', 'sub-system:employee:list')")
     public CommonResult<List<SubSystemEmployeeRespVO>> listExternalEmployees(
             @RequestParam("apiSubSystemId") Long apiSubSystemId,
-            @RequestParam("workshopCode") String workshopCode,
+            @RequestParam(value = "workshopCode", required = false) String workshopCode,
             @RequestParam(value = "userCode", required = false) String userCode) {
         return success(subSystemEmployeeService.listExternalEmployees(apiSubSystemId, workshopCode, userCode));
     }

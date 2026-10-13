@@ -481,6 +481,10 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         validateHomeMenu(updateReqVO.getSubSystemId(), updateReqVO.getHomeMenuId(),
                 getSubSystemUserRoleIds(updateReqVO.getId()));
         SubSystemUsersDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemUsersDO.class);
+        // 手动改回「未关联」时，同步清掉拼接形态标记，避免残留旧形态误导后续同步
+        if ("0".equals(updateReqVO.getEmployeeRegistered())) {
+            updateObj.setUsernameWithWorkshop("0");
+        }
         subSystemUsersMapper.updateById(updateObj);
         if (updateReqVO.getPostIds() != null) {
             assignUserPosts(updateReqVO.getId(), updateReqVO.getSubSystemId(), updateReqVO.getPostIds());

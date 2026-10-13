@@ -39,9 +39,10 @@ public interface SubSystemRoleService {
     String registerSubSystemRole(Long id, SubSystemRoleRegisterReqVO reqVO);
 
     /**
-     * 按车间列出外部系统（Camstar）已有角色（角色名 + roleId），供「关联外部角色」选择
+     * 列出外部系统已有角色（角色名 + roleId），供「关联外部角色」选择。
+     * 传 roleName 时再按角色名全系统补查，避免车间列表截断漏掉新建角色。
      */
-    List<SubSystemExternalRoleRespVO> getExternalRoleList(Long apiSubSystemId, String workshopCode);
+    List<SubSystemExternalRoleRespVO> getExternalRoleList(Long apiSubSystemId, String workshopCode, String roleName);
 
     /**
      * 关联/解除外部系统角色：把外部 roleId 绑到本地角色上（external_role_id），

@@ -72,12 +72,12 @@ export function registerSubSystemRole(id, data) {
   })
 }
 
-/** 按车间列出外部系统已有角色（角色名 + roleId），供「关联外部角色」选择 */
-export function getSubSystemExternalRoleList(apiSubSystemId, workshopCode) {
+/** 列出外部系统已有角色（角色名 + roleId）；roleName 用于按名全系统补查，避免车间列表截断 */
+export function getSubSystemExternalRoleList(apiSubSystemId, workshopCode, roleName) {
   return request({
     url: '/system/sub-system-role/external-role-list',
     method: 'post',
-    data: { apiSubSystemId, workshopCode }
+    data: { apiSubSystemId, workshopCode, roleName }
   })
 }
 

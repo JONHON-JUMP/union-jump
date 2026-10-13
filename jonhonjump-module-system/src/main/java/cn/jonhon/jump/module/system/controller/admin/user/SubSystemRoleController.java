@@ -123,11 +123,12 @@ public class SubSystemRoleController {
     }
 
     @PostMapping("/external-role-list")
-    @Operation(summary = "按车间列出外部系统已有角色（角色名 + roleId），供「关联外部角色」选择")
+    @Operation(summary = "列出外部系统已有角色（角色名 + roleId）；传角色名时按名全系统补查，避免车间列表截断")
     @PreAuthorize("@ss.hasPermission('sub-system:role:list')")
     public CommonResult<List<SubSystemExternalRoleRespVO>> getExternalRoleList(
             @Valid @RequestBody SubSystemExternalRoleQueryReqVO reqVO) {
-        return success(subSystemRoleService.getExternalRoleList(reqVO.getApiSubSystemId(), reqVO.getWorkshopCode()));
+        return success(subSystemRoleService.getExternalRoleList(
+                reqVO.getApiSubSystemId(), reqVO.getWorkshopCode(), reqVO.getRoleName()));
     }
 
     @PutMapping("/bind-external-role")

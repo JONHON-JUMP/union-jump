@@ -37,7 +37,8 @@ public interface SubSystemEmployeeService {
     List<SubSystemRegisterableApiRespVO> getRegisterableApis();
 
     /**
-     * 按车间查询外部系统已有人员（关联外部用，最多 200 条）
+     * 按工号全系统查询外部人员（关联外部用）。不按车间拉固定条数，避免新建用户被截断。
+     * workshopCode 只用来再查一次「车间编号_工号」，不作为列表过滤条件。
      */
     List<SubSystemEmployeeRespVO> listExternalEmployees(Long apiSubSystemId, String workshopCode, String userCode);
 

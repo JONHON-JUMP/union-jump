@@ -46,6 +46,9 @@ public class SubSystemUsersSaveReqVO {
     @Schema(description = "人员接口注册状态（0未注册 1已注册；页面可改，重推时改回 0）", example = "0")
     private String employeeRegistered;
 
+    @Schema(description = "对方账号是否为 车间编号_工号 形态（0否 1是；手动标记外部关联时可维护）", example = "0")
+    private String usernameWithWorkshop;
+
     @Schema(description = "备注")
     private String remark;
 

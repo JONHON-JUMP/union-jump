@@ -282,7 +282,7 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
     }
 
     @Override
-    public Map<String, String> queryExternalRoleIds(Long subSystemId, String workshopCode) {
+    public Map<String, String> queryExternalRoleIds(Long subSystemId, String workshopCode, String roleName) {
         SubSystemApiConfigDO config = subSystemApiConfigMapper.selectBySubSystemId(subSystemId);
         if (config == null) {
             throw exception(SUB_SYSTEM_API_CONFIG_NOT_EXISTS);
@@ -300,7 +300,13 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         // 接口行即使被配成 GET 也按 POST 调用，避免 GET 请求被网关/对方系统拦截
         endpoint.setMethod("POST");
         Map<String, Object> body = new HashMap<>();
-        body.put("workshopCode", workshopCode);
+        // 空字符串不传：对方会按空车间/空角色名过滤，结果是一条都没有
+        if (StrUtil.isNotBlank(workshopCode)) {
+            body.put("workshopCode", workshopCode.trim());
+        }
+        if (StrUtil.isNotBlank(roleName)) {
+            body.put("roleName", roleName.trim());
+        }
         ExternalApiHttpClient httpClient = new ExternalApiHttpClient(
                 config.getBaseUrl(), config.getConnectTimeoutMs(), config.getReadTimeoutMs());
         JsonNode resp;
@@ -328,10 +334,10 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
                 continue;
             }
             // getRoleInfo 是 roleName/roleId；getRoleComboByFactory 是 text/value
-            String roleName = firstText(row, "roleName", "RoleName", "ROLENAME", "text", "Text");
+            String rowRoleName = firstText(row, "roleName", "RoleName", "ROLENAME", "text", "Text");
             String roleId = firstText(row, "roleId", "RoleId", "ROLEID", "roleID", "value", "Value");
-            if (StrUtil.isNotBlank(roleName) && StrUtil.isNotBlank(roleId)) {
-                nameToId.put(roleName.trim(), roleId.trim());
+            if (StrUtil.isNotBlank(rowRoleName) && StrUtil.isNotBlank(roleId)) {
+                nameToId.put(rowRoleName.trim(), roleId.trim());
             }
         }
         return nameToId;

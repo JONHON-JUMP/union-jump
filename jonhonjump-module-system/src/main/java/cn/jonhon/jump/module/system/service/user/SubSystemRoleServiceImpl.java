@@ -28,6 +28,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -244,7 +245,7 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     private String storeExternalRoleId(Long roleId, Long apiSubSystemId, String workshopCode, String externalRoleName) {
         Map<String, String> nameToId;
         try {
-            nameToId = subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, workshopCode);
+            nameToId = lookupExternalRoles(apiSubSystemId, workshopCode, externalRoleName);
         } catch (RuntimeException e) {
             log.warn("[storeExternalRoleId] roleId={} 回查外部 roleId 失败", roleId, e);
             return "Camstar 角色【" + externalRoleName + "】已创建，但没有查回 roleId："
@@ -263,17 +264,76 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     }
 
     @Override
-    public List<SubSystemExternalRoleRespVO> getExternalRoleList(Long apiSubSystemId, String workshopCode) {
-        if (StrUtil.isBlank(workshopCode)) {
-            throw exception0(BAD_REQUEST.getCode(), "请选择/填写车间编号");
-        }
-        Map<String, String> nameToId = subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, workshopCode.trim());
+    public List<SubSystemExternalRoleRespVO> getExternalRoleList(Long apiSubSystemId, String workshopCode, String roleName) {
+        Map<String, String> nameToId = lookupExternalRoles(apiSubSystemId,
+                StrUtil.trimToNull(workshopCode), StrUtil.trimToNull(roleName));
         return nameToId.entrySet().stream()
                 .sorted(Map.Entry.comparingByKey())
                 .map(entry -> new SubSystemExternalRoleRespVO()
                         .setRoleName(entry.getKey())
                         .setRoleId(entry.getValue()))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 车间列表 + 按角色名全系统补查。只按车间拉列表时，对方若截断分页，新建角色会落在页外；
+     * 按角色名再查一次（不带车间），与接口管理按条件查询同一路，保证目标角色在结果里。
+     */
+    private Map<String, String> lookupExternalRoles(Long apiSubSystemId, String workshopCode, String roleName) {
+        Map<String, String> nameToId = new LinkedHashMap<>();
+        RuntimeException workshopError = null;
+        if (StrUtil.isNotBlank(workshopCode)) {
+            try {
+                nameToId.putAll(subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, workshopCode, null));
+            } catch (RuntimeException e) {
+                workshopError = e;
+                log.warn("[lookupExternalRoles] 按车间查询外部角色失败，继续按角色名补查。workshop={}", workshopCode, e);
+            }
+        }
+        if (StrUtil.isNotBlank(roleName)) {
+            RuntimeException nameError = null;
+            try {
+                mergeNamedRoles(nameToId,
+                        subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, null, roleName), roleName);
+            } catch (RuntimeException e) {
+                nameError = e;
+                log.warn("[lookupExternalRoles] 按角色名查询外部角色失败。roleName={}", roleName, e);
+            }
+            // 对方角色名是 车间_角色名，本地若还是短名，再按完整名查一次（精确条件，不靠车间列表）
+            if (StrUtil.isNotBlank(workshopCode) && !roleName.startsWith(workshopCode.trim() + "_")) {
+                String prefixed = workshopCode.trim() + "_" + roleName.trim();
+                try {
+                    mergeNamedRoles(nameToId,
+                            subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, null, prefixed), prefixed);
+                } catch (RuntimeException e) {
+                    if (nameError == null) {
+                        nameError = e;
+                    }
+                    log.warn("[lookupExternalRoles] 按完整角色名查询外部角色失败。roleName={}", prefixed, e);
+                }
+            }
+            if (nameToId.isEmpty() && nameError != null) {
+                throw workshopError != null ? workshopError : nameError;
+            }
+        }
+        if (nameToId.isEmpty() && workshopError != null) {
+            throw workshopError;
+        }
+        return nameToId;
+    }
+
+    /** 角色名补查只并入同名角色，避免对方忽略 roleName、把全系统角色都灌进下拉。 */
+    private static void mergeNamedRoles(Map<String, String> target, Map<String, String> queried, String roleName) {
+        if (queried == null || queried.isEmpty() || StrUtil.isBlank(roleName)) {
+            return;
+        }
+        String wanted = roleName.trim();
+        for (Map.Entry<String, String> entry : queried.entrySet()) {
+            if (entry.getKey() != null && entry.getKey().trim().equalsIgnoreCase(wanted)
+                    && StrUtil.isNotBlank(entry.getValue())) {
+                target.putIfAbsent(entry.getKey().trim(), entry.getValue().trim());
+            }
+        }
     }
 
     @Override
@@ -374,7 +434,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
                                             boolean alreadyLocal) {
         Map<String, String> nameToId;
         try {
-            nameToId = subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, workshopCode);
+            // 车间列表 + 按角色名全系统补查：只看车间列表时，截断会把已有同名角色漏掉
+            nameToId = lookupExternalRoles(apiSubSystemId, workshopCode, roleName);
         } catch (RuntimeException ex) {
             log.warn("[assertExternalRoleNameFree] 回查外部角色失败，已中止推送。roleName={}", roleName, ex);
             String saved = alreadyLocal ? "本地角色已保留。" : "";
