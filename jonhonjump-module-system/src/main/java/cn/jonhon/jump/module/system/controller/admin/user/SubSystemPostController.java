@@ -88,7 +88,8 @@ public class SubSystemPostController {
     @PreAuthorize("@ss.hasPermission('sub-system:post:create')")
     public void importTemplate(HttpServletResponse response) throws IOException {
         List<SubSystemPostImportExcelVO> list = Arrays.asList(
-                SubSystemPostImportExcelVO.builder().name("普通岗位").code("common").sort(1).status(0).build()
+                SubSystemPostImportExcelVO.builder().name("普通岗位").code("common")
+                        .workshopCode("4200").sort(1).status(0).build()
         );
         ExcelUtils.write(response, "业务系统岗位导入模板.xls", "岗位", SubSystemPostImportExcelVO.class, list);
     }

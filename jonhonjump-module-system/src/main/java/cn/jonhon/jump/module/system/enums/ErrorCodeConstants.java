@@ -101,11 +101,7 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS = new ErrorCode(1_002_003_043, "用户不存在");
     ErrorCode SUB_SYSTEM_CARD_LOGIN_USER_DISABLED = new ErrorCode(1_002_003_044, "用户已停用");
     ErrorCode SUB_SYSTEM_CARD_LOGIN_CLIENT_MISMATCH = new ErrorCode(1_002_003_045, "clientId 与 Basic 认证不一致");
-    // ========== 外部车间模块 1-002-003-046 ==========
-    ErrorCode SUB_SYSTEM_WORKSHOP_NOT_EXISTS = new ErrorCode(1_002_003_046, "业务系统车间不存在");
-    ErrorCode SUB_SYSTEM_WORKSHOP_CODE_DUPLICATE = new ErrorCode(1_002_003_047, "已经存在编码为【{}】的业务系统车间");
-    ErrorCode SUB_SYSTEM_WORKSHOP_NAME_DUPLICATE = new ErrorCode(1_002_003_048, "已经存在名为【{}】的业务系统车间");
-    ErrorCode SUB_SYSTEM_WORKSHOP_HAS_USERS = new ErrorCode(1_002_003_049, "业务系统车间已分配用户，无法删除");
+    // ========== 业务班组等部门校验（原车间对照模块已废弃） ==========
     ErrorCode SUB_SYSTEM_WORKSHOP_DEPT_INVALID = new ErrorCode(1_002_003_050, "关联部门不存在");
     // ========== 业务系统人员接口配置模块 1-002-003-051 ==========
     ErrorCode SUB_SYSTEM_API_CONFIG_NOT_EXISTS = new ErrorCode(1_002_003_051, "业务系统人员接口配置不存在");

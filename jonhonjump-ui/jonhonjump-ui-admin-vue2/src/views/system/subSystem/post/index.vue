@@ -89,6 +89,7 @@
           <el-table-column label="岗位编号" align="center" prop="id" width="100" />
           <el-table-column label="岗位编码" align="center" prop="code" :show-overflow-tooltip="true" />
           <el-table-column label="岗位名称" align="center" prop="name" :show-overflow-tooltip="true" />
+          <el-table-column label="车间编号" align="center" prop="workshopCode" width="110" :show-overflow-tooltip="true" />
           <el-table-column label="岗位排序" align="center" prop="sort" width="100" />
           <el-table-column label="状态" align="center" prop="status" width="100">
             <template v-slot="scope">
@@ -126,6 +127,14 @@
         </el-form-item>
         <el-form-item label="岗位编码" prop="code">
           <el-input v-model="form.code" placeholder="请输入岗位编码" />
+        </el-form-item>
+        <el-form-item label="车间编号" prop="workshopCode">
+          <el-input
+            v-model="form.workshopCode"
+            placeholder="可空；写在岗位自身"
+            maxlength="50"
+            clearable
+          />
         </el-form-item>
         <el-form-item label="岗位顺序" prop="sort">
           <el-input-number v-model="form.sort" controls-position="right" :min="0" />
@@ -322,6 +331,7 @@ export default {
         subSystemId: this.selectedClient ? this.selectedClient.id : undefined,
         name: undefined,
         code: undefined,
+        workshopCode: undefined,
         sort: 0,
         status: CommonStatusEnum.ENABLE
       }
@@ -387,6 +397,7 @@ export default {
           subSystemId: res.data.subSystemId,
           name: res.data.name,
           code: res.data.code,
+          workshopCode: res.data.workshopCode,
           sort: res.data.sort,
           status: res.data.status
         }

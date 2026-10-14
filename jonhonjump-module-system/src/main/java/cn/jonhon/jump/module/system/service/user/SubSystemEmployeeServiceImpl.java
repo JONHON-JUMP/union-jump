@@ -10,7 +10,6 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemRegisterableApiRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterRespVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopSimpleRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
@@ -71,8 +70,6 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     private SubSystemRoleMapper subSystemRoleMapper;
     @Resource
     private AdminUserMapper adminUserMapper;
-    @Resource
-    private SubSystemWorkshopService subSystemWorkshopService;
     @Resource
     private SubSystemAccessService subSystemAccessService;
     @Resource
@@ -233,7 +230,7 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                 SubSystemEmployeeDTO dto = buildEmployeeDTO(roster, reqVO.getApiSubSystemId(), reqVO.getWorkshopCode(),
                         usernameWithWorkshop);
                 if (StrUtil.isBlank(dto.getWorkshopCode())) {
-                    result.setSuccess(false).setMessage("车间编码为空：请在注册时选择车间，或先在花名册维护该用户的车间（选业务系统不等于选车间）");
+                    result.setSuccess(false).setMessage("请填写车间编号");
                     continue;
                 }
                 // 按工号全系统核对（其他车间以 车间_工号 形态注册的也算同一工号），防止同一工号在对方系统重复建号
@@ -341,6 +338,7 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         return dto;
     }
 
+    /** 仅用花名册自身编号或本次入参；不再从部门对照/系统名推断 */
     private String resolveWorkshopCode(SubSystemUsersDO roster, Long apiSubSystemId, AdminUserDO mainUser,
                                        String overrideWorkshopCode) {
         if (StrUtil.isNotBlank(roster.getWorkshopId())) {
@@ -349,19 +347,7 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         if (StrUtil.isNotBlank(overrideWorkshopCode)) {
             return overrideWorkshopCode.trim();
         }
-        if (mainUser != null && mainUser.getDeptId() != null) {
-            SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService
-                    .getWorkshopByDept(roster.getSubSystemId(), mainUser.getDeptId());
-            if (workshop != null && StrUtil.isNotBlank(workshop.getWorkshopCode())) {
-                return workshop.getWorkshopCode();
-            }
-            workshop = subSystemWorkshopService.getWorkshopByDept(apiSubSystemId, mainUser.getDeptId());
-            if (workshop != null && StrUtil.isNotBlank(workshop.getWorkshopCode())) {
-                return workshop.getWorkshopCode();
-            }
-        }
-        // 花名册系统本身带车间：MES4200 / mes4200 → 4200，或该系统只有一条车间对照
-        return subSystemWorkshopService.inferWorkshopCode(roster.getSubSystemId());
+        return null;
     }
 
     /**

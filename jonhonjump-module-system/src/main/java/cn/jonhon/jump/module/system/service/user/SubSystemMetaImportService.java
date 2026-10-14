@@ -70,6 +70,7 @@ public class SubSystemMetaImportService {
                 req.setSubSystemId(subSystemId);
                 req.setName(row.getName().trim());
                 req.setCode(row.getCode().trim());
+                req.setWorkshopCode(StrUtil.trimToNull(row.getWorkshopCode()));
                 req.setSort(row.getSort() != null ? row.getSort() : 0);
                 req.setStatus(normalizeStatusInt(row.getStatus()));
                 if (exist == null) {
@@ -107,6 +108,7 @@ public class SubSystemMetaImportService {
                 req.setSubSystemId(subSystemId);
                 req.setName(row.getName().trim());
                 req.setCode(row.getCode().trim());
+                req.setWorkshopCode(StrUtil.trimToNull(row.getWorkshopCode()));
                 req.setSort(row.getSort() != null ? row.getSort() : 0);
                 req.setStatus(normalizeStatusInt(row.getStatus()));
                 if (exist == null) {
@@ -130,9 +132,7 @@ public class SubSystemMetaImportService {
     public SubSystemUserImportRespVO importTeamList(Long subSystemId, Long deptId,
                                                     List<SubSystemTeamImportExcelVO> rows, boolean updateSupport) {
         validateBound(subSystemId, rows);
-        if (deptId == null) {
-            throw exception(SUB_SYSTEM_IMPORT_NOT_BOUND);
-        }
+        // 部门可选；车间编号写在 Excel / 班组自身，不再强制车间对照
         SubSystemUserImportRespVO resp = emptyResp();
         int i = 1;
         for (SubSystemTeamImportExcelVO row : rows) {
@@ -148,6 +148,7 @@ public class SubSystemMetaImportService {
                 SubSystemTeamSaveReqVO req = new SubSystemTeamSaveReqVO();
                 req.setSubSystemId(subSystemId);
                 req.setDeptId(deptId);
+                req.setWorkshopCode(StrUtil.trimToNull(row.getWorkshopCode()));
                 req.setTeamCode(row.getTeamCode().trim());
                 req.setTeamName(row.getTeamName().trim());
                 req.setDescription(row.getDescription());

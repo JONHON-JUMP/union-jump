@@ -93,6 +93,7 @@
           <el-table-column label="角色编号" prop="id" width="120" fixed="left" />
           <el-table-column label="角色名称" prop="name" :show-overflow-tooltip="true" width="150" fixed="left" />
           <el-table-column label="角色标识" prop="code" :show-overflow-tooltip="true" width="150" />
+          <el-table-column label="车间编号" prop="workshopCode" width="110" :show-overflow-tooltip="true" />
           <el-table-column label="角色类型" prop="type" width="80">
             <template v-slot="scope">
               <dict-tag :type="DICT_TYPE.SYSTEM_ROLE_TYPE" :value="scope.row.type"/>
@@ -162,6 +163,15 @@
             <el-radio v-for="dict in statusDictDatas" :key="parseInt(dict.value)" :label="parseInt(dict.value)">{{ dict.label }}</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item label="车间编号" prop="workshopCode">
+          <el-input
+            v-model="form.workshopCode"
+            placeholder="可空；同步/关联外部时必填"
+            maxlength="50"
+            clearable
+          />
+          <div class="form-tip">写在角色自身；同步/关联外部时用</div>
+        </el-form-item>
         <template v-if="!form.id">
           <el-form-item label="同步注册">
             <el-checkbox
@@ -184,26 +194,10 @@
               />
             </el-select>
           </el-form-item>
-          <el-form-item v-if="form.syncToExternal" label="车间" prop="workshopCode">
-            <el-input v-if="workshopOptions.length <= 1" :value="workshopFixedText()" disabled placeholder="暂无车间对照" />
-            <el-select
-              v-else
-              v-model="form.workshopCode"
-              placeholder="请选择已对照的部门车间"
-              filterable
-              style="width: 100%"
-            >
-              <el-option
-                v-for="item in workshopOptions"
-                :key="item.workshopCode"
-                :label="workshopOptionLabel(item)"
-                :value="item.workshopCode"
-              />
-            </el-select>
-            <div v-if="workshopOptions.length === 1" class="form-tip">车间与部门是一对一，已确定</div>
-            <div class="form-tip">对方系统角色名固定为 车间编号_角色名称</div>
-            <div v-if="syncRoleNamePreview" class="form-tip">将同步角色名：<b>{{ syncRoleNamePreview }}</b></div>
-          </el-form-item>
+          <div v-if="form.syncToExternal" class="form-tip" style="margin: -8px 0 12px 110px">
+            <div>对方系统角色名固定为 车间编号_角色名称</div>
+            <div v-if="syncRoleNamePreview">将同步角色名：<b>{{ syncRoleNamePreview }}</b></div>
+          </div>
         </template>
       </el-form>
       <div slot="footer" class="dialog-footer">
@@ -231,24 +225,15 @@
           </el-select>
         </el-form-item>
         <el-form-item label="车间" required>
-          <el-input v-if="workshopOptions.length <= 1" :value="workshopFixedText()" disabled placeholder="暂无车间对照" />
-          <el-select
-            v-else
+          <el-input
             v-model="bindForm.workshopCode"
-            placeholder="请选择已对照的部门车间"
-            filterable
-            style="width: 100%"
+            placeholder="请填写车间编号"
+            maxlength="50"
+            clearable
             :disabled="bindLoading"
             @change="onBindFilterChange"
-          >
-            <el-option
-              v-for="item in workshopOptions"
-              :key="item.workshopCode"
-              :label="workshopOptionLabel(item)"
-              :value="item.workshopCode"
-            />
-          </el-select>
-          <div v-if="workshopOptions.length === 1" class="form-tip">车间与部门是一对一，已确定</div>
+          />
+          <div class="form-tip">优先用角色上的车间编号；查询/注册外部角色时必填</div>
         </el-form-item>
         <el-form-item label="外部角色">
           <div style="margin-bottom: 6px">
@@ -387,7 +372,6 @@ import {
   updateSubSystemRoleStatus
 } from '@/api/system/subSystemRole'
 import { getSubSystemRoleCreateApis } from '@/api/system/subSystemApiConfig'
-import { getSubSystemWorkshopSimpleList } from '@/api/system/subSystemWorkshop'
 import { getSubSystemRoleQuickNavList, saveSubSystemRoleQuickNav } from '@/api/system/subSystem/roleQuickNav'
 import { buildSubSystemRoleQuickNavCheckTree, getSubSystemQuickNavLeafIds } from '@/utils/roleQuickNavMenus'
 import { restoreRoleMenuCheckedKeys } from '@/utils/roleMenuTree'
@@ -412,7 +396,6 @@ export default {
       clientList: [],
       clientKeyword: '',
       selectedClient: null,
-      workshopOptions: [],
       roleCreateApis: [],
       bindOpen: false,
       bindLoading: false,
@@ -488,7 +471,7 @@ export default {
       if (this.form && this.form.syncToExternal && !this.form.id) {
         return Object.assign({}, this.rules, {
           apiSubSystemId: [{ required: true, message: '请选择接口目标', trigger: 'change' }],
-          workshopCode: [{ required: true, message: '请选择车间', trigger: 'change' }]
+          workshopCode: [{ required: true, message: '同步注册必须填写车间编号', trigger: 'blur' }]
         })
       }
       return this.rules
@@ -601,7 +584,6 @@ export default {
         this.open = true
         this.title = '添加业务系统角色'
         this.loadRoleCreateApis()
-        this.loadWorkshopOptions()
       }).catch(() => {})
     },
     /** 可选「角色新增」接口目标（接口管理中 role_create 已启用） */
@@ -615,53 +597,12 @@ export default {
         this.roleCreateApis = []
       })
     },
-    loadWorkshopOptions() {
-      const id = this.selectedClient ? this.selectedClient.id : null
-      if (!id) {
-        this.workshopOptions = []
-        return Promise.resolve()
-      }
-      return getSubSystemWorkshopSimpleList(id).then(res => {
-        this.workshopOptions = res.data || []
-        this.lockWorkshopToMappings()
-      }).catch(() => {
-        this.workshopOptions = []
-      })
-    },
-    mappedWorkshopCode(current) {
-      const codes = (this.workshopOptions || []).map(w => w.workshopCode)
-      if (codes.length === 1) {
-        return codes[0]
-      }
-      return current && codes.indexOf(current) >= 0 ? current : undefined
-    },
-    workshopFixedText() {
-      const item = (this.workshopOptions || [])[0]
-      return item ? this.workshopOptionLabel(item) : ''
-    },
-    lockWorkshopToMappings() {
-      if (this.open) {
-        this.form.workshopCode = this.mappedWorkshopCode(this.form.workshopCode)
-      }
-      if (this.bindOpen && this.bindForm) {
-        this.bindForm.workshopCode = this.mappedWorkshopCode(this.bindForm.workshopCode)
-      }
-    },
-    workshopOptionLabel(item) {
-      const name = item.workshopName || '车间'
-      const code = item.workshopCode || ''
-      const dept = item.deptName ? (' / ' + item.deptName) : ''
-      return name + '（' + code + '）' + dept
-    },
     handleSyncToExternalChange() {
       if (!this.form.syncToExternal) {
         return
       }
       if (!this.roleCreateApis.length) {
         this.loadRoleCreateApis()
-      }
-      if (!this.workshopOptions.length) {
-        this.loadWorkshopOptions()
       }
     },
     handleImport() {
@@ -713,7 +654,8 @@ export default {
           name: res.data.name,
           code: res.data.code,
           sort: res.data.sort,
-          status: res.data.status
+          status: res.data.status,
+          workshopCode: res.data.workshopCode
         }
         this.open = true
         this.title = '修改业务系统角色'
@@ -737,12 +679,12 @@ export default {
           name: this.form.name,
           code: this.form.code,
           sort: this.form.sort,
-          status: this.form.status
+          status: this.form.status,
+          workshopCode: this.form.workshopCode
         }
         if (!this.form.id && this.form.syncToExternal) {
           payload.syncToExternal = true
           payload.apiSubSystemId = this.form.apiSubSystemId
-          payload.workshopCode = this.form.workshopCode
         }
         this.submitting = true
         const request = this.form.id ? updateSubSystemRole : createSubSystemRole
@@ -771,18 +713,17 @@ export default {
         name: row.name,
         externalRoleId: row.externalRoleId || undefined,
         apiSubSystemId: undefined,
-        workshopCode: this.inferWorkshopFromRoleName(row.name),
+        workshopCode: row.workshopCode || this.inferWorkshopFromRoleName(row.name),
         bound: !!row.externalRoleId,
         boundRoleId: row.externalRoleId || undefined
       }
       this.externalRoles = []
       this.externalRoleTip = ''
       this.bindOpen = true
-      Promise.all([this.loadRoleCreateApis(), this.loadWorkshopOptions()]).then(() => {
+      this.loadRoleCreateApis().then(() => {
         if (!this.bindForm.apiSubSystemId && this.roleCreateApis.length === 1) {
           this.bindForm.apiSubSystemId = this.roleCreateApis[0].subSystemId
         }
-        this.bindForm.workshopCode = this.mappedWorkshopCode(this.bindForm.workshopCode)
       })
     },
     onBindFilterChange() {

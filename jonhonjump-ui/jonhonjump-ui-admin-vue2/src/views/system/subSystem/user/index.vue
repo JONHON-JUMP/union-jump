@@ -116,7 +116,7 @@
             <el-table-column type="selection" width="55" fixed="left" />
             <el-table-column label="用户名" prop="username" :show-overflow-tooltip="true" width="110" fixed="left" />
             <el-table-column label="用户姓名" prop="nickname" :show-overflow-tooltip="true" width="100" fixed="left" />
-            <el-table-column label="车间" prop="workshopId" width="120" :show-overflow-tooltip="true" />
+            <el-table-column label="车间编号" prop="workshopId" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="班组编码" prop="teamId" width="110" />
             <el-table-column label="班组名称" prop="teamName" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="岗位" prop="postNames" width="120" :show-overflow-tooltip="true" />
@@ -192,25 +192,15 @@
           <el-input v-model="form.nickname" placeholder="请输入用户姓名" maxlength="64" />
         </el-form-item>
         <el-divider content-position="left">组织与权限</el-divider>
-        <el-form-item label="车间" prop="workshopId">
-          <el-input v-if="workshopOptions.length <= 1" :value="workshopFixedText()" disabled placeholder="暂无车间对照" />
-          <el-select
-            v-else
+        <el-form-item label="车间编号" prop="workshopId">
+          <el-input
             v-model="form.workshopId"
-            placeholder="请选择已对照的部门车间"
-            filterable
-            style="width: 100%"
+            placeholder="可空；同步外部时必填"
+            maxlength="50"
+            clearable
             @change="handleWorkshopChange"
-          >
-            <el-option
-              v-for="item in workshopOptions"
-              :key="item.workshopCode"
-              :label="workshopOptionLabel(item)"
-              :value="item.workshopCode"
-            />
-          </el-select>
-          <div v-if="!workshopOptions.length" class="form-tip">暂无车间对照，请先在「车间对照」中维护</div>
-          <div v-else-if="workshopOptions.length === 1" class="form-tip">车间与部门是一对一，已确定</div>
+          />
+          <div class="form-tip">写在用户自身</div>
         </el-form-item>
         <el-form-item v-if="form.id" label="班组" prop="teamId">
           <el-select v-model="form.teamId" placeholder="请选择班组" clearable filterable style="width: 100%">
@@ -396,25 +386,16 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="车间" required>
-          <el-input v-if="workshopOptions.length <= 1" :value="workshopFixedText()" disabled placeholder="暂无车间对照" />
-          <el-select
-            v-else
+        <el-form-item label="车间编号" required>
+          <el-input
             v-model="bindForm.workshopCode"
-            placeholder="请选择已对照的部门车间"
-            filterable
-            style="width: 100%"
+            placeholder="请填写车间编号"
+            maxlength="50"
+            clearable
             :disabled="bindLoading"
             @change="onBindFilterChange"
-          >
-            <el-option
-              v-for="item in workshopOptions"
-              :key="item.workshopCode"
-              :label="workshopOptionLabel(item)"
-              :value="item.workshopCode"
-            />
-          </el-select>
-          <div v-if="workshopOptions.length === 1" class="form-tip">车间与部门是一对一，已确定</div>
+          />
+          <div class="form-tip">优先用业务用户上的车间编号；新增外部人员时必填</div>
         </el-form-item>
         <el-form-item label="外部人员">
           <div style="margin-bottom: 6px">
@@ -475,7 +456,6 @@ import {
   listExternalEmployees,
   registerSubSystemEmployee
 } from '@/api/system/subSystemEmployee'
-import { getSubSystemWorkshopSimpleList } from '@/api/system/subSystemWorkshop'
 import { getUser } from '@/api/system/user'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
@@ -496,8 +476,6 @@ export default {
       roleOptions: [],
       postOptions: [],
       teamOptions: [],
-      workshopOptions: [],
-      workshopDeptId: undefined,
       title: '',
       open: false,
       submitting: false,
@@ -568,7 +546,7 @@ export default {
               return
             }
             if (!value) {
-              callback(new Error('同步注册必须选择车间'))
+              callback(new Error('同步注册必须填写车间编号'))
               return
             }
             callback()
@@ -665,52 +643,16 @@ export default {
         this.roleOptions = []
         this.postOptions = []
         this.teamOptions = []
-        this.workshopOptions = []
-        this.workshopDeptId = undefined
         return Promise.resolve()
       }
       // 单项失败不影响其它下拉；对齐主系统用户管理：选项后台加载，不堵弹窗
       return Promise.all([
         getSubSystemRoleSimpleList(id).then(res => { this.roleOptions = res.data || [] }).catch(() => { this.roleOptions = [] }),
-        getSubSystemPostSimpleList(id).then(res => { this.postOptions = res.data || [] }).catch(() => { this.postOptions = [] }),
-        getSubSystemWorkshopSimpleList(id).then(res => {
-          this.workshopOptions = res.data || []
-          this.lockWorkshopToMappings()
-        }).catch(() => { this.workshopOptions = [] })
+        getSubSystemPostSimpleList(id).then(res => { this.postOptions = res.data || [] }).catch(() => { this.postOptions = [] })
       ]).then(() => this.reloadTeams(id).catch(() => { this.teamOptions = [] }))
     },
-    /** 只有一条对照时车间是确定的；多条时只保留对照里的编号 */
-    mappedWorkshopCode(current) {
-      const codes = (this.workshopOptions || []).map(w => w.workshopCode)
-      if (codes.length === 1) {
-        return codes[0]
-      }
-      return current && codes.indexOf(current) >= 0 ? current : undefined
-    },
-    workshopFixedText() {
-      const item = (this.workshopOptions || [])[0]
-      return item ? this.workshopOptionLabel(item) : ''
-    },
-    lockWorkshopToMappings() {
-      if (this.open) {
-        this.form.workshopId = this.mappedWorkshopCode(this.form.workshopId)
-        const hit = (this.workshopOptions || []).find(w => w.workshopCode === this.form.workshopId)
-        this.workshopDeptId = hit ? hit.deptId : undefined
-      }
-      if (this.bindOpen && this.bindForm) {
-        this.bindForm.workshopCode = this.mappedWorkshopCode(this.bindForm.workshopCode)
-      }
-    },
-    workshopOptionLabel(item) {
-      const name = item.workshopName || '车间'
-      const code = item.workshopCode || ''
-      const dept = item.deptName ? (' / ' + item.deptName) : ''
-      return name + '（' + code + '）' + dept
-    },
-    handleWorkshopChange(workshopCode) {
+    handleWorkshopChange() {
       this.form.teamId = undefined
-      const hit = (this.workshopOptions || []).find(w => w.workshopCode === workshopCode)
-      this.workshopDeptId = hit ? hit.deptId : undefined
       const id = this.form.subSystemId || (this.selectedClient && this.selectedClient.id)
       this.reloadTeams(id)
     },
@@ -719,16 +661,8 @@ export default {
         this.teamOptions = []
         return Promise.resolve()
       }
-      return getSubSystemTeamSimpleList(subSystemId, this.workshopDeptId).then(res => {
-        const list = res.data || []
-        if (list.length > 0 || !this.workshopDeptId) {
-          this.teamOptions = list
-          return
-        }
-        // 历史班组可能未挂 deptId，按部门过滤为空时回退到该系统全部班组
-        return getSubSystemTeamSimpleList(subSystemId).then(allRes => {
-          this.teamOptions = allRes.data || []
-        })
+      return getSubSystemTeamSimpleList(subSystemId).then(res => {
+        this.teamOptions = res.data || []
       }).catch(() => {
         this.teamOptions = []
       })
@@ -796,7 +730,6 @@ export default {
         remark: undefined,
         postIds: []
       }
-      this.workshopDeptId = undefined
       // 弹窗未打开时不要 resetFields：ElementUI 会对 undefined 调 indexOf 直接炸
       // 整表单已赋默认值，只需清校验；打开后再 nextTick 清一次更稳
       this.$nextTick(() => {
@@ -819,9 +752,7 @@ export default {
             this.$refs.form.clearValidate()
           }
         })
-        this.loadSubOptions().then(() => {
-          this.form.workshopId = this.mappedWorkshopCode(this.form.workshopId || this.defaultRegisterWorkshop([]))
-        })
+        this.loadSubOptions()
         this.loadRegisterableApis().then(() => {
           this.applyDefaultAddRegisterApi()
         })
@@ -1006,7 +937,7 @@ export default {
         id: row.id,
         nickname: row.nickname,
         roleIds: [],
-        syncToExternal: false,
+        syncToExternal: true,
         apiSubSystemId: undefined
       }
       this.openRole = true
@@ -1100,7 +1031,7 @@ export default {
         nickname: row.nickname,
         employeeRegistered: row.employeeRegistered || '0',
         apiSubSystemId: undefined,
-        workshopCode: row.workshopId || this.defaultRegisterWorkshop([row]),
+        workshopCode: row.workshopId || undefined,
         userCode: undefined,
         usernameWithWorkshop: row.usernameWithWorkshop === '1'
       }
@@ -1110,9 +1041,9 @@ export default {
         this.registerApis.length ? Promise.resolve() : this.loadRegisterableApis(),
         this.loadSubOptions(sid)
       ]).then(() => {
-        this.bindForm.workshopCode = this.mappedWorkshopCode(
-          this.bindForm.workshopCode || this.defaultRegisterWorkshop([row])
-        )
+        if (!this.bindForm.workshopCode) {
+          this.bindForm.workshopCode = row.workshopId || undefined
+        }
         const hit = (this.registerApis || []).find(item => item.subSystemId === sid)
         this.bindForm.apiSubSystemId = hit
           ? hit.subSystemId
@@ -1220,32 +1151,6 @@ export default {
       }).finally(() => {
         this.bindRegistering = false
       })
-    },
-    defaultRegisterWorkshop(rows) {
-      const codes = (rows || []).map(u => u.workshopId).filter(c => !!c)
-      const unique = Array.from(new Set(codes))
-      if (unique.length === 1) {
-        return unique[0]
-      }
-      if ((this.workshopOptions || []).length === 1) {
-        return this.workshopOptions[0].workshopCode
-      }
-      const inferred = this.inferWorkshopFromClient()
-      if (!inferred) {
-        return undefined
-      }
-      const hit = (this.workshopOptions || []).find(w => String(w.workshopCode) === String(inferred))
-      return hit ? hit.workshopCode : inferred
-    },
-    /** MES4200 / mes4200 → 4200 */
-    inferWorkshopFromClient() {
-      const c = this.selectedClient
-      if (!c) {
-        return undefined
-      }
-      const text = [c.name, c.clientId].filter(Boolean).join(' ')
-      const m = String(text).match(/(\d{3,})/g)
-      return m && m.length ? m[m.length - 1] : undefined
     },
   }
 }

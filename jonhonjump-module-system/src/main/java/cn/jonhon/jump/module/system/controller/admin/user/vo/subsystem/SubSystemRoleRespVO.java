@@ -43,6 +43,9 @@ public class SubSystemRoleRespVO {
     @Schema(description = "外部系统角色 ID（Camstar roleId；空=未关联，分配角色时不参与外部同步）")
     private String externalRoleId;
 
+    @Schema(description = "车间编号（可空；同步/关联外部用）", example = "4200")
+    private String workshopCode;
+
     @Schema(description = "数据范围")
     private Integer dataScope;
 

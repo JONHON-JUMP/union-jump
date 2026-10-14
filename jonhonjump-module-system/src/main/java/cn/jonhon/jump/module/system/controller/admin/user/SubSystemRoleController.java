@@ -179,7 +179,8 @@ public class SubSystemRoleController {
     @PreAuthorize("@ss.hasPermission('sub-system:role:create')")
     public void importTemplate(HttpServletResponse response) throws IOException {
         List<SubSystemRoleImportExcelVO> list = Arrays.asList(
-                SubSystemRoleImportExcelVO.builder().name("普通角色").code("common").sort(1).status(0).build()
+                SubSystemRoleImportExcelVO.builder().name("普通角色").code("common")
+                        .workshopCode("4200").sort(1).status(0).build()
         );
         ExcelUtils.write(response, "业务系统角色导入模板.xls", "角色", SubSystemRoleImportExcelVO.class, list);
     }

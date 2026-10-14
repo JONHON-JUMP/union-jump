@@ -71,8 +71,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     @Resource
     private SubSystemPermissionContextService subSystemPermissionContextService;
     @Resource
-    private SubSystemWorkshopService subSystemWorkshopService;
-    @Resource
     private cn.jonhon.jump.module.system.dal.redis.user.PortalMyMenusRedisDAO portalMyMenusRedisDAO;
     @Resource
     private SubSystemAccessService subSystemAccessService;
@@ -418,18 +416,9 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                         subSystem.getId(), subSystem.getSystemName());
                 continue;
             }
-            String workshopCode = resolveWorkshopCode(subSystem.getId(), mainUser.getDeptId());
-            upsertRosterFromMainUser(mainUser, subSystem.getId(), workshopCode);
+            // 车间编号写在业务用户自身，建档时不再从车间对照推断
+            upsertRosterFromMainUser(mainUser, subSystem.getId(), null);
         }
-    }
-
-    /** 部门 → 车间对照（本地表查询，尽力带出）；查不到返回 null，后续可在子系统用户管理中补 */
-    private String resolveWorkshopCode(Long subSystemId, Long deptId) {
-        if (deptId == null) {
-            return null;
-        }
-        SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService.getWorkshopByDept(subSystemId, deptId);
-        return workshop != null ? workshop.getWorkshopCode() : null;
     }
 
     private void upsertRosterFromMainUser(AdminUserDO mainUser, Long subSystemId, String workshopCode) {

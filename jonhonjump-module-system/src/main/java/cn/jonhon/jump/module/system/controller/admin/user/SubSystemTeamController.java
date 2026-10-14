@@ -98,6 +98,7 @@ public class SubSystemTeamController {
                 SubSystemTeamImportExcelVO.builder()
                         .teamCode("T001")
                         .teamName("一班")
+                        .workshopCode("4200")
                         .description("示例班组")
                         .leaderUserUid("")
                         .leaderUsername("")
@@ -107,17 +108,17 @@ public class SubSystemTeamController {
     }
 
     @PostMapping("/import")
-    @Operation(summary = "导入班组（须先选择左侧已做车间对照的部门）")
+    @Operation(summary = "导入班组（部门可选；车间编号可在 Excel 中填写）")
     @Parameters({
             @Parameter(name = "subSystemId", description = "业务系统编号（静默）", required = true),
-            @Parameter(name = "deptId", description = "JUMP 部门编号", required = true),
+            @Parameter(name = "deptId", description = "JUMP 部门编号（可选）"),
             @Parameter(name = "file", description = "Excel 文件", required = true),
             @Parameter(name = "updateSupport", description = "是否更新已存在", example = "false")
     })
     @PreAuthorize("@ss.hasPermission('sub-system:team:create')")
     public CommonResult<SubSystemUserImportRespVO> importExcel(
             @RequestParam("subSystemId") Long subSystemId,
-            @RequestParam("deptId") Long deptId,
+            @RequestParam(value = "deptId", required = false) Long deptId,
             @RequestParam("file") MultipartFile file,
             @RequestParam(value = "updateSupport", required = false, defaultValue = "false") Boolean updateSupport
     ) throws Exception {

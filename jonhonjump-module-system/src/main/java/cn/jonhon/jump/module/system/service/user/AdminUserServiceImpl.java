@@ -627,8 +627,12 @@ public class AdminUserServiceImpl implements AdminUserService {
                 }
                 respVO.getCreateUsernames().add(importUser.getUsername());
                 subSystemUsersService.bindMatchingRosters(newUser.getId(), newUser.getUsername());
-                // 导入新建的用户同样分配默认角色（普通角色）
-                assignDefaultRole(newUser);
+                // 导入新建的用户同样分配默认角色（普通角色）；失败不阻断导入，可事后在【分配角色】手动补
+                try {
+                    assignDefaultRole(newUser);
+                } catch (Exception ex) {
+                    log.warn("[importUserList][导入用户({})分配默认角色失败，请手动分配]", newUser.getId(), ex);
+                }
                 return;
             }
             // 2.2.2 如果存在，判断是否允许更新

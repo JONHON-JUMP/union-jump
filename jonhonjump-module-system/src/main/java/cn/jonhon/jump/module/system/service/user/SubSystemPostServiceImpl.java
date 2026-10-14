@@ -2,6 +2,7 @@ package cn.jonhon.jump.module.system.service.user;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemPostPageReqVO;
@@ -56,6 +57,7 @@ public class SubSystemPostServiceImpl implements SubSystemPostService {
     @Override
     public Long createSubSystemPost(SubSystemPostSaveReqVO createReqVO) {
         validateSubSystemExists(createReqVO.getSubSystemId());
+        createReqVO.setWorkshopCode(StrUtil.trimToNull(createReqVO.getWorkshopCode()));
         validatePostDuplicate(createReqVO.getSubSystemId(), createReqVO.getName(), createReqVO.getCode(), null);
 
         SubSystemPostDO post = BeanUtils.toBean(createReqVO, SubSystemPostDO.class);
@@ -67,6 +69,7 @@ public class SubSystemPostServiceImpl implements SubSystemPostService {
     public void updateSubSystemPost(SubSystemPostSaveReqVO updateReqVO) {
         SubSystemPostDO post = validateSubSystemPostExists(updateReqVO.getId());
         validateSubSystemExists(updateReqVO.getSubSystemId());
+        updateReqVO.setWorkshopCode(StrUtil.trimToNull(updateReqVO.getWorkshopCode()));
         validatePostDuplicate(updateReqVO.getSubSystemId(), updateReqVO.getName(), updateReqVO.getCode(), updateReqVO.getId());
 
         SubSystemPostDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemPostDO.class);

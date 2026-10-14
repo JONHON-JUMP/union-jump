@@ -71,8 +71,6 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     @Resource
     private SubSystemApiConfigService subSystemApiConfigService;
     @Resource
-    private SubSystemWorkshopService subSystemWorkshopService;
-    @Resource
     private SubSystemAccessService subSystemAccessService;
     @Resource
     private PlatformTransactionManager transactionManager;
@@ -108,7 +106,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         validateSubSystemExists(createReqVO.getSubSystemId());
         boolean syncToExternal = Boolean.TRUE.equals(createReqVO.getSyncToExternal());
         String roleName = StrUtil.trim(createReqVO.getName());
-        String workshopCode = resolveWorkshopCode(createReqVO.getSubSystemId(), createReqVO.getWorkshopCode(), roleName);
+        createReqVO.setWorkshopCode(StrUtil.trimToNull(createReqVO.getWorkshopCode()));
+        String workshopCode = resolveWorkshopCode(createReqVO.getWorkshopCode(), null, roleName);
         if (!syncToExternal) {
             String localName = roleName;
             return new TransactionTemplate(transactionManager).execute(status ->
@@ -152,6 +151,7 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
 
         SubSystemRoleDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemRoleDO.class);
         updateObj.setSubSystemId(role.getSubSystemId());
+        updateObj.setWorkshopCode(StrUtil.trimToNull(updateReqVO.getWorkshopCode()));
         if (StrUtil.isNotBlank(updateReqVO.getRoleRegistered())) {
             updateObj.setRoleRegistered("1".equals(updateReqVO.getRoleRegistered()) ? "1" : "0");
         } else {
@@ -208,11 +208,12 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         if ("1".equals(role.getRoleRegistered())) {
             throw exception(SUB_SYSTEM_ROLE_ALREADY_REGISTERED);
         }
-        String workshopCode = resolveWorkshopCode(role.getSubSystemId(),
-                reqVO != null ? reqVO.getWorkshopCode() : null, role.getName());
+        String workshopCode = resolveWorkshopCode(
+                reqVO != null ? reqVO.getWorkshopCode() : null,
+                role.getWorkshopCode(), role.getName());
         String roleName = StrUtil.trim(role.getName());
         if (StrUtil.isBlank(workshopCode)) {
-            throw exception(SUB_SYSTEM_ROLE_NAME_WORKSHOP_INVALID);
+            throw exception(SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED);
         }
         Long apiSubSystemId = reqVO != null ? reqVO.getApiSubSystemId() : null;
         if (apiSubSystemId == null || apiSubSystemId <= 0) {
@@ -497,16 +498,15 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         subSystemRoleMapper.updateById(updateObj);
     }
 
-    /** 车间优先：入参 > 角色名前缀 > 花名册系统推断（MES4200 → 4200） */
-    private String resolveWorkshopCode(Long subSystemId, String explicit, String roleName) {
+    /** 车间优先：入参 > 角色自身编号 > 角色名前缀；不再从业务系统/车间对照推断 */
+    private String resolveWorkshopCode(String explicit, String storedOnRole, String roleName) {
         if (StrUtil.isNotBlank(explicit)) {
             return explicit.trim();
         }
-        String fromName = parseWorkshopPrefix(roleName);
-        if (StrUtil.isNotBlank(fromName)) {
-            return fromName;
+        if (StrUtil.isNotBlank(storedOnRole)) {
+            return storedOnRole.trim();
         }
-        return subSystemWorkshopService.inferWorkshopCode(subSystemId);
+        return parseWorkshopPrefix(roleName);
     }
 
     /** 车间编号_短名；若已带此前缀则原样返回 */

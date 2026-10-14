@@ -1,45 +1,41 @@
 <template>
   <div class="app-container">
     <el-row :gutter="20">
-      <!-- 左侧：已做车间对照的部门 -->
+      <!-- 业务系统列表 -->
       <el-col :span="4" :xs="24">
         <div class="head-container">
           <el-input
-            v-model="deptKeyword"
-            placeholder="筛选部门/车间编号"
+            v-model="clientKeyword"
+            placeholder="请输入系统名称"
             clearable
             size="small"
             prefix-icon="el-icon-search"
             style="margin-bottom: 20px"
           />
         </div>
-        <div class="head-container dept-list" v-loading="deptsLoading">
+        <div class="head-container sub-system-list" v-loading="clientsLoading">
           <div
-            v-for="item in filteredDeptList"
+            v-for="item in filteredClientList"
             :key="item.id"
-            class="dept-item"
-            :class="{ 'is-active': selectedDept && selectedDept.id === item.id }"
-            @click="handleDeptClick(item)"
+            class="sub-system-item"
+            :class="{ 'is-active': selectedClient && selectedClient.id === item.id }"
+            @click="handleClientClick(item)"
           >
-            <div class="dept-item__name">{{ item.deptName || '未命名部门' }}</div>
-            <div class="dept-item__meta">
-              <span>{{ item.workshopName || '车间' }}</span>
-              <el-tag size="mini" type="info">{{ item.workshopCode }}</el-tag>
+            <div class="sub-system-item__name">{{ item.name }}</div>
+            <div class="sub-system-item__meta">
+              <span>{{ item.clientId }}</span>
+              <el-tag size="mini" type="info">{{ item.teamCount || 0 }} 班组</el-tag>
             </div>
           </div>
-          <el-empty
-            v-if="!deptsLoading && filteredDeptList.length === 0"
-            description="暂无车间对照，请先在车间对照中维护部门"
-            :image-size="60"
-          />
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无业务系统" :image-size="60" />
         </div>
       </el-col>
 
-      <!-- 右侧：该部门下班组 -->
-      <el-col :span="20" :xs="24" v-loading="deptsLoading">
+      <!-- 班组数据 -->
+      <el-col :span="20" :xs="24" v-loading="clientsLoading">
         <el-alert
-          v-if="!deptsLoading && !selectedDept"
-          title="请先选择左侧部门（须已在车间对照中维护，如：制造二部 / 4200）"
+          v-if="showSubSystemBindHint"
+          title="请先在左侧选择已登记的业务系统；关联系统信息后，才可新增/导入该系统下的班组"
           type="warning"
           :closable="false"
           show-icon
@@ -86,6 +82,8 @@
           <el-table-column label="编号" align="center" prop="id" width="80" />
           <el-table-column label="班组编码" align="center" prop="teamCode" :show-overflow-tooltip="true" />
           <el-table-column label="班组名称" align="center" prop="teamName" :show-overflow-tooltip="true" />
+          <el-table-column label="车间编号" align="center" prop="workshopCode" width="110" :show-overflow-tooltip="true" />
+          <el-table-column label="所属部门" align="center" prop="deptName" width="140" :show-overflow-tooltip="true" />
           <el-table-column label="班组描述" align="center" prop="description" :show-overflow-tooltip="true" />
           <el-table-column label="班组长" align="center" prop="teamLeaderName" width="120" :show-overflow-tooltip="true" />
           <el-table-column label="创建时间" align="center" prop="createTime" width="180">
@@ -109,11 +107,26 @@
 
     <el-dialog :title="title" :visible.sync="open" width="520px" append-to-body>
       <el-form ref="form" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="所属部门">
-          <el-input :value="deptDisplay" disabled />
+        <el-form-item label="业务系统">
+          <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
         </el-form-item>
-        <el-form-item label="车间编号">
-          <el-input :value="selectedDept ? selectedDept.workshopCode : ''" disabled />
+        <el-form-item label="所属部门" prop="deptId">
+          <el-select v-model="form.deptId" placeholder="可选" clearable filterable style="width: 100%">
+            <el-option
+              v-for="item in deptOptions"
+              :key="item.id"
+              :label="item.name"
+              :value="item.id"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="车间编号" prop="workshopCode">
+          <el-input
+            v-model="form.workshopCode"
+            placeholder="可空；写在班组自身"
+            maxlength="50"
+            clearable
+          />
         </el-form-item>
         <el-form-item label="班组编码" prop="teamCode">
           <el-input v-model="form.teamCode" placeholder="请输入班组编码" />
@@ -143,7 +156,7 @@
 
     <el-dialog :title="upload.title" :visible.sync="upload.open" width="400px" append-to-body>
       <el-alert
-        :title="'当前部门：' + deptDisplay"
+        :title="'当前系统：' + (selectedClient ? (selectedClient.name + ' (' + selectedClient.clientId + ')') : '未选择')"
         type="info"
         :closable="false"
         show-icon
@@ -167,7 +180,7 @@
           <div class="el-upload__tip">
             <el-checkbox v-model="upload.updateSupport" /> 是否更新已存在的班组（按班组编码）
           </div>
-          <span>仅允许 xls/xlsx。导入将挂到当前所选部门下。</span>
+          <span>仅允许 xls/xlsx。车间编号可在模板中填写；所属部门可选。</span>
           <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
         </div>
       </el-upload>
@@ -184,28 +197,31 @@ import {
   createSubSystemTeam,
   deleteSubSystemTeam,
   deleteSubSystemTeamList,
+  getSubSystemClientSimpleList,
   getSubSystemTeam,
   getSubSystemTeamPage,
   getSubSystemTeamUserSimpleList,
   importSubSystemTeamTemplate,
   updateSubSystemTeam
 } from '@/api/system/subSystemTeam'
-import { getSubSystemWorkshopPage } from '@/api/system/subSystemWorkshop'
+import { listSimpleDepts } from '@/api/system/dept'
 import { getBaseHeader } from '@/utils/request'
+import subSystemImportGate from '@/utils/subSystemImportGate'
 
 export default {
   name: 'SubSystemTeam',
+  mixins: [subSystemImportGate],
   data() {
     return {
       loading: false,
-      deptsLoading: true,
       showSearch: true,
       total: 0,
       teamList: [],
-      deptList: [],
+      clientList: [],
+      clientKeyword: '',
+      selectedClient: null,
       userOptions: [],
-      deptKeyword: '',
-      selectedDept: null,
+      deptOptions: [],
       title: '',
       open: false,
       checkedIds: [],
@@ -230,90 +246,69 @@ export default {
     }
   },
   computed: {
-    deptDisplay() {
-      if (!this.selectedDept) {
-        return '未选择'
-      }
-      const name = this.selectedDept.deptName || '未命名部门'
-      const code = this.selectedDept.workshopCode || ''
-      return code ? (name + ' / ' + code) : name
-    },
     uploadAction() {
-      const subSystemId = this.selectedDept && this.selectedDept.subSystemId
-      const deptId = this.selectedDept && this.selectedDept.deptId
+      const subSystemId = this.selectedClient && this.selectedClient.id
       const update = this.upload.updateSupport ? 'true' : 'false'
       return process.env.VUE_APP_BASE_API + '/admin-api/system/sub-system-team/import'
         + '?subSystemId=' + (subSystemId || '')
-        + '&deptId=' + (deptId || '')
         + '&updateSupport=' + update
     },
-    filteredDeptList() {
-      const keyword = (this.deptKeyword || '').trim().toLowerCase()
-      const list = (this.deptList || []).filter(item => item.deptId != null)
+    filteredClientList() {
+      const keyword = (this.clientKeyword || '').trim().toLowerCase()
       if (!keyword) {
-        return list
+        return this.clientList
       }
-      return list.filter(item =>
-        (item.deptName && item.deptName.toLowerCase().includes(keyword))
-        || (item.workshopCode && String(item.workshopCode).toLowerCase().includes(keyword))
-        || (item.workshopName && item.workshopName.toLowerCase().includes(keyword))
+      return this.clientList.filter(item =>
+        (item.name && item.name.toLowerCase().includes(keyword)) ||
+        (item.clientId && item.clientId.toLowerCase().includes(keyword))
       )
     }
   },
   created() {
-    this.loadDeptList()
+    this.loadClientList()
+    this.loadDeptOptions()
   },
   methods: {
-    loadDeptList() {
-      this.deptsLoading = true
-      return getSubSystemWorkshopPage({ pageNo: 1, pageSize: 200 }).then(res => {
-        const page = res.data || {}
-        this.deptList = (page.list || []).filter(item => item.deptId != null)
-        const keepId = this.selectedDept && this.selectedDept.id
-        const keep = this.deptList.find(d => d.id === keepId)
-        if (keep) {
-          this.selectedDept = keep
-          this.getList()
-          this.loadUserOptions()
-          return
-        }
-        if (this.deptList.length > 0) {
-          this.handleDeptClick(this.deptList[0])
-        } else {
-          this.selectedDept = null
-          this.teamList = []
-          this.total = 0
-        }
-      }).finally(() => {
-        this.deptsLoading = false
+    loadClientList() {
+      return this.withClientsLoading(() => {
+        return getSubSystemClientSimpleList(true).then(res => {
+          this.clientList = res.data || []
+          if (this.syncSelectedClientFromList()) {
+            return
+          }
+          if (!this.selectedClient && this.clientList.length > 0) {
+            this.handleClientClick(this.clientList[0])
+          }
+        })
+      })
+    },
+    loadDeptOptions() {
+      return listSimpleDepts().then(res => {
+        this.deptOptions = res.data || []
+      }).catch(() => {
+        this.deptOptions = []
       })
     },
     loadUserOptions() {
-      if (!this.selectedDept || !this.selectedDept.subSystemId) {
+      if (!this.selectedClient || !this.selectedClient.id) {
         this.userOptions = []
         return
       }
-      getSubSystemTeamUserSimpleList(this.selectedDept.subSystemId).then(res => {
+      getSubSystemTeamUserSimpleList(this.selectedClient.id).then(res => {
         this.userOptions = res.data || []
+      }).catch(() => {
+        this.userOptions = []
       })
     },
-    handleDeptClick(item) {
-      this.selectedDept = item
+    handleClientClick(item) {
+      this.selectedClient = item
       this.queryParams.teamCode = undefined
       this.queryParams.teamName = undefined
       this.queryParams.pageNo = 1
-      this.loadUserOptions()
       this.getList()
     },
-    ensureDeptSelected(actionLabel) {
-      if (!this.selectedDept || !this.selectedDept.deptId || !this.selectedDept.subSystemId) {
-        this.$modal.msgWarning('请先在左侧选择已做车间对照的部门后再' + actionLabel)
-        return false
-      }
-      return true
-    },
     getList() {
-      if (!this.selectedDept || !this.selectedDept.deptId) {
+      if (!this.selectedClient) {
         this.teamList = []
         this.total = 0
         return
@@ -321,8 +316,7 @@ export default {
       this.loading = true
       getSubSystemTeamPage({
         ...this.queryParams,
-        deptId: this.selectedDept.deptId,
-        subSystemId: this.selectedDept.subSystemId
+        subSystemId: this.selectedClient.id
       }).then(res => {
         this.teamList = res.data.list || []
         this.total = res.data.total || 0
@@ -346,8 +340,9 @@ export default {
     resetFormData() {
       this.form = {
         id: undefined,
-        subSystemId: this.selectedDept ? this.selectedDept.subSystemId : undefined,
-        deptId: this.selectedDept ? this.selectedDept.deptId : undefined,
+        subSystemId: this.selectedClient ? this.selectedClient.id : undefined,
+        deptId: undefined,
+        workshopCode: undefined,
         teamCode: undefined,
         teamName: undefined,
         description: undefined,
@@ -360,21 +355,19 @@ export default {
       this.resetFormData()
     },
     handleAdd() {
-      if (!this.ensureDeptSelected('新增班组')) {
-        return
-      }
-      this.loadUserOptions()
-      this.resetFormData()
-      this.open = true
-      this.title = '添加班组'
+      this.ensureSubSystemBoundBeforeAction('新增班组', { requireConfirm: false }).then(() => {
+        this.loadUserOptions()
+        this.resetFormData()
+        this.open = true
+        this.title = '添加班组'
+      }).catch(() => {})
     },
     handleImport() {
-      if (!this.ensureDeptSelected('导入')) {
-        return
-      }
-      this.upload.title = '导入班组 — ' + this.deptDisplay
-      this.upload.open = true
-      this.upload.headers = getBaseHeader()
+      this.ensureSubSystemBoundBeforeAction('导入').then(() => {
+        this.upload.title = '导入班组 — ' + (this.selectedClient.name || '')
+        this.upload.open = true
+        this.upload.headers = getBaseHeader()
+      }).catch(() => {})
     },
     importTemplate() {
       importSubSystemTeamTemplate().then(response => {
@@ -405,21 +398,20 @@ export default {
       failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + k + '：' + failMap[k] })
       this.$alert(text, '导入结果', { dangerouslyUseHTMLString: true })
       this.getList()
+      this.loadClientList()
     },
     submitFileForm() {
       this.$refs.upload.submit()
     },
     handleUpdate(row) {
-      if (!this.ensureDeptSelected('修改')) {
-        return
-      }
       this.loadUserOptions()
       this.resetFormData()
       getSubSystemTeam(row.id).then(res => {
         this.form = {
           id: res.data.id,
           subSystemId: res.data.subSystemId,
-          deptId: res.data.deptId || (this.selectedDept && this.selectedDept.deptId),
+          deptId: res.data.deptId,
+          workshopCode: res.data.workshopCode,
           teamCode: res.data.teamCode,
           teamName: res.data.teamName,
           description: res.data.description,
@@ -441,6 +433,7 @@ export default {
           this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
           this.open = false
           this.getList()
+          this.loadClientList()
         }).catch(() => {
           this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
         })
@@ -452,6 +445,7 @@ export default {
       }).then(() => {
         this.$modal.msgSuccess('删除成功')
         this.getList()
+        this.loadClientList()
       }).catch(() => {})
     },
     handleDeleteBatch() {
@@ -461,6 +455,7 @@ export default {
         this.$modal.msgSuccess('删除成功')
         this.checkedIds = []
         this.getList()
+        this.loadClientList()
       }).catch(() => {})
     },
     handleRowCheckboxChange(selection) {
@@ -471,28 +466,32 @@ export default {
 </script>
 
 <style lang="scss" scoped>
-.dept-list {
+.sub-system-list {
   max-height: calc(100vh - 220px);
   overflow-y: auto;
 }
-.dept-item {
+
+.sub-system-item {
   padding: 12px 14px;
   margin-bottom: 8px;
   border: 1px solid #ebeef5;
   border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s;
+
   &:hover,
   &.is-active {
     border-color: #409eff;
     background: #ecf5ff;
   }
+
   &__name {
     font-size: 14px;
     font-weight: 600;
     color: #303133;
     margin-bottom: 6px;
   }
+
   &__meta {
     display: flex;
     align-items: center;

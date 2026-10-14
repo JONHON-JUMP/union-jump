@@ -24,7 +24,7 @@ public class SubSystemTeamRespVO {
     @Schema(description = "JUMP 部门名称")
     private String deptName;
 
-    @Schema(description = "车间编码（来自车间对照）")
+    @Schema(description = "车间编号（班组自身；可空）")
     private String workshopCode;
 
     @Schema(description = "班组编码")
