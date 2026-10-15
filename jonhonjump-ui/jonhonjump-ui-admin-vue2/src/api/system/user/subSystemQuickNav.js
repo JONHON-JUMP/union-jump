@@ -1,10 +1,13 @@
 import request from '@/utils/request'
 
-export function getSubSystemUserQuickNavList(subSystemId) {
+export function getSubSystemUserQuickNavList(subSystemId, workshopCode) {
   return request({
     url: '/system/sub-system-user/quick-nav/list',
     method: 'get',
-    params: { subSystemId }
+    params: {
+      subSystemId,
+      workshopCode: workshopCode || undefined
+    }
   })
 }
 

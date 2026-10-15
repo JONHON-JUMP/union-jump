@@ -13,9 +13,20 @@ public interface SubSystemUserQuickNavService {
     SubSystemUserQuickNavRespVO getUserQuickNav(Long userId, Long subSystemId);
 
     /**
+     * @param workshopCode 可选；MES 车间入口时只返回该车间角色可见的快捷导航
+     */
+    SubSystemUserQuickNavRespVO getUserQuickNav(Long userId, Long subSystemId, String workshopCode);
+
+    /**
      * 保存个人快捷导航，返回落库后的权威结果（含锁定项合并与 apps）
      */
     SubSystemUserQuickNavRespVO saveUserQuickNav(Long userId, Long subSystemId, List<Long> menuIds);
+
+    /**
+     * @param workshopCode 可选；多车间叶子各自保存，互不覆盖
+     */
+    SubSystemUserQuickNavRespVO saveUserQuickNav(Long userId, Long subSystemId, List<Long> menuIds,
+                                                 String workshopCode);
 
     void deleteByMenuId(Long menuId);
 

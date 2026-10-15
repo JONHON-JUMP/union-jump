@@ -114,6 +114,7 @@
       :quick-nav-locked-menu-ids="quickNavLockedMenuIds"
       :quick-nav-configured="quickNavConfigured"
       :sub-system-id="currentSubSystemId"
+      :workshop-code="currentWorkshopCode"
       :menus-loading="allAppsMenusLoading"
       @open="openAppFromDrawer"
       @quick-nav-change="handleQuickNavChangeFromDrawer"
@@ -187,6 +188,13 @@ export default {
       }
       return Number(sys.subSystemId) || null
     },
+    currentWorkshopCode() {
+      if (this.currentSystem === 'main') {
+        return ''
+      }
+      const sys = (this.portalSystemList || []).find(item => item.clientId === this.currentSystem)
+      return sys && sys.workshopId ? String(sys.workshopId).trim() : ''
+    },
     quickNavScopeKey() {
       if (this.currentSystem === 'main') {
         return 'main'
@@ -195,7 +203,7 @@ export default {
       if (id == null || id <= 0) {
         return `pending:${this.currentSystem}`
       }
-      return buildQuickNavScopeKey(this.currentSystem, id)
+      return buildQuickNavScopeKey(this.currentSystem, id, this.currentWorkshopCode)
     },
     displayName() {
       return this.nickname || this.name || '制造同仁'

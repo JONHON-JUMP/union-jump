@@ -1,7 +1,7 @@
 <template>
   <div class="app-container">
     <el-row :gutter="20">
-      <!-- 业务系统列表 -->
+      <!-- 左侧：业务系统列表（与业务菜单同款卡片） -->
       <el-col :span="4" :xs="24">
         <div class="head-container">
           <el-input
@@ -35,13 +35,30 @@
       <el-col :span="20" :xs="24" v-loading="clientsLoading">
         <el-alert
           v-if="showSubSystemBindHint"
-          title="请先在左侧选择已登记的业务系统；关联系统信息后，才可新增/维护该系统下的角色与权限"
+          title="请先在左侧选择业务系统；有车间配置时可用车间筛选。人员日常授权在 JUMP 人员详情"
           type="warning"
           :closable="false"
           show-icon
           class="mb8"
         />
         <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
+          <el-form-item v-if="workshopFilterOptions.length" label="车间" prop="workshopCode">
+            <el-select
+              v-model="queryParams.workshopCode"
+              placeholder="车间筛选"
+              clearable
+              filterable
+              style="width: 200px"
+              @change="handleQuery"
+            >
+              <el-option
+                v-for="item in workshopFilterOptions"
+                :key="item.workshopCode"
+                :label="(item.workshopName || '') + ' (' + item.workshopCode + ')'"
+                :value="item.workshopCode"
+              />
+            </el-select>
+          </el-form-item>
           <el-form-item label="角色名称" prop="name">
             <el-input v-model="queryParams.name" placeholder="请输入角色名称" clearable style="width: 240px"
                       @keyup.enter.native="handleQuery"/>
@@ -381,10 +398,11 @@ import { CommonStatusEnum } from '@/utils/constants'
 import { DICT_TYPE, ensureDictDatas, getDictDatas } from '@/utils/dict'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
+import workshopLeftNav from '../mixins/workshopLeftNav'
 
 export default {
   name: 'SubSystemRole',
-  mixins: [subSystemImportGate],
+  mixins: [subSystemImportGate, workshopLeftNav],
   components: { RoleQuickNavDialog },
   data() {
     return {
@@ -395,6 +413,8 @@ export default {
       roleList: [],
       clientList: [],
       clientKeyword: '',
+      /** mixin 左侧树叶子计数字段 */
+      leftNavCountKey: 'roleCount',
       selectedClient: null,
       roleCreateApis: [],
       bindOpen: false,
@@ -433,6 +453,7 @@ export default {
         name: undefined,
         code: undefined,
         status: undefined,
+        workshopCode: undefined,
         createTime: []
       },
       form: {},
@@ -451,6 +472,16 @@ export default {
   computed: {
     statusDictDatas() {
       return getDictDatas(DICT_TYPE.COMMON_STATUS)
+    },
+    filteredClientList() {
+      const keyword = (this.clientKeyword || '').trim().toLowerCase()
+      if (!keyword) {
+        return this.clientList
+      }
+      return (this.clientList || []).filter(item =>
+        (item.name && item.name.toLowerCase().includes(keyword)) ||
+        (item.clientId && item.clientId.toLowerCase().includes(keyword))
+      )
     },
     roleCreateApiReady() {
       return (this.roleCreateApis || []).length > 0
@@ -483,16 +514,6 @@ export default {
         + '?subSystemId=' + (id || '')
         + '&updateSupport=' + update
     },
-    filteredClientList() {
-      const keyword = (this.clientKeyword || '').trim().toLowerCase()
-      if (!keyword) {
-        return this.clientList
-      }
-      return this.clientList.filter(item =>
-        (item.name && item.name.toLowerCase().includes(keyword)) ||
-        (item.clientId && item.clientId.toLowerCase().includes(keyword))
-      )
-    }
   },
   created() {
     ensureDictDatas(DICT_TYPE.COMMON_STATUS).finally(() => {
@@ -502,8 +523,11 @@ export default {
   methods: {
     loadClientList() {
       return this.withClientsLoading(() => {
-        return getSubSystemClientSimpleList(true).then(res => {
-          this.clientList = res.data || []
+        return Promise.all([
+          getSubSystemClientSimpleList(true),
+          this.loadWorkshopList()
+        ]).then(([clientRes]) => {
+          this.clientList = (clientRes && clientRes.data) || []
           if (this.syncSelectedClientFromList()) {
             return
           }
@@ -513,11 +537,26 @@ export default {
         })
       })
     },
+    onWorkshopNavSelected(item) {
+      this.queryParams.name = undefined
+      this.queryParams.code = undefined
+      this.queryParams.status = undefined
+      this.queryParams.workshopCode = item.workshopCode
+      this.queryParams.createTime = []
+      this.queryParams.pageNo = 1
+      this.getList()
+    },
+    onSystemNavSelected(item) {
+      this.handleClientClick(item)
+    },
     handleClientClick(item) {
+      this.leftNavMode = 'system'
+      this.selectedWorkshop = null
       this.selectedClient = item
       this.queryParams.name = undefined
       this.queryParams.code = undefined
       this.queryParams.status = undefined
+      this.queryParams.workshopCode = undefined
       this.queryParams.createTime = []
       this.queryParams.pageNo = 1
       this.getList()
@@ -531,7 +570,8 @@ export default {
       this.loading = true
       getSubSystemRolePage({
         ...this.queryParams,
-        subSystemId: this.selectedClient.id
+        subSystemId: this.selectedClient.id,
+        workshopCode: this.selectedWorkshop ? this.selectedWorkshop.workshopCode : this.queryParams.workshopCode
       }).then(res => {
         this.roleList = res.data.list || []
         this.total = res.data.total || 0
@@ -565,7 +605,7 @@ export default {
         menuCheckStrictly: true,
         syncToExternal: false,
         apiSubSystemId: undefined,
-        workshopCode: undefined
+        workshopCode: this.selectedWorkshop ? this.selectedWorkshop.workshopCode : undefined
       }
       // 只清校验，不调用 resetFields。关过一次后再 resetFields，ElementUI 会对没有 prop 的表单项执行 indexOf，直接报错，修改弹窗打不开
       this.$nextTick(() => {
@@ -868,7 +908,9 @@ export default {
               this,
               this.$refs.menu,
               menuRes.data || [],
-              value => { this.menuCheckStrictly = value }
+              value => { this.menuCheckStrictly = value },
+              null,
+              allMenus
             )
           })
         })

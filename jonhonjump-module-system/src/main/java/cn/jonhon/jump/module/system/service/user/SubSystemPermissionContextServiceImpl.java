@@ -321,8 +321,12 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
     }
 
     private PortalPermContextRespVO buildFromDb(Long tenantId, Long mainUserId, Long subSystemId) {
-        SubSystemUsersDO subSystemUser = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, mainUserId);
-        if (subSystemUser == null || "1".equals(subSystemUser.getStatus())) {
+        // 同系统多叶子：合并该人所有有效挂接行上的角色（权限包按系统 clientId 缓存，不能只取一行）
+        List<SubSystemUsersDO> hungRows = subSystemUsersMapper.selectListByMainUserId(mainUserId).stream()
+                .filter(row -> Objects.equals(subSystemId, row.getSubSystemId()))
+                .filter(row -> !"1".equals(row.getStatus()))
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(hungRows)) {
             throw exception(SUB_SYSTEM_USER_NOT_EXISTS);
         }
         SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
@@ -343,9 +347,13 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
             }
         }
 
-        List<Long> roleIds = convertList(
-                subSystemUserRoleMapper.selectListByUserId(subSystemUser.getId()),
-                SubSystemUserRoleDO::getRoleId);
+        LinkedHashSet<Long> roleIdSet = new LinkedHashSet<>();
+        for (SubSystemUsersDO row : hungRows) {
+            roleIdSet.addAll(convertList(
+                    subSystemUserRoleMapper.selectListByUserId(row.getId()),
+                    SubSystemUserRoleDO::getRoleId));
+        }
+        List<Long> roleIds = new ArrayList<>(roleIdSet);
 
         // 权限包缓存角色 + 按钮 permissions；数据范围不下发
         List<PortalPermContextRespVO.Role> roles = new ArrayList<>();

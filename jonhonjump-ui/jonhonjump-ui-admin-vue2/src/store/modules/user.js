@@ -2,7 +2,7 @@ import {login, logout, getInfo, socialLogin, smsLogin} from '@/api/login'
 import {setToken, removeToken, removeVisitTenantId, removeUsername, setUsername} from '@/utils/auth'
 import { resolveUserAvatar, loadRoleAvatarConfig } from '@/utils/defaultAvatar'
 import { getMyCamstarUsername } from '@/api/system/subSystemUsers'
-import { clearCamstarCookie, ensureLocalCamstarCookie, saveCamstarUsername } from '@/utils/camstarCookie'
+import { clearCamstarCookie, ensureLocalCamstarCookie, saveCamstarUsername, getCamstarUsername } from '@/utils/camstarCookie'
 
 function applyLoginSession(commit, tokenRes, username) {
   // 清门户菜单内存
@@ -17,14 +17,14 @@ function applyLoginSession(commit, tokenRes, username) {
 }
 
 /**
- * Camstar 身份预取：注册时标记拼接车间的用户，其在 Camstar 侧用户名为 车间_工号。
- * 只更新全局兜底值（URL 未命中系统注册表时使用），不写本域 Cookie——
- * 本域 Cookie 按目标系统身份写（打开系统时），此处写会把当前打开系统的身份污染掉；失败静默。
+ * Camstar 身份预取：仅填充空的全局兜底（主登录工号）。
+ * 多叶子身份以 my-list / 切换系统 refreshCamstarCookieForSystem 为准；
+ * 迟到的预取不得把已种好的 5501_工号 盖回 5500_工号。
  */
 function prefetchCamstarUsername() {
   getMyCamstarUsername().then(res => {
     const name = res && res.data
-    if (name) {
+    if (name && !getCamstarUsername()) {
       saveCamstarUsername(name)
     }
   }).catch(() => {})

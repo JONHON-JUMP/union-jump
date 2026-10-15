@@ -1,28 +1,25 @@
 <template>
   <el-dialog :title="dialogTitle" :visible.sync="dialogVisible" width="760px" append-to-body @close="handleClose">
     <el-form ref="form" :model="form" :rules="rules" label-width="110px">
-      <el-form-item label="业务系统" prop="subSystemId">
-        <el-select
-          v-if="isCreateMode"
-          v-model="form.subSystemId"
-          placeholder="请选择要添加的业务系统"
+      <el-form-item v-if="isCreateMode" label="挂接目标" prop="hangLeafKey">
+        <el-cascader
+          v-model="hangPath"
+          :options="hangableCascaderOptions"
+          :props="cascaderProps"
           filterable
-          no-data-text="暂无可添加的业务系统"
+          clearable
+          placeholder="请选择子表叶子（一对一为系统本身一条，多车间选具体车间）"
           style="width: 100%"
-          @change="handleSubSystemChange"
-        >
-          <el-option
-            v-for="item in availableClientList"
-            :key="item.id"
-            :label="item.name + ' (' + item.clientId + ')'"
-            :value="item.id"
-          />
-        </el-select>
-        <el-input v-else :value="clientName || '-'" disabled />
+          @change="handleHangLeafChange"
+        />
+        <div class="form-tip">人员只挂 sub_system_workshop 子表记录；多叶子共用父系统菜单，每个叶子一套角色</div>
+      </el-form-item>
+      <el-form-item v-else label="业务系统">
+        <el-input :value="displayClientLabel" disabled />
       </el-form-item>
       <el-alert
-        v-if="isCreateMode && availableClientList.length === 0"
-        title="当前用户已关联全部业务系统，无可继续添加"
+        v-if="isCreateMode && hangableCascaderOptions.length === 0"
+        title="暂无可挂接的外部系统/车间"
         type="info"
         :closable="false"
         show-icon
@@ -31,7 +28,7 @@
       <el-alert
         v-if="isBindMode && matchHint"
         :title="matchHint"
-        :type="matchOk ? 'success' : 'warning'"
+        :type="matchOk ? 'success' : 'info'"
         :closable="false"
         show-icon
         style="margin-bottom: 16px"
@@ -40,31 +37,28 @@
       <el-row :gutter="16">
         <el-col :span="12">
           <el-form-item label="用户名" prop="username">
-            <el-input v-model="form.username" disabled placeholder="与主用户登录名同名匹配" />
+            <el-input v-model="form.username" :disabled="isBindMode" placeholder="与主用户登录名同名" />
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="用户姓名" prop="nickname">
-            <el-input v-model="form.nickname" :disabled="identityLocked" placeholder="用户姓名" />
+            <el-input v-model="form.nickname" placeholder="用户姓名" />
           </el-form-item>
         </el-col>
         <el-col :span="12">
-          <el-form-item label="车间编号">
+          <el-form-item label="车间编号" prop="workshopId">
             <el-input
               v-model="form.workshopId"
-              placeholder="可空；同步外部时必填"
-              maxlength="50"
               clearable
-              :disabled="identityLocked"
+              maxlength="50"
+              placeholder="可空；人员车间编号可直接填写"
               @change="handleWorkshopChange"
             />
-            <div class="form-tip">写在用户自身</div>
           </el-form-item>
         </el-col>
         <el-col :span="12">
           <el-form-item label="班组">
-            <el-select v-model="form.teamId" placeholder="请选择班组" clearable filterable style="width: 100%"
-                       :disabled="identityLocked">
+            <el-select v-model="form.teamId" placeholder="请选择班组" clearable filterable style="width: 100%">
               <el-option
                 v-for="item in teamOptions"
                 :key="item.teamCode"
@@ -74,8 +68,17 @@
             </el-select>
           </el-form-item>
         </el-col>
+        <el-col :span="24">
+          <el-form-item label="关联车间编号" prop="usernameWithWorkshop">
+            <el-radio-group v-model="form.usernameWithWorkshop" size="mini">
+              <el-radio label="0" border>工号</el-radio>
+              <el-radio label="1" border>车间编号_工号</el-radio>
+            </el-radio-group>
+            <div class="form-tip">选「车间编号_工号」且车间编号非空时，切换系统 Cookie 用 车间_工号；否则用工号</div>
+          </el-form-item>
+        </el-col>
       </el-row>
-      <el-divider content-position="left">岗位 / 角色</el-divider>
+      <el-divider content-position="left">岗位</el-divider>
       <el-form-item label="岗位">
         <el-select v-model="form.postIds" multiple placeholder="请选择岗位" style="width: 100%">
           <el-option
@@ -85,21 +88,12 @@
             :value="item.id"
           />
         </el-select>
+        <div class="form-tip">角色请在挂接后通过「分配角色」设置（车间叶子下角色须带对应车间）</div>
       </el-form-item>
-      <el-form-item label="角色">
-        <el-select v-model="form.roleIds" multiple placeholder="请选择角色" style="width: 100%">
-          <el-option
-            v-for="item in roleOptions"
-            :key="item.id"
-            :label="item.name"
-            :value="item.id"
-          />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="状态" prop="status">
+      <el-form-item label="启用状态" prop="status">
         <el-radio-group v-model="form.status">
-          <el-radio label="0">正常</el-radio>
-          <el-radio label="1">禁用</el-radio>
+          <el-radio label="0">启用</el-radio>
+          <el-radio label="1">停用</el-radio>
         </el-radio-group>
       </el-form-item>
       <el-form-item label="备注" prop="remark">
@@ -110,7 +104,7 @@
       <el-button
         type="primary"
         :loading="submitLoading"
-        :disabled="(isCreateMode && availableClientList.length === 0) || (isBindMode && !matchOk)"
+        :disabled="isCreateMode && !form.subSystemId"
         @click="submitForm"
       >确 定</el-button>
       <el-button @click="dialogVisible = false">取 消</el-button>
@@ -120,89 +114,101 @@
 
 <script>
 import {
-  bindSubSystemMainUser,
   createSubSystemUser,
-  getSubSystemClientSimpleList,
   getSubSystemPostSimpleList,
-  getSubSystemRoleSimpleList,
   getSubSystemTeamSimpleList,
   getSubSystemUser,
   getSubSystemUserByUsername,
   updateSubSystemUser
 } from '@/api/system/subSystemUsers'
+import { getHangableExternalTree } from '@/api/system/subSystemWorkshop'
+
 export default {
   name: 'SubSystemUserEditDialog',
   props: {
-    visible: {
-      type: Boolean,
-      default: false
-    },
-    recordId: {
-      type: Number,
-      default: undefined
-    },
-    mainUserId: {
-      type: Number,
-      default: undefined
-    },
-    portalUsername: {
-      type: String,
-      default: ''
-    },
-    mainUserDeptId: {
-      type: Number,
-      default: undefined
-    },
-    excludeSubSystemIds: {
-      type: Array,
-      default: () => []
-    },
-    clientName: {
-      type: String,
-      default: ''
-    }
+    visible: { type: Boolean, default: false },
+    recordId: { type: Number, default: undefined },
+    mainUserId: { type: Number, default: undefined },
+    portalUsername: { type: String, default: '' },
+    portalNickname: { type: String, default: '' },
+    mainUserDeptId: { type: Number, default: undefined },
+    /** 已挂接叶子：[{ subSystemId, workshopId }] */
+    excludeLeaves: { type: Array, default: () => [] },
+    clientName: { type: String, default: '' }
   },
   data() {
     return {
       submitLoading: false,
       form: {},
-      clientList: [],
-      roleOptions: [],
+      hangPath: [],
+      hangableTree: [],
       postOptions: [],
       teamOptions: [],
       matchOk: false,
       matchHint: '',
+      createNewAllowed: false,
+      cascaderProps: {
+        value: 'value',
+        label: 'label',
+        children: 'children',
+        emitPath: true,
+        checkStrictly: false
+      },
       rules: {
-        subSystemId: [{ required: true, message: '请选择业务系统', trigger: 'change' }],
+        hangLeafKey: [{ required: true, message: '请选择要挂接的系统或车间', trigger: 'change' }],
         username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }]
       }
     }
   },
   computed: {
     dialogVisible: {
-      get() {
-        return this.visible
-      },
-      set(value) {
-        this.$emit('update:visible', value)
+      get() { return this.visible },
+      set(value) { this.$emit('update:visible', value) }
+    },
+    isCreateMode() { return !this.recordId },
+    isBindMode() { return this.isCreateMode && !!this.mainUserId },
+    displayClientLabel() {
+      if (this.form.workshopId) {
+        return (this.clientName || '') + (this.clientName ? ' / ' : '') + this.form.workshopId
       }
+      return this.clientName || '-'
     },
-    isCreateMode() {
-      return !this.recordId
-    },
-    isBindMode() {
-      return this.isCreateMode && !!this.mainUserId
-    },
-    identityLocked() {
-      return this.isBindMode && !this.matchOk
-    },
-    availableClientList() {
-      const excludeSet = new Set(this.excludeSubSystemIds || [])
-      return this.clientList.filter(item => !excludeSet.has(item.id))
+    hangableCascaderOptions() {
+      const exclude = new Set(
+        (this.excludeLeaves || []).map(item => this.leafKey(item.subSystemId, item.workshopId))
+      )
+      return (this.hangableTree || []).map(node => {
+        if (node.nodeType === 'group') {
+          const children = (node.children || [])
+            .filter(c => !exclude.has(this.leafKey(c.subSystemId, c.workshopCode)))
+            .map(c => ({
+              value: this.leafKey(c.subSystemId, c.workshopCode),
+              label: c.label,
+              leafMeta: c
+            }))
+          if (!children.length) {
+            return null
+          }
+          return {
+            value: 'g-' + node.subSystemId,
+            label: node.label,
+            children
+          }
+        }
+        const key = this.leafKey(node.subSystemId, node.workshopCode)
+        if (exclude.has(key)) {
+          return null
+        }
+        return {
+          value: key,
+          label: node.label,
+          leafMeta: node
+        }
+      }).filter(Boolean)
     },
     dialogTitle() {
       if (this.isBindMode) {
-        return '开通业务系统访问'
+        return '挂接业务系统 / 车间'
       }
       if (this.isCreateMode) {
         return '添加业务系统用户'
@@ -227,9 +233,18 @@ export default {
     }
   },
   methods: {
+    handleWorkshopChange() {
+      this.form.teamId = undefined
+      this.loadTeamOptions(this.form.subSystemId)
+    },
+    leafKey(subSystemId, workshopId) {
+      const w = workshopId == null || workshopId === '' ? '' : String(workshopId)
+      return subSystemId + '|' + w
+    },
     resetFormData() {
       this.form = {
         id: undefined,
+        hangLeafKey: undefined,
         subSystemId: undefined,
         mainUserId: undefined,
         username: undefined,
@@ -238,22 +253,24 @@ export default {
         teamId: undefined,
         homeMenuId: undefined,
         status: '0',
+        usernameWithWorkshop: '0',
         remark: undefined,
         roleIds: [],
         postIds: []
       }
-      this.roleOptions = []
+      this.hangPath = []
       this.postOptions = []
       this.teamOptions = []
       this.matchOk = false
       this.matchHint = ''
+      this.createNewAllowed = false
       if (this.$refs.form) {
         this.$refs.form.clearValidate()
       }
     },
-    loadClientList() {
-      return getSubSystemClientSimpleList(true).then(res => {
-        this.clientList = res.data || []
+    loadHangableTree() {
+      return getHangableExternalTree().then(res => {
+        this.hangableTree = res.data || []
       })
     },
     loadTeamOptions(subSystemId) {
@@ -263,38 +280,50 @@ export default {
       }
       return getSubSystemTeamSimpleList(subSystemId).then(res => {
         this.teamOptions = res.data || []
-      }).catch(() => {
-        this.teamOptions = []
-      })
+      }).catch(() => { this.teamOptions = [] })
     },
     loadSubOptions(subSystemId) {
       if (!subSystemId) {
-        this.roleOptions = []
         this.postOptions = []
         this.teamOptions = []
         return Promise.resolve()
       }
       return Promise.all([
-        getSubSystemRoleSimpleList(subSystemId).then(res => { this.roleOptions = res.data || [] }),
         getSubSystemPostSimpleList(subSystemId).then(res => { this.postOptions = res.data || [] }),
         this.loadTeamOptions(subSystemId)
       ])
     },
-    handleWorkshopChange() {
-      this.form.teamId = undefined
-      return this.loadTeamOptions(this.form.subSystemId)
+    findLeafMeta(key) {
+      for (const node of this.hangableTree || []) {
+        if (node.nodeType === 'group') {
+          const hit = (node.children || []).find(c => this.leafKey(c.subSystemId, c.workshopCode) === key)
+          if (hit) {
+            return hit
+          }
+        } else if (this.leafKey(node.subSystemId, node.workshopCode) === key) {
+          return node
+        }
+      }
+      return null
     },
-    handleSubSystemChange(subSystemId) {
+    handleHangLeafChange(path) {
+      const key = path && path.length ? path[path.length - 1] : null
+      this.form.hangLeafKey = key
+      const meta = key ? this.findLeafMeta(key) : null
+      this.form.subSystemId = meta ? meta.subSystemId : undefined
+      this.form.workshopId = meta && meta.workshopCode ? meta.workshopCode : undefined
       this.form.teamId = undefined
       this.form.postIds = []
-      this.form.roleIds = []
       this.form.homeMenuId = undefined
-      this.form.workshopId = undefined
       this.matchOk = false
       this.matchHint = ''
-      this.loadSubOptions(subSystemId).then(() => {
+      this.createNewAllowed = false
+      if (!this.form.subSystemId) {
+        return
+      }
+      this.loadSubOptions(this.form.subSystemId).then(() => {
         if (this.isBindMode) {
-          return this.matchRosterUser(subSystemId)
+          return this.matchRosterUser(this.form.subSystemId)
         }
         return null
       })
@@ -303,27 +332,31 @@ export default {
       const username = (this.portalUsername || '').trim()
       if (!subSystemId || !username) {
         this.matchOk = false
-        this.matchHint = '缺少主用户登录名，无法匹配业务系统用户'
+        this.createNewAllowed = false
+        this.matchHint = '缺少主用户登录名'
         return Promise.resolve()
       }
-      return getSubSystemUserByUsername(subSystemId, username).then(res => {
+      this.form.username = username
+      return getSubSystemUserByUsername(subSystemId, username, this.form.workshopId).then(res => {
         const data = res.data
-        if (!data || !data.id) {
-          this.matchOk = false
-          this.matchHint = `业务系统中不存在同名用户「${username}」，请先在业务系统用户中导入或新增`
-          this.form.username = username
-          this.form.nickname = undefined
-          this.form.teamId = undefined
-          this.form.id = undefined
+        if (data && data.id) {
+          this.matchOk = true
+          this.createNewAllowed = false
+          this.matchHint = `已匹配业务用户「${data.username}」，确认后关联 JUMP 用户`
+          const keptWorkshop = this.form.workshopId
+          this.applyRosterToForm(data)
+          this.form.workshopId = keptWorkshop || data.workshopId
           return this.loadTeamOptions(subSystemId)
         }
-        this.matchOk = true
-        this.matchHint = `已匹配业务系统用户「${data.username}」，确认后写入关联；可同时修改车间编号、班组、岗位、角色等`
-        this.applyRosterToForm(data)
+        this.matchOk = false
+        this.createNewAllowed = true
+        this.form.id = undefined
+        this.matchHint = `将新建业务成员「${username}」并挂接所选叶子，挂接后请分配角色方可进入门户`
         return this.loadTeamOptions(subSystemId)
       }).catch(() => {
         this.matchOk = false
-        this.matchHint = '匹配业务系统用户失败'
+        this.createNewAllowed = true
+        this.matchHint = '将新建业务成员并挂接'
       })
     },
     applyRosterToForm(data) {
@@ -335,6 +368,7 @@ export default {
       this.form.teamId = data.teamId
       this.form.homeMenuId = data.homeMenuId
       this.form.status = data.status || '0'
+      this.form.usernameWithWorkshop = data.usernameWithWorkshop === '1' ? '1' : '0'
       this.form.remark = data.remark
       this.form.roleIds = data.roleIds || []
       this.form.postIds = data.postIds || []
@@ -343,15 +377,12 @@ export default {
       this.resetFormData()
       this.form.mainUserId = this.mainUserId
       this.form.username = this.portalUsername
-      this.loadClientList().catch(() => {
-        this.dialogVisible = false
-      })
+      this.form.nickname = this.portalNickname
+      this.loadHangableTree().catch(() => { this.dialogVisible = false })
     },
     openCreate() {
       this.resetFormData()
-      this.loadClientList().catch(() => {
-        this.dialogVisible = false
-      })
+      this.loadHangableTree().catch(() => { this.dialogVisible = false })
     },
     loadRecord() {
       if (!this.recordId) {
@@ -364,33 +395,41 @@ export default {
           this.applyRosterToForm(data)
           this.form.mainUserId = data.mainUserId
         })
-      }).catch(() => {
-        this.dialogVisible = false
-      })
+      }).catch(() => { this.dialogVisible = false })
     },
     submitForm() {
-      if (this.isCreateMode && this.availableClientList.length === 0) {
-        this.$modal.msgWarning('当前用户已关联全部业务系统')
+      if (this.isCreateMode && !this.form.subSystemId) {
+        this.$modal.msgWarning('请选择要挂接的系统或车间叶子')
         return
       }
-      if (this.isBindMode && !this.matchOk) {
-        this.$modal.msgWarning(this.matchHint || '请先匹配到业务系统同名用户')
+      if (this.isBindMode && !this.matchOk && !this.createNewAllowed) {
+        this.$modal.msgWarning(this.matchHint || '无法挂接')
         return
       }
       this.$refs.form.validate(valid => {
+        // 校验不通过一律拦截（如 username 为空），不再穿透提交
         if (!valid) {
           return
         }
+        if (this.isCreateMode && !this.form.hangLeafKey) {
+          this.$modal.msgWarning('请选择要挂接的系统或车间叶子')
+          return
+        }
         this.submitLoading = true
-        const run = this.isBindMode
-          ? bindSubSystemMainUser(this.form.subSystemId, this.mainUserId).then(res => {
-            this.form.id = res.data
-            this.form.mainUserId = this.mainUserId
-            return updateSubSystemUser(this.form)
+        const payload = {
+          ...this.form,
+          mainUserId: this.isBindMode ? this.mainUserId : this.form.mainUserId,
+          usernameWithWorkshop: this.form.usernameWithWorkshop === '1' ? '1' : '0'
+        }
+        delete payload.hangLeafKey
+        const run = this.form.id
+          ? updateSubSystemUser({
+            ...payload,
+            mainUserId: this.isBindMode ? this.mainUserId : payload.mainUserId
           })
-          : (this.form.id ? updateSubSystemUser(this.form) : createSubSystemUser(this.form))
+          : createSubSystemUser(payload)
         run.then(() => {
-          this.$modal.msgSuccess(this.isBindMode ? '开通成功' : (this.form.id ? '修改成功' : '新增成功'))
+          this.$modal.msgSuccess(this.isBindMode ? '挂接成功' : (this.form.id ? '修改成功' : '新增成功'))
           this.dialogVisible = false
           this.$emit('success')
         }).finally(() => {

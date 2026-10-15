@@ -69,8 +69,10 @@ public interface SubSystemUsersService {
 
     /**
      * 获得当前登录用户在指定外部系统下的门户菜单（Iframe 嵌入）
+     *
+     * @param workshopCode 可选；多叶子时按挂接车间取对应花名册角色菜单
      */
-    List<SubSystemPortalMenuRespVO> getMyPortalMenus(Long userId, Long subSystemId);
+    List<SubSystemPortalMenuRespVO> getMyPortalMenus(Long userId, Long subSystemId, String workshopCode);
 
     /**
      * 获得用户在指定外部子系统下可选的快捷导航菜单编号（叶子菜单）
@@ -80,7 +82,8 @@ public interface SubSystemUsersService {
     /**
      * 仅校验候选菜单是否可作为快捷导航（冷路径用，避免每次拉该子系统全量菜单）
      */
-    Set<Long> retainAllowedQuickNavMenuIds(Long userId, Long subSystemId, Collection<Long> candidateIds);
+    Set<Long> retainAllowedQuickNavMenuIds(Long userId, Long subSystemId, Collection<Long> candidateIds,
+                                           String workshopCode);
 
     /**
 
@@ -124,7 +127,7 @@ public interface SubSystemUsersService {
     /**
      * 按用户名查询外部系统用户
      */
-    SubSystemUsersRespVO getBySubSystemIdAndUsername(Long subSystemId, String username);
+    SubSystemUsersRespVO getBySubSystemIdAndUsername(Long subSystemId, String username, String workshopId);
 
     /**
      * 将主系统用户挂接到外部系统同名用户（main_user_id 可选关联）

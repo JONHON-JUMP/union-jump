@@ -97,6 +97,14 @@
 
       </el-table-column>
 
+      <el-table-column label="车间维度" align="center" prop="workshopScopeEnabled" width="100">
+        <template v-slot="scope">
+          <el-tag :type="scope.row.workshopScopeEnabled ? 'warning' : 'info'" size="mini">
+            {{ scope.row.workshopScopeEnabled ? '开启' : '关闭' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+
       <el-table-column label="创建时间" align="center" prop="createTime" width="180">
 
         <template v-slot="scope">
@@ -172,6 +180,16 @@
 
           </el-radio-group>
 
+        </el-form-item>
+
+        <el-form-item label="车间维度" prop="workshopScopeEnabled">
+          <el-radio-group v-model="form.workshopScopeEnabled">
+            <el-radio :label="false">关闭</el-radio>
+            <el-radio :label="true">开启</el-radio>
+          </el-radio-group>
+          <div class="form-item-tip">
+            关闭：一个系统一个入口（如制造二部MES）。开启：一个系统下多个车间各自入口与角色（如环控5500~5503）；分配角色时角色须带车间编号。
+          </div>
         </el-form-item>
 
       </el-form>
@@ -344,7 +362,8 @@ export default {
         description: undefined,
         systemUrl: undefined,
         systemIcon: undefined,
-        status: CommonStatusEnum.ENABLE
+        status: CommonStatusEnum.ENABLE,
+        workshopScopeEnabled: false
 
       }
 
@@ -380,7 +399,8 @@ export default {
           description: res.data.description,
           systemUrl: res.data.systemUrl,
           systemIcon: res.data.systemIcon,
-          status: res.data.status
+          status: res.data.status,
+          workshopScopeEnabled: !!res.data.workshopScopeEnabled
         }
         this.open = true
         this.title = '修改业务系统'

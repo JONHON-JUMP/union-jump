@@ -17,6 +17,7 @@ public interface SubSystemRoleMapper extends BaseMapperX<SubSystemRoleDO> {
         return selectPage(reqVO, new LambdaQueryWrapperX<SubSystemRoleDO>()
                 .eqIfPresent(SubSystemRoleDO::getSubSystemId, reqVO.getSubSystemId())
                 .inIfPresent(SubSystemRoleDO::getSubSystemId, allowedSubSystemIds)
+                .eqIfPresent(SubSystemRoleDO::getWorkshopCode, reqVO.getWorkshopCode())
                 .likeIfPresent(SubSystemRoleDO::getName, reqVO.getName())
                 .likeIfPresent(SubSystemRoleDO::getCode, reqVO.getCode())
                 .eqIfPresent(SubSystemRoleDO::getStatus, reqVO.getStatus())
@@ -40,6 +41,12 @@ public interface SubSystemRoleMapper extends BaseMapperX<SubSystemRoleDO> {
 
     default Long selectCountBySubSystemId(Long subSystemId) {
         return selectCount(SubSystemRoleDO::getSubSystemId, subSystemId);
+    }
+
+    default Long selectCountBySubSystemIdAndWorkshopCode(Long subSystemId, String workshopCode) {
+        return selectCount(new LambdaQueryWrapperX<SubSystemRoleDO>()
+                .eq(SubSystemRoleDO::getSubSystemId, subSystemId)
+                .eq(SubSystemRoleDO::getWorkshopCode, workshopCode));
     }
 
     default List<SubSystemRoleDO> selectListBySubSystemId(Long subSystemId) {

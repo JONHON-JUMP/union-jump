@@ -19,4 +19,7 @@ public class SubSystemRoleSimpleRespVO {
     @Schema(description = "外部系统角色 ID；空表示尚未关联，勾选同步时不能选")
     private String externalRoleId;
 
+    @Schema(description = "车间编号（叶子）")
+    private String workshopCode;
+
 }

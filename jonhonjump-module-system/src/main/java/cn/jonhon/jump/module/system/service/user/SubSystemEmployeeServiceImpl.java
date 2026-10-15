@@ -15,11 +15,13 @@ import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemRoleDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemUsersDO;
+import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemWorkshopDO;
 import cn.jonhon.jump.module.system.dal.mysql.user.AdminUserMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemApiConfigMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemRoleMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUsersMapper;
+import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemWorkshopMapper;
 import cn.jonhon.jump.module.system.framework.subsystemapi.CamstarEmployeeApiAdapter;
 import cn.jonhon.jump.module.system.framework.subsystemapi.ExternalApiException;
 import cn.jonhon.jump.module.system.framework.subsystemapi.SubSystemEmployeeApi;
@@ -74,6 +76,8 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     private SubSystemAccessService subSystemAccessService;
     @Resource
     private SubSystemPermissionContextService subSystemPermissionContextService;
+    @Resource
+    private SubSystemWorkshopMapper subSystemWorkshopMapper;
 
     @Override
     public PageResult<SubSystemEmployeeRespVO> getEmployeePage(SubSystemEmployeePageReqVO pageReqVO) {
@@ -233,19 +237,9 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                     result.setSuccess(false).setMessage("请填写车间编号");
                     continue;
                 }
-                // 按工号全系统核对（其他车间以 车间_工号 形态注册的也算同一工号），防止同一工号在对方系统重复建号
-                SubSystemEmployeeDTO existing = findExternalEmployee(reqVO.getApiSubSystemId(), roster.getUsername(),
-                        dto.getWorkshopCode());
-                if (existing != null && !StrUtil.trim(dto.getUserCode())
-                        .equalsIgnoreCase(StrUtil.trim(existing.getUserCode()))) {
-                    String workshopInfo = StrUtil.blankToDefault(StrUtil.trim(existing.getWorkshopName()),
-                            StrUtil.trim(existing.getWorkshopCode()));
-                    result.setSuccess(false).setMessage("工号 " + roster.getUsername() + " 已在对方系统注册（账号 "
-                            + StrUtil.trim(existing.getUserCode())
-                            + (StrUtil.isBlank(workshopInfo) ? "" : "，车间 " + workshopInfo)
-                            + "），本次未注册。如属人员调动，请先在对方系统调整原账号后重试");
-                    continue;
-                }
+                // 车间编号_工号：各车间账号相互独立（5500_14059 与 4200_14059 不是同一用户）
+                // 注册前只认「目标账号」是否已在对方存在；其它车间同工号账号不拦截
+                SubSystemEmployeeDTO existing = findExactExternalEmployee(reqVO.getApiSubSystemId(), dto.getUserCode());
                 boolean alreadyExists = existing != null;
                 if (!alreadyExists) {
                     getApi(reqVO.getApiSubSystemId()).create(dto);
@@ -254,9 +248,11 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                         usernameWithWorkshop, resolveApiType(reqVO.getApiSubSystemId()));
                 result.setSuccess(true);
                 if (alreadyExists) {
-                    result.setMessage("对方已有该人员，已标记为已注册");
+                    result.setMessage("对方已有账号 " + dto.getUserCode() + "，已标记为已注册");
                 } else if (markMessage != null) {
                     result.setMessage(markMessage);
+                } else if (usernameWithWorkshop) {
+                    result.setMessage("已注册外部账号 " + dto.getUserCode());
                 }
             } catch (ExternalApiException e) {
                 log.warn("[registerEmployees] rosterId={} apiSubSystemId={} 调用新增人员接口失败",
@@ -351,9 +347,8 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     }
 
     /**
-     * 按工号全系统查询，与接口管理「查询人员」同一条 getEmployeeInfo：带 userCode，不传车间。
-     * Camstar 工号是精确条件，裸工号查不到「车间_工号」，所以已知车间时再按完整账号查一次。
-     * 返回列表里只保留同一工号（含其他车间的 车间_工号）。
+     * 按工号查外部人员。Camstar userCode 为精确匹配：裸工号查不到「车间_工号」，
+     * 因此除裸工号 / 当前车间账号外，再按车间字典补查各「车间_工号」，以便下拉展示 4200_14059 等。
      *
      * @param failOnPrimary 裸工号这一查失败时是否抛出；补查失败只记日志
      */
@@ -362,19 +357,83 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         String bare = bareEmployeeCode(userCode);
         Map<String, SubSystemEmployeeDTO> merged = new LinkedHashMap<>();
         boolean primaryOk = appendEmployeesByCode(apiSubSystemId, bare, bare, merged, failOnPrimary);
+        Set<String> probeCodes = new LinkedHashSet<>();
         if (StrUtil.isNotBlank(workshopCode)) {
-            String prefixed = workshopCode.trim() + "_" + bare;
-            if (!prefixed.equalsIgnoreCase(bare)) {
-                appendEmployeesByCode(apiSubSystemId, prefixed, bare, merged, false);
-            }
+            probeCodes.add(workshopCode.trim() + "_" + bare);
         }
         if (!userCode.trim().equalsIgnoreCase(bare)) {
-            appendEmployeesByCode(apiSubSystemId, userCode.trim(), bare, merged, false);
+            probeCodes.add(userCode.trim());
+        }
+        // 车间字典 + JUMP 已挂接记录：补查其它车间的 车间_工号（如 4200_14059）
+        for (String ws : listKnownWorkshopCodes()) {
+            if (StrUtil.isNotBlank(ws)) {
+                probeCodes.add(ws.trim() + "_" + bare);
+            }
+        }
+        for (String code : listKnownPrefixedAccounts(bare, apiSubSystemId)) {
+            probeCodes.add(code);
+        }
+        for (String code : probeCodes) {
+            if (bare.equalsIgnoreCase(code)) {
+                continue;
+            }
+            appendEmployeesByCode(apiSubSystemId, code, bare, merged, false);
         }
         if (!primaryOk && merged.isEmpty()) {
             return Collections.emptyList();
         }
         return new ArrayList<>(merged.values());
+    }
+
+    /** 启用中的车间编号（去重），用于按 车间_工号 精确补查 Camstar */
+    private List<String> listKnownWorkshopCodes() {
+        try {
+            List<SubSystemWorkshopDO> list = subSystemWorkshopMapper.selectEnabledList();
+            if (CollUtil.isEmpty(list)) {
+                return Collections.emptyList();
+            }
+            return list.stream()
+                    .map(SubSystemWorkshopDO::getWorkshopCode)
+                    .filter(StrUtil::isNotBlank)
+                    .map(String::trim)
+                    .distinct()
+                    .collect(Collectors.toList());
+        } catch (Exception e) {
+            log.warn("[listExternalEmployees] 读取车间字典失败，跳过跨车间补查", e);
+            return Collections.emptyList();
+        }
+    }
+
+    /** JUMP 花名册里已用「车间_工号」挂接过的账号（限同一业务系统），用于补查 Camstar */
+    private List<String> listKnownPrefixedAccounts(String bare, Long subSystemId) {
+        if (StrUtil.isBlank(bare)) {
+            return Collections.emptyList();
+        }
+        try {
+            List<SubSystemUsersDO> rows = subSystemUsersMapper.selectListByUsername(bare);
+            if (CollUtil.isEmpty(rows)) {
+                return Collections.emptyList();
+            }
+            Set<String> codes = new LinkedHashSet<>();
+            for (SubSystemUsersDO row : rows) {
+                if (row == null) {
+                    continue;
+                }
+                // 同工号可能在多个系统挂过：只补查本次接口目标系统的账号，避免跨系统串号
+                if (subSystemId != null && !subSystemId.equals(row.getSubSystemId())) {
+                    continue;
+                }
+                String ws = StrUtil.trim(row.getWorkshopId());
+                if (StrUtil.isNotBlank(ws)) {
+                    // 该工号在 JUMP 挂过某车间 → 补查 Camstar 的 车间_工号
+                    codes.add(ws + "_" + bare);
+                }
+            }
+            return new ArrayList<>(codes);
+        } catch (Exception e) {
+            log.warn("[listExternalEmployees] 读取已挂接账号失败，跳过", e);
+            return Collections.emptyList();
+        }
     }
 
     /** 按一个账号名查一页，收进工号完全一致、或工号部分与 wantedBare 一致的行。 */
@@ -412,18 +471,29 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     }
 
     /**
-     * 注册前按工号全系统核对：账号名完全一致，或为「车间_工号」形态且工号部分一致，均视为已存在。
-     * 查不到或查询失败都按「对方还没有」处理，继续走新增。
+     * 注册前只按「目标账号」精确查（如 5500_14059）。查不到或失败按未注册继续新增。
      */
-    private SubSystemEmployeeDTO findExternalEmployee(Long apiSubSystemId, String userCode, String workshopCode) {
-        if (StrUtil.isBlank(userCode)) {
+    private SubSystemEmployeeDTO findExactExternalEmployee(Long apiSubSystemId, String targetUserCode) {
+        if (StrUtil.isBlank(targetUserCode)) {
             return null;
         }
+        String wanted = targetUserCode.trim();
         try {
-            List<SubSystemEmployeeDTO> rows = queryEmployeesByUserCode(apiSubSystemId, userCode.trim(), workshopCode, false);
-            return CollUtil.isEmpty(rows) ? null : rows.get(0);
+            SubSystemEmployeeQueryDTO query = new SubSystemEmployeeQueryDTO();
+            query.setUserCode(wanted);
+            query.setPage(1);
+            query.setRows(5);
+            SubSystemEmployeePageRespDTO page = getApi(apiSubSystemId).page(query);
+            List<SubSystemEmployeeDTO> rows = page == null || page.getList() == null
+                    ? Collections.emptyList() : page.getList();
+            for (SubSystemEmployeeDTO row : rows) {
+                if (row != null && wanted.equalsIgnoreCase(StrUtil.trim(row.getUserCode()))) {
+                    return row;
+                }
+            }
+            return null;
         } catch (Exception e) {
-            log.warn("[registerEmployees] 注册前查询对方人员失败，继续尝试新增。userCode={}", userCode, e);
+            log.warn("[registerEmployees] 注册前精确查询对方人员失败，继续尝试新增。userCode={}", wanted, e);
             return null;
         }
     }

@@ -23,11 +23,14 @@ export function getMyCamstarUsername() {
   })
 }
 
-export function getMyPortalMenus(subSystemId) {
+export function getMyPortalMenus(subSystemId, workshopCode) {
   return request({
     url: '/system/sub-system-users/my-menus',
     method: 'get',
-    params: { subSystemId }
+    params: {
+      subSystemId,
+      workshopCode: workshopCode || undefined
+    }
   })
 }
 
@@ -175,12 +178,16 @@ export function importSubSystemUserTemplate() {
   })
 }
 
-/** 按用户名查询子系统用户 */
-export function getSubSystemUserByUsername(subSystemId, username) {
+/** 按用户名查询子系统用户（可选车间叶子） */
+export function getSubSystemUserByUsername(subSystemId, username, workshopId) {
   return request({
     url: '/system/sub-system-users/get-by-username',
     method: 'get',
-    params: { subSystemId, username }
+    params: {
+      subSystemId,
+      username,
+      workshopId: workshopId || undefined
+    }
   })
 }
 

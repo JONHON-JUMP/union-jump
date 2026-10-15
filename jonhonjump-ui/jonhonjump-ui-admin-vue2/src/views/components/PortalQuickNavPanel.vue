@@ -159,6 +159,7 @@ import {
 import { rememberQuickNavSignature } from '@/utils/portalQuickNavWatch'
 import { buildPortalHomeApps } from '@/utils/portalQuickNavApps'
 import { buildIconStyle } from '@/utils/menuIconStyle'
+import { resolveClientIdInSystemList } from '@/utils/portalSubsystem'
 import QuickNavContextMenu from '@/components/QuickNavContextMenu.vue'
 import quickNavLongPressMixin from '@/mixins/quickNavLongPressMixin'
 
@@ -204,16 +205,36 @@ export default {
       }
       return !!(this.quickNavLoading || this.quickNavSyncing)
     },
+    resolvedCurrentClientId() {
+      if (this.currentSystem === 'main') {
+        return 'main'
+      }
+      return resolveClientIdInSystemList(this.portalSystemList, this.currentSystem)
+    },
+    currentPortalSystem() {
+      const key = this.resolvedCurrentClientId
+      if (!key || key === 'main') {
+        return null
+      }
+      return (this.portalSystemList || []).find(item => item.clientId === key) || null
+    },
     currentSubSystemId() {
       if (this.currentSystem === 'main') {
         return 0
       }
-      const sys = (this.portalSystemList || []).find(item => item.clientId === this.currentSystem)
-      // 列表未就绪时返回 null，禁止误打主系统 quick-nav
+      // 列表已到但旧 clientId 对不上：勿一直 pending，交给 store reconcile；此处先不打接口
+      if (this.resolvedCurrentClientId == null && (this.portalSystemList || []).length) {
+        return null
+      }
+      const sys = this.currentPortalSystem
       if (!sys || sys.subSystemId == null) {
         return null
       }
       return Number(sys.subSystemId) || null
+    },
+    currentWorkshopCode() {
+      const sys = this.currentPortalSystem
+      return sys && sys.workshopId ? String(sys.workshopId).trim() : ''
     },
     quickNavScopeKey() {
       if (this.currentSystem === 'main') {
@@ -223,7 +244,8 @@ export default {
       if (id == null || id <= 0) {
         return `pending:${this.currentSystem}`
       }
-      return buildQuickNavScopeKey(this.currentSystem, id)
+      const clientKey = this.resolvedCurrentClientId || this.currentSystem
+      return buildQuickNavScopeKey(clientKey, id, this.currentWorkshopCode)
     },
     homeApps() {
       return this.buildHomeApps(this.quickNavMenuIds, this.quickNavConfigured)
@@ -460,6 +482,7 @@ export default {
       // 默认不 force：与 PortalShell / bootstrap 预取单飞；角色变更探测仍可 force
       return this.$store.dispatch('portal/loadQuickNavConfig', {
         subSystemId: this.currentSubSystemId,
+        workshopCode: this.currentWorkshopCode,
         force: !!options.force
       }).then(config => {
         const data = config || {}
@@ -682,7 +705,7 @@ export default {
       }
       this.quickNavSaving = true
       try {
-        const config = await saveQuickNavMenuIds(menuIds, this.currentSubSystemId)
+        const config = await saveQuickNavMenuIds(menuIds, this.currentSubSystemId, this.currentWorkshopCode)
         this.applySavedQuickNavConfig(config)
       } catch (error) {
         this.$message.error('快捷导航保存失败')
@@ -705,7 +728,8 @@ export default {
           this.currentSubSystemId,
           this.quickNavLockedMenuIds,
           this.quickNavConfigured,
-          this.getDisplayedQuickNavMenuIds()
+          this.getDisplayedQuickNavMenuIds(),
+          this.currentWorkshopCode
         )
         this.applySavedQuickNavConfig(config)
       } catch (error) {
@@ -721,6 +745,7 @@ export default {
     applySavedQuickNavConfig(config) {
       this.$store.dispatch('portal/applyQuickNavConfig', {
         subSystemId: this.currentSubSystemId,
+        workshopCode: this.currentWorkshopCode,
         config
       })
       this.quickNavMenuIds = [...(config.menuIds || [])]

@@ -89,7 +89,11 @@
 </template>
 
 <script>
-import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
+import {
+  ensureLocalCamstarCookie,
+  seedCamstarCookieForUrlInBackground,
+  refreshCamstarCookieForSystem
+} from '@/utils/camstarCookie'
 import { applyIframeHrefToJump } from '@/utils/portalIframeNav'
 import { parsePortalClientId } from '@/utils/portalRoute'
 
@@ -266,9 +270,14 @@ export default {
       if (this.directSrc && sameCamstarDocument(this.directSrc, n) && this.directPhase === 'loading') {
         return
       }
-      // 按"当前选择的系统"取该用户的对接身份（clientId 精确匹配，优于 URL 推断）
+      // 按"当前选择的系统"取该用户的对接身份；优先用 my-list 花名册整项 refresh，避免只 ensure 时 map 未齐
       const portalClientId = parsePortalClientId(this.$route.path)
-      ensureLocalCamstarCookie(n, portalClientId)
+      const portalSys = (this.$store.state.portal.systemList || []).find(s => s && s.clientId === portalClientId)
+      if (portalSys) {
+        refreshCamstarCookieForSystem(portalSys)
+      } else {
+        ensureLocalCamstarCookie(n, portalClientId)
+      }
       seedCamstarCookieForUrlInBackground(n, portalClientId)
       this.directLoaded = false
       this.directSlowDismissed = false
@@ -372,7 +381,12 @@ export default {
       if (this.isDirectHttp) {
         const base = this.src || '/'
         const portalClientId = parsePortalClientId(this.$route.path)
-        ensureLocalCamstarCookie(base, portalClientId)
+        const portalSys = (this.$store.state.portal.systemList || []).find(s => s && s.clientId === portalClientId)
+        if (portalSys) {
+          refreshCamstarCookieForSystem(portalSys)
+        } else {
+          ensureLocalCamstarCookie(base, portalClientId)
+        }
         seedCamstarCookieForUrlInBackground(base, portalClientId)
         this.directLoaded = false
         this.directSlowDismissed = false

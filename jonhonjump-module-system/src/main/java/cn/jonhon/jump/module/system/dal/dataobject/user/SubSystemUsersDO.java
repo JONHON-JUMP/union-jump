@@ -9,7 +9,10 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 /**
- * 子系统用户（相对主系统用户独立；mainUserId 可选关联）
+ * 业务系统花名册用户（相对主系统用户独立；mainUserId 可选关联）。
+ * <p>
+ * 唯一语义：{@code sub_system_id + workshop_id(叶子) + username}，
+ * 同一工号可挂同一 MES 下多个车间叶子（多行）。
  */
 @TableName("sub_system_users")
 @KeySequence("sub_system_users_seq")

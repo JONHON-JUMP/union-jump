@@ -100,17 +100,21 @@ public class SubSystemUsersController {
 
             @Parameter(name = "subSystemId", description = "外部系统编号", required = true),
 
-            @Parameter(name = "username", description = "子系统用户名", required = true)
+            @Parameter(name = "username", description = "子系统用户名", required = true),
+
+            @Parameter(name = "workshopId", description = "叶子编号（可选）")
 
     })
 
-    @PreAuthorize("@ss.hasPermission('sub-system:user:list')")
+    @PreAuthorize("@ss.hasPermission('sub-system:user:list') or @ss.hasPermission('system:user:query')")
 
     public CommonResult<SubSystemUsersRespVO> getByUsername(@RequestParam("subSystemId") Long subSystemId,
 
-                                                            @RequestParam("username") String username) {
+                                                            @RequestParam("username") String username,
 
-        return success(subSystemUsersService.getBySubSystemIdAndUsername(subSystemId, username));
+                                                            @RequestParam(value = "workshopId", required = false) String workshopId) {
+
+        return success(subSystemUsersService.getBySubSystemIdAndUsername(subSystemId, username, workshopId));
 
     }
 
@@ -355,8 +359,10 @@ public class SubSystemUsersController {
     @GetMapping("/my-menus")
     @Operation(summary = "获得当前用户在指定外部系统下的门户菜单")
     public CommonResult<List<SubSystemPortalMenuRespVO>> getMyPortalMenus(
-            @RequestParam("subSystemId") Long subSystemId) {
-        return success(subSystemUsersService.getMyPortalMenus(getLoginUserId(), subSystemId));
+            @RequestParam("subSystemId") Long subSystemId,
+            @Parameter(name = "workshopCode", description = "叶子车间编号（可选；多车间入口时必传）")
+            @RequestParam(value = "workshopCode", required = false) String workshopCode) {
+        return success(subSystemUsersService.getMyPortalMenus(getLoginUserId(), subSystemId, workshopCode));
     }
 
     @GetMapping("/my-menus-version")

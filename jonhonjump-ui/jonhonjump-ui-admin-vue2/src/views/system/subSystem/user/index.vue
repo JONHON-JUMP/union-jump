@@ -1,7 +1,7 @@
-<template>
+﻿<template>
   <div class="app-container">
     <el-row :gutter="20">
-      <!-- 外部系统列表（sub_system） -->
+      <!-- 左侧：业务系统列表（与业务菜单同款卡片） -->
       <el-col :span="4" :xs="24">
         <div class="head-container">
           <el-input
@@ -35,7 +35,7 @@
       <el-col :span="20" :xs="24" v-loading="clientsLoading">
         <el-alert
           v-if="showSubSystemBindHint"
-          title="请先在左侧选择已登记的业务系统，再新增或导入该系统用户（无需关联主系统用户）"
+          title="与「人员管理 → 用户详情」同源：可按系统维度在此创建/关联主系统用户，也可在人员详情挂系统；分配角色后门户才有入口"
           type="warning"
           :closable="false"
           show-icon
@@ -55,6 +55,23 @@
                 :key="item.id"
                 :label="item.name + ' (' + item.clientId + ')'"
                 :value="item.id"
+              />
+            </el-select>
+          </el-form-item>
+          <el-form-item v-if="workshopFilterOptions.length" label="车间" prop="workshopId">
+            <el-select
+              v-model="queryParams.workshopId"
+              placeholder="车间筛选"
+              clearable
+              filterable
+              style="width: 200px"
+              @change="handleQuery"
+            >
+              <el-option
+                v-for="item in workshopFilterOptions"
+                :key="item.workshopCode"
+                :label="(item.workshopName || '') + ' (' + item.workshopCode + ')'"
+                :value="item.workshopCode"
               />
             </el-select>
           </el-form-item>
@@ -116,7 +133,21 @@
             <el-table-column type="selection" width="55" fixed="left" />
             <el-table-column label="用户名" prop="username" :show-overflow-tooltip="true" width="110" fixed="left" />
             <el-table-column label="用户姓名" prop="nickname" :show-overflow-tooltip="true" width="100" fixed="left" />
-            <el-table-column label="车间编号" prop="workshopId" width="120" :show-overflow-tooltip="true" />
+            <el-table-column label="车间编号" prop="workshopId" width="120" :show-overflow-tooltip="true">
+              <template v-slot="scope">
+                {{ scope.row.workshopId || '-' }}
+              </template>
+            </el-table-column>
+            <el-table-column label="关联车间编号" align="center" width="120">
+              <template v-slot="scope">
+                <el-tag
+                  v-if="scope.row.usernameWithWorkshop === '1'"
+                  type="success"
+                  size="mini"
+                >车间_工号</el-tag>
+                <el-tag v-else type="info" size="mini">工号</el-tag>
+              </template>
+            </el-table-column>
             <el-table-column label="班组编码" prop="teamId" width="110" />
             <el-table-column label="班组名称" prop="teamName" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="岗位" prop="postNames" width="120" :show-overflow-tooltip="true" />
@@ -133,21 +164,6 @@
                 <el-tag :type="scope.row.employeeRegistered === '1' ? 'success' : 'info'" size="mini">
                   {{ scope.row.employeeRegistered === '1' ? '已关联外部' : '未关联' }}
                 </el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="关联车间编号" align="center" width="110">
-              <template v-slot="scope">
-                <el-tag
-                  v-if="scope.row.employeeRegistered === '1' && scope.row.usernameWithWorkshop === '1'"
-                  type="success"
-                  size="mini"
-                >车间_工号</el-tag>
-                <el-tag
-                  v-else-if="scope.row.employeeRegistered === '1'"
-                  type="info"
-                  size="mini"
-                >工号</el-tag>
-                <span v-else>-</span>
               </template>
             </el-table-column>
             <el-table-column label="备注" prop="remark" width="120" :show-overflow-tooltip="true" />
@@ -182,8 +198,21 @@
     <!-- 新增/修改：关闭销毁表单，避免下次 resetFields 踩到上次残留字段 -->
     <el-dialog :title="title" :visible.sync="open" width="760px" append-to-body destroy-on-close>
       <el-form ref="form" :model="form" :rules="rules" label-width="110px">
-        <el-form-item label="业务系统">
-          <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
+        <el-form-item v-if="!form.id" label="挂接目标" prop="hangLeafKey">
+          <el-cascader
+            v-model="hangPath"
+            :options="hangableCascaderOptions"
+            :props="hangCascaderProps"
+            filterable
+            clearable
+            placeholder="请选择业务系统/车间叶子（与人员管理挂接同源）"
+            style="width: 100%"
+            @change="handleHangLeafChange"
+          />
+          <div class="form-tip">与用户管理「挂接业务系统」同源：选叶子后带出系统与车间编号，车间编号仍可改</div>
+        </el-form-item>
+        <el-form-item v-else label="业务系统">
+          <el-input :value="editClientLabel" disabled />
         </el-form-item>
         <el-form-item label="用户名" prop="username">
           <el-input v-model="form.username" placeholder="请输入业务系统用户名" maxlength="64" />
@@ -195,12 +224,11 @@
         <el-form-item label="车间编号" prop="workshopId">
           <el-input
             v-model="form.workshopId"
-            placeholder="可空；同步外部时必填"
+            placeholder="可空；可改；关联车间编号=是时拼到工号前"
             maxlength="50"
             clearable
             @change="handleWorkshopChange"
           />
-          <div class="form-tip">写在用户自身</div>
         </el-form-item>
         <el-form-item v-if="form.id" label="班组" prop="teamId">
           <el-select v-model="form.teamId" placeholder="请选择班组" clearable filterable style="width: 100%">
@@ -257,28 +285,22 @@
             </el-select>
             <div class="form-tip">接口来自【接口管理】中「新增」用途已启用的系统，可与左侧花名册系统不同</div>
           </el-form-item>
-          <el-form-item v-if="form.syncToExternal" label="拼接车间">
-            <el-checkbox v-model="form.usernameWithWorkshop">注册为 车间编号_工号</el-checkbox>
-            <div class="form-tip">
-              对接系统用户名全局唯一时勾选，以 车间编号_工号 注册（如 4200_10086）
-            </div>
-          </el-form-item>
         </template>
+        <el-form-item label="关联车间编号" prop="usernameWithWorkshop">
+          <el-radio-group v-model="form.usernameWithWorkshop" size="mini">
+            <el-radio label="0" border>工号</el-radio>
+            <el-radio label="1" border>车间编号_工号</el-radio>
+          </el-radio-group>
+          <div class="form-tip">
+            同步注册外部时选「车间编号_工号」即以该形态建账号；切换系统 Cookie 也认此字段（车间编号为空时仍用工号）
+          </div>
+        </el-form-item>
         <el-form-item v-if="form.id" label="外部关联">
           <el-radio-group v-model="form.employeeRegistered">
             <el-radio label="0">未关联</el-radio>
             <el-radio label="1">已关联外部</el-radio>
           </el-radio-group>
-          <div v-if="form.employeeRegistered === '1'" style="margin-top: 6px">
-            <el-radio-group v-model="form.usernameWithWorkshop" size="mini">
-              <el-radio label="0" border>对方账号：工号</el-radio>
-              <el-radio label="1" border>车间编号_工号</el-radio>
-            </el-radio-group>
-            <div class="form-tip">
-              对方系统已有该人员时可手动标记，不调用接口；形态决定后续同步角色使用的账号名{{ form.registeredApiType ? '（注册接口：' + form.registeredApiType + '）' : '' }}
-            </div>
-          </div>
-          <div v-else class="form-tip">标记未关联后，可重新通过【关联外部】或【同步注册】对接对方系统</div>
+          <div class="form-tip">标记未关联后，可重新通过【关联外部】或【同步注册】对接对方系统{{ form.registeredApiType ? '（注册接口：' + form.registeredApiType + '）' : '' }}</div>
         </el-form-item>
         <el-form-item label="备注" prop="remark">
           <el-input v-model="form.remark" type="textarea" placeholder="请输入备注" />
@@ -297,14 +319,18 @@
           <el-input v-model="roleForm.nickname" disabled />
         </el-form-item>
         <el-form-item label="角色">
-          <el-select v-model="roleForm.roleIds" multiple placeholder="请选择角色" style="width: 100%">
+          <el-select v-model="roleForm.roleIds" multiple placeholder="请选择角色" style="width: 100%" filterable>
             <el-option
               v-for="item in roleOptions"
               :key="item.id"
               :label="roleOptionLabel(item)"
               :value="item.id"
+              :disabled="roleOptionDisabled(item)"
             />
           </el-select>
+          <div v-if="roleForm.workshopId" class="form-tip">
+            当前车间「{{ roleForm.workshopId }}」，只能选择该车间下的角色或未打车间的角色
+          </div>
         </el-form-item>
         <el-form-item label="同步外部">
           <el-checkbox v-model="roleForm.syncToExternal">调用外部系统接口同步上挂/解除角色</el-checkbox>
@@ -406,7 +432,7 @@
                        :disabled="!bindForm.apiSubSystemId || !bindForm.workshopCode"
                        @click="pushRegisterFromBind">新增外部人员</el-button>
           </div>
-          <el-checkbox v-model="bindForm.usernameWithWorkshop" style="margin-bottom: 6px">注册为 车间编号_工号</el-checkbox>
+          <el-checkbox v-model="bindForm.usernameWithWorkshop" style="margin-bottom: 6px">关联车间编号：注册为 车间编号_工号</el-checkbox>
           <el-select
             v-model="bindForm.userCode"
             filterable
@@ -456,13 +482,15 @@ import {
   listExternalEmployees,
   registerSubSystemEmployee
 } from '@/api/system/subSystemEmployee'
+import { getHangableExternalTree } from '@/api/system/subSystemWorkshop'
 import { getUser } from '@/api/system/user'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
+import workshopLeftNav from '../mixins/workshopLeftNav'
 
 export default {
   name: 'SubSystemUser',
-  mixins: [subSystemImportGate],
+  mixins: [subSystemImportGate, workshopLeftNav],
   data() {
     return {
       loading: false,
@@ -471,11 +499,22 @@ export default {
       userList: [],
       clientList: [],
       clientKeyword: '',
+      /** mixin 左侧树叶子计数字段 */
+      leftNavCountKey: 'userCount',
       selectedClient: null,
       listSubSystemId: null,
       roleOptions: [],
       postOptions: [],
       teamOptions: [],
+      hangableTree: [],
+      hangPath: [],
+      hangCascaderProps: {
+        value: 'value',
+        label: 'label',
+        children: 'children',
+        emitPath: true,
+        checkStrictly: false
+      },
       title: '',
       open: false,
       submitting: false,
@@ -524,6 +563,20 @@ export default {
       // 按行锁定打开中状态；勿用全局 boolean，否则一挂全表「修改」点不动，关页重进才恢复
       openingKey: '',
       rules: {
+        hangLeafKey: [{
+          validator: (rule, value, callback) => {
+            if (this.form.id) {
+              callback()
+              return
+            }
+            if (!value && !this.form.subSystemId) {
+              callback(new Error('请选择挂接的业务系统/车间'))
+              return
+            }
+            callback()
+          },
+          trigger: 'change'
+        }],
         username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }],
         apiSubSystemId: [{
           validator: (rule, value, callback) => {
@@ -557,6 +610,49 @@ export default {
     }
   },
   computed: {
+    filteredClientList() {
+      const keyword = (this.clientKeyword || '').trim().toLowerCase()
+      if (!keyword) {
+        return this.clientList
+      }
+      return (this.clientList || []).filter(item =>
+        (item.name && item.name.toLowerCase().includes(keyword)) ||
+        (item.clientId && item.clientId.toLowerCase().includes(keyword))
+      )
+    },
+    hangableCascaderOptions() {
+      return (this.hangableTree || []).map(node => {
+        if (node.nodeType === 'group') {
+          const children = (node.children || []).map(c => ({
+            value: this.leafKey(c.subSystemId, c.workshopCode),
+            label: c.label,
+            leafMeta: c
+          }))
+          if (!children.length) {
+            return null
+          }
+          return {
+            value: 'g-' + node.subSystemId,
+            label: node.label,
+            children
+          }
+        }
+        return {
+          value: this.leafKey(node.subSystemId, node.workshopCode),
+          label: node.label,
+          leafMeta: node
+        }
+      }).filter(Boolean)
+    },
+    editClientLabel() {
+      const hit = (this.clientList || []).find(c => c.id === this.form.subSystemId)
+      if (hit) {
+        return (hit.name || '') + ' (' + (hit.clientId || '') + ')'
+      }
+      return this.selectedClient
+        ? (this.selectedClient.name + ' (' + this.selectedClient.clientId + ')')
+        : ''
+    },
     uploadAction() {
       const id = this.selectedClient && this.selectedClient.id
       const update = this.upload.updateSupport ? 'true' : 'false'
@@ -564,16 +660,6 @@ export default {
         + '?subSystemId=' + (id || '')
         + '&updateSupport=' + update
     },
-    filteredClientList() {
-      const keyword = (this.clientKeyword || '').trim().toLowerCase()
-      if (!keyword) {
-        return this.clientList
-      }
-      return this.clientList.filter(item =>
-        (item.name && item.name.toLowerCase().includes(keyword)) ||
-        (item.clientId && item.clientId.toLowerCase().includes(keyword))
-      )
-    }
   },
   created() {
     this.loadClientList()
@@ -626,8 +712,11 @@ export default {
     },
     loadClientList() {
       return this.withClientsLoading(() => {
-        return getSubSystemClientSimpleList(true).then(res => {
-          this.clientList = res.data || []
+        return Promise.all([
+          getSubSystemClientSimpleList(true),
+          this.loadWorkshopList()
+        ]).then(([clientRes]) => {
+          this.clientList = (clientRes && clientRes.data) || []
           if (this.syncSelectedClientFromList()) {
             return
           }
@@ -636,6 +725,21 @@ export default {
           }
         })
       })
+    },
+    onWorkshopNavSelected(item) {
+      this.queryParams.subSystemId = item.subSystemId
+      this.queryParams.workshopId = item.workshopCode
+      this.queryParams.username = undefined
+      this.queryParams.nickname = undefined
+      this.queryParams.teamName = undefined
+      this.queryParams.status = undefined
+      this.queryParams.employeeRegistered = undefined
+      this.queryParams.pageNo = 1
+      this.listSubSystemId = item.subSystemId
+      this.getList()
+    },
+    onSystemNavSelected(item) {
+      this.handleClientClick(item)
     },
     loadSubOptions(subSystemId) {
       const id = subSystemId || (this.selectedClient ? this.selectedClient.id : null)
@@ -650,6 +754,77 @@ export default {
         getSubSystemRoleSimpleList(id).then(res => { this.roleOptions = res.data || [] }).catch(() => { this.roleOptions = [] }),
         getSubSystemPostSimpleList(id).then(res => { this.postOptions = res.data || [] }).catch(() => { this.postOptions = [] })
       ]).then(() => this.reloadTeams(id).catch(() => { this.teamOptions = [] }))
+    },
+    leafKey(subSystemId, workshopId) {
+      const w = workshopId == null || workshopId === '' ? '' : String(workshopId)
+      return subSystemId + '|' + w
+    },
+    findHangLeafMeta(key) {
+      for (const node of this.hangableTree || []) {
+        if (node.nodeType === 'group') {
+          const hit = (node.children || []).find(c => this.leafKey(c.subSystemId, c.workshopCode) === key)
+          if (hit) {
+            return hit
+          }
+        } else if (this.leafKey(node.subSystemId, node.workshopCode) === key) {
+          return node
+        }
+      }
+      return null
+    },
+    loadHangableTree() {
+      return getHangableExternalTree().then(res => {
+        this.hangableTree = res.data || []
+      }).catch(() => {
+        this.hangableTree = []
+      })
+    },
+    /** 左侧已选系统时，新增默认挂到该系统下的叶子（一对一直接选中） */
+    preselectHangFromLeftNav() {
+      const ssId = this.selectedClient && this.selectedClient.id
+      if (!ssId || !(this.hangableTree || []).length) {
+        return
+      }
+      const matches = []
+      for (const node of this.hangableTree) {
+        if (node.nodeType === 'group' && node.subSystemId === ssId) {
+          (node.children || []).forEach(c => matches.push(c))
+        } else if (node.subSystemId === ssId) {
+          matches.push(node)
+        }
+      }
+      if (!matches.length) {
+        return
+      }
+      const prefer = this.selectedWorkshop
+        ? matches.find(m => m.workshopCode === this.selectedWorkshop.workshopCode)
+        : null
+      const leaf = prefer || (matches.length === 1 ? matches[0] : null)
+      if (!leaf) {
+        return
+      }
+      const key = this.leafKey(leaf.subSystemId, leaf.workshopCode)
+      if (prefer || matches.length === 1) {
+        // 组下叶子：cascader path = [group, leaf]
+        const group = (this.hangableTree || []).find(n =>
+          n.nodeType === 'group' && n.subSystemId === ssId
+        )
+        this.hangPath = group ? ['g-' + ssId, key] : [key]
+        this.handleHangLeafChange(this.hangPath)
+      }
+    },
+    handleHangLeafChange(path) {
+      const key = path && path.length ? path[path.length - 1] : null
+      this.form.hangLeafKey = key
+      const meta = key ? this.findHangLeafMeta(key) : null
+      this.form.subSystemId = meta ? meta.subSystemId : undefined
+      this.form.workshopId = meta && meta.workshopCode ? meta.workshopCode : undefined
+      this.form.teamId = undefined
+      this.form.postIds = []
+      if (this.form.subSystemId) {
+        this.loadSubOptions(this.form.subSystemId)
+        this.loadRegisterableApis().then(() => this.applyDefaultAddRegisterApi())
+      }
     },
     handleWorkshopChange() {
       this.form.teamId = undefined
@@ -668,8 +843,11 @@ export default {
       })
     },
     handleClientClick(item) {
+      this.leftNavMode = 'system'
+      this.selectedWorkshop = null
       this.selectedClient = item
       this.queryParams.subSystemId = item.id
+      this.queryParams.workshopId = undefined
       this.queryParams.username = undefined
       this.queryParams.nickname = undefined
       this.queryParams.teamName = undefined
@@ -709,6 +887,7 @@ export default {
     resetQuery() {
       this.resetForm('queryForm')
       this.queryParams.subSystemId = this.selectedClient ? this.selectedClient.id : undefined
+      this.queryParams.workshopId = this.selectedWorkshop ? this.selectedWorkshop.workshopCode : undefined
       this.listSubSystemId = this.selectedClient ? this.selectedClient.id : null
       this.queryParams.pageNo = 1
       this.getList()
@@ -716,7 +895,8 @@ export default {
     resetFormData() {
       this.form = {
         id: undefined,
-        subSystemId: this.selectedClient ? this.selectedClient.id : undefined,
+        hangLeafKey: undefined,
+        subSystemId: undefined,
         mainUserId: undefined,
         username: undefined,
         nickname: undefined,
@@ -726,10 +906,11 @@ export default {
         employeeRegistered: '0',
         syncToExternal: false,
         apiSubSystemId: undefined,
-        usernameWithWorkshop: false,
+        usernameWithWorkshop: '0',
         remark: undefined,
         postIds: []
       }
+      this.hangPath = []
       // 弹窗未打开时不要 resetFields：ElementUI 会对 undefined 调 indexOf 直接炸
       // 整表单已赋默认值，只需清校验；打开后再 nextTick 清一次更稳
       this.$nextTick(() => {
@@ -743,20 +924,18 @@ export default {
       this.resetFormData()
     },
     handleAdd() {
-      this.ensureSubSystemBoundBeforeAction('新增', { requireConfirm: false }).then(() => {
-        this.resetFormData()
-        this.open = true
-        this.title = '添加业务系统用户'
+      // 与人员管理一致：挂接树选系统，不强制锁死左侧当前系统
+      this.resetFormData()
+      this.open = true
+      this.title = '添加业务系统用户'
+      this.loadHangableTree().then(() => {
+        this.preselectHangFromLeftNav()
         this.$nextTick(() => {
           if (this.$refs.form && typeof this.$refs.form.clearValidate === 'function') {
             this.$refs.form.clearValidate()
           }
         })
-        this.loadSubOptions()
-        this.loadRegisterableApis().then(() => {
-          this.applyDefaultAddRegisterApi()
-        })
-      }).catch(() => {})
+      })
     },
     handleImport() {
       this.ensureSubSystemBoundBeforeAction('导入').then(() => {
@@ -841,7 +1020,12 @@ export default {
           return
         }
         const isAdd = !this.form.id
+        if (isAdd && !this.form.subSystemId) {
+          this.$modal.msgWarning('请选择挂接的业务系统/车间')
+          return
+        }
         const payload = Object.assign({}, this.form)
+        delete payload.hangLeafKey
         const apiSubSystemId = payload.apiSubSystemId
         const syncToExternal = !!payload.syncToExternal
         delete payload.apiSubSystemId
@@ -853,23 +1037,44 @@ export default {
           delete payload.teamId
           delete payload.postIds
         }
-        // 内联注册仅新增路径可走，checkbox 绑定为 boolean；编辑路径保留形态字段供手动维护外部关联
-        const usernameWithWorkshop = !!payload.usernameWithWorkshop
+        // 关联车间编号：统一落库为 0/1；同步注册时勾选「车间编号_工号」即 usernameWithWorkshop=1
+        const usernameWithWorkshop = payload.usernameWithWorkshop === '1' || payload.usernameWithWorkshop === true
+        payload.usernameWithWorkshop = usernameWithWorkshop ? '1' : '0'
         if (isAdd) {
-          delete payload.usernameWithWorkshop
-          // 新增时外部关联状态由系统管理，不随表单提交
+          // 新增时外部关联状态由注册结果回写，不随表单提交
           delete payload.employeeRegistered
         }
         delete payload.registeredApiType
         const shouldRegister = isAdd && syncToExternal && !!apiSubSystemId
         this.submitting = true
         const request = isAdd ? createSubSystemUser : updateSubSystemUser
-        request(payload).then(res => {
-          if (!shouldRegister) {
-            this.$modal.msgSuccess(isAdd ? '新增成功' : '修改成功')
-            this.open = false
+        const afterSaved = (msg) => {
+          this.$modal.msgSuccess(msg)
+          this.open = false
+          const sid = payload.subSystemId
+          const client = (this.clientList || []).find(c => c.id === sid)
+          if (isAdd) {
+            // 新增后按保存的车间定位列表，避免仍停在别的车间筛选里看不见新人
+            this.queryParams.workshopId = payload.workshopId || undefined
+            this.selectedWorkshop = null
+            if (client && (!this.selectedClient || this.selectedClient.id !== sid)) {
+              this.handleClientClick(client)
+              this.queryParams.workshopId = payload.workshopId || undefined
+              this.getList()
+            } else {
+              this.getList()
+              this.loadClientList()
+            }
+          } else if (client && (!this.selectedClient || this.selectedClient.id !== sid)) {
+            this.handleClientClick(client)
+          } else {
             this.getList()
             this.loadClientList()
+          }
+        }
+        request(payload).then(res => {
+          if (!shouldRegister) {
+            afterSaved(isAdd ? '新增成功' : '修改成功')
             return
           }
           return registerSubSystemEmployee({
@@ -882,15 +1087,21 @@ export default {
             const fail = results.filter(r => !r.success)
             if (fail.length) {
               this.$modal.msgError('用户已保存，但接口注册失败：' + (fail[0].message || '未知错误'))
-            } else {
-              this.$modal.msgSuccess('新增成功，已同步注册并关联外部人员')
+              this.open = false
+              this.getList()
+              this.loadClientList()
+              return
             }
-            this.open = false
-            this.getList()
-            this.loadClientList()
+            afterSaved('新增成功，已同步注册并关联外部人员')
           })
-        }).catch(() => {
-          this.$modal.msgError(isAdd ? '新增失败，请重试' : '修改失败，请重试')
+        }).catch(err => {
+          // request 拦截器已弹出后端 msg（如「用户名已存在」）；仅在无明确文案时再兜底
+          const msg = err && err.message && err.message !== 'error' ? err.message : ''
+          if (!msg || msg === '系统异常') {
+            this.$modal.msgError(isAdd
+              ? '新增失败：请确认该车间下用户名未重复，或查看后端日志'
+              : '修改失败，请重试')
+          }
         }).finally(() => {
           this.submitting = false
         })
@@ -936,6 +1147,7 @@ export default {
       this.roleForm = {
         id: row.id,
         nickname: row.nickname,
+        workshopId: row.workshopId || '',
         roleIds: [],
         syncToExternal: true,
         apiSubSystemId: undefined
@@ -959,10 +1171,24 @@ export default {
       if (!item) {
         return ''
       }
-      if (this.roleForm.syncToExternal && !item.externalRoleId) {
-        return item.name + '（未关联外部）'
+      let label = item.name
+      if (item.workshopCode) {
+        label += '（车间 ' + item.workshopCode + '）'
       }
-      return item.name
+      if (this.roleForm.syncToExternal && !item.externalRoleId) {
+        return label + '（未关联外部）'
+      }
+      return label
+    },
+    /** 车间叶子下：禁选其它车间编号的角色（未打车间的角色如超管可选） */
+    roleOptionDisabled(item) {
+      if (!this.roleForm.workshopId || !item) {
+        return false
+      }
+      if (!item.workshopCode) {
+        return false
+      }
+      return String(item.workshopCode) !== String(this.roleForm.workshopId)
     },
     /** 接口目标默认带出本花名册系统已启用的人员接口；没有同系统配置且只有一个目标时用那一个 */
     applyDefaultAssignApi(rosterSubSystemId) {
@@ -974,6 +1200,17 @@ export default {
       }
     },
     submitRole() {
+      // 车间叶子下：已选角色不能是其它车间的（历史勾选也拦一道，与后端校验一致）
+      if (this.roleForm.workshopId) {
+        const bad = (this.roleForm.roleIds || []).some(id => {
+          const role = this.roleOptions.find(r => r.id === id)
+          return role && role.workshopCode && String(role.workshopCode) !== String(this.roleForm.workshopId)
+        })
+        if (bad) {
+          this.$modal.msgError('请只选择当前车间「' + this.roleForm.workshopId + '」下的角色')
+          return
+        }
+      }
       if (this.roleForm.syncToExternal && !this.roleForm.apiSubSystemId) {
         this.$modal.msgError('勾选同步外部时请选择接口目标')
         return
@@ -1162,6 +1399,36 @@ export default {
   overflow-y: auto;
 }
 
+.sub-system-item {
+  padding: 12px 14px;
+  margin-bottom: 8px;
+  border: 1px solid #ebeef5;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover,
+  &.is-active {
+    border-color: #409eff;
+    background: #ecf5ff;
+  }
+
+  &__name {
+    font-size: 14px;
+    font-weight: 600;
+    color: #303133;
+    margin-bottom: 6px;
+  }
+
+  &__meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #909399;
+  }
+}
+
 .form-tip {
   color: #909399;
   font-size: 12px;
@@ -1192,35 +1459,5 @@ export default {
   color: #909399;
   font-size: 12px;
   word-break: break-all;
-}
-
-.sub-system-item {
-  padding: 12px 14px;
-  margin-bottom: 8px;
-  border: 1px solid #ebeef5;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: all 0.2s;
-
-  &:hover,
-  &.is-active {
-    border-color: #409eff;
-    background: #ecf5ff;
-  }
-
-  &__name {
-    font-size: 14px;
-    font-weight: 600;
-    color: #303133;
-    margin-bottom: 6px;
-  }
-
-  &__meta {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 12px;
-    color: #909399;
-  }
 }
 </style>

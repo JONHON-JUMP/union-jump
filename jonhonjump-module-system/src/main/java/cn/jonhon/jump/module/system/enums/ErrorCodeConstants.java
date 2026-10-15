@@ -57,8 +57,8 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_IMPORT_NOT_BOUND = new ErrorCode(1_002_003_032, "请先选择并关联已登记的业务系统，确认后再导入");
     ErrorCode SUB_SYSTEM_IMPORT_LIST_EMPTY = new ErrorCode(1_002_003_033, "导入数据不能为空");
     ErrorCode SUB_SYSTEM_USER_NOT_EXISTS = new ErrorCode(1_002_003_012, "业务系统用户不存在");
-    ErrorCode SUB_SYSTEM_USER_EXISTS = new ErrorCode(1_002_003_013, "该用户已关联此业务系统");
-    ErrorCode SUB_SYSTEM_USER_USERNAME_EXISTS = new ErrorCode(1_002_003_035, "该业务系统下用户名已存在");
+    ErrorCode SUB_SYSTEM_USER_EXISTS = new ErrorCode(1_002_003_013, "该用户已关联此业务系统（系统级挂接）");
+    ErrorCode SUB_SYSTEM_USER_USERNAME_EXISTS = new ErrorCode(1_002_003_035, "该业务系统叶子下用户名已存在（不同车间可挂同一工号；同一车间不可重复）");
     ErrorCode SUB_SYSTEM_USER_USERNAME_NOT_FOUND = new ErrorCode(1_002_003_036, "业务系统中不存在同名用户，请先在业务系统用户中导入或新增");
     ErrorCode SUB_SYSTEM_USER_MAIN_BOUND = new ErrorCode(1_002_003_037, "该业务系统用户已关联其他主系统用户");
     ErrorCode SUB_SYSTEM_NOT_EXISTS = new ErrorCode(1_002_003_014, "业务系统不存在");
@@ -68,12 +68,23 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_ROLE_HAS_USERS = new ErrorCode(1_002_003_018, "业务系统角色已分配用户，无法删除");
     ErrorCode SUB_SYSTEM_ROLE_ALREADY_REGISTERED = new ErrorCode(1_002_003_045, "该角色已接口注册，无需重复推送");
     ErrorCode SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED = new ErrorCode(1_002_003_046, "同步到业务系统时请选择车间");
+    ErrorCode SUB_SYSTEM_USER_ROLE_WORKSHOP_MISMATCH = new ErrorCode(1_002_003_069, "角色【{0}】的车间与该人员挂接的车间（{1}）不一致，请选择该车间的角色");
+    ErrorCode SUB_SYSTEM_USER_WORKSHOP_LEAF_REQUIRED = new ErrorCode(1_002_003_070, "请选择业务系统子表中的叶子，不能直接挂主表系统");
+    ErrorCode SUB_SYSTEM_USER_WORKSHOP_LEAF_INVALID = new ErrorCode(1_002_003_071, "所选叶子不在 sub_system_workshop 子表中");
+    ErrorCode SUB_SYSTEM_USER_WORKSHOP_EXISTS = new ErrorCode(1_002_003_072, "该用户已关联此业务系统下的该叶子");
+    ErrorCode SUB_SYSTEM_USER_WORKSHOP_LEAF_MISSING = new ErrorCode(1_002_003_073, "该业务系统尚未配置子表叶子，请先在「业务系统叶子」中维护");
+    ErrorCode SUB_SYSTEM_WORKSHOP_NOT_EXISTS = new ErrorCode(1_002_003_074, "业务系统叶子不存在");
+    ErrorCode SUB_SYSTEM_WORKSHOP_CODE_DUPLICATE = new ErrorCode(1_002_003_075, "叶子编号【{}】已存在");
+    ErrorCode SUB_SYSTEM_WORKSHOP_HAS_USERS = new ErrorCode(1_002_003_076, "该叶子下仍有业务用户，无法删除或改编号");
+    ErrorCode SUB_SYSTEM_WORKSHOP_HAS_ROLES = new ErrorCode(1_002_003_077, "该叶子下仍有业务角色，无法删除或改编号");
     ErrorCode SUB_SYSTEM_ROLE_NAME_WORKSHOP_INVALID = new ErrorCode(1_002_003_047, "角色名称无法解析车间前缀，请选择车间后再注册");
     ErrorCode SUB_SYSTEM_MENU_NOT_EXISTS = new ErrorCode(1_002_003_019, "业务系统菜单不存在");
     ErrorCode SUB_SYSTEM_MENU_EXISTS_CHILDREN = new ErrorCode(1_002_003_020, "存在子菜单，无法删除");
     ErrorCode SUB_SYSTEM_MENU_HAS_ROLES = new ErrorCode(1_002_003_021, "业务系统菜单已分配角色，无法删除");
     ErrorCode SUB_SYSTEM_MENU_HAS_QUICK_NAV = new ErrorCode(1_002_003_042, "业务系统菜单已配置快捷导航，请先取消快捷导航后再删除");
     ErrorCode SUB_SYSTEM_ROLE_MENU_HAS_QUICK_NAV = new ErrorCode(1_002_003_043, "取消的菜单中包含角色快捷导航，请先取消快捷导航后再调整菜单权限");
+    ErrorCode SUB_SYSTEM_USER_QUICK_NAV_SAVE_FAIL = new ErrorCode(1_002_003_078,
+            "快捷导航保存失败：请确认已执行 sql/postgresql/sub_system_user_quick_nav_workshop.sql（workshop_code 列与按叶子唯一索引）");
     ErrorCode SUB_SYSTEM_COMMON_MENU_COPY_HAS_CHILDREN = new ErrorCode(1_002_003_044, "业务系统「{}」下有菜单挂在通用菜单副本之下，请先移走后再调整挂载");
     ErrorCode SUB_SYSTEM_MENU_NAME_DUPLICATE = new ErrorCode(1_002_003_022, "已经存在该名字的菜单");
     ErrorCode SUB_SYSTEM_MENU_PARENT_NOT_EXISTS = new ErrorCode(1_002_003_023, "父菜单不存在");

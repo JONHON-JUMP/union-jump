@@ -356,6 +356,10 @@ export default {
       type: Number,
       default: 0
     },
+    workshopCode: {
+      type: String,
+      default: ''
+    },
     systemKey: {
       type: String,
       default: 'main'
@@ -574,10 +578,12 @@ export default {
           this.subSystemId,
           lockedMenuIds,
           configured,
-          baseMenuIds
+          baseMenuIds,
+          this.workshopCode
         )
         this.$store.dispatch('portal/applyQuickNavConfig', {
           subSystemId: this.subSystemId,
+          workshopCode: this.workshopCode,
           config
         })
         const menuIds = (config && config.menuIds) || []

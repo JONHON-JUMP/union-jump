@@ -143,6 +143,7 @@ public class SubSystemServiceImpl implements SubSystemService {
         subSystem.setClientId(clientId);
         // 打开页面已不走 OAuth，登记只写业务系统本身；图标可空。
         subSystem.setOauth2ClientId(null);
+        subSystem.setWorkshopScopeEnabled(Boolean.TRUE.equals(createReqVO.getWorkshopScopeEnabled()) ? 1 : 0);
         try {
             subSystemMapper.insert(subSystem);
         } catch (DuplicateKeyException ex) {
@@ -226,6 +227,7 @@ public class SubSystemServiceImpl implements SubSystemService {
         SubSystemDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemDO.class);
         updateObj.setClientId(clientId);
         updateObj.setOauth2ClientId(null);
+        updateObj.setWorkshopScopeEnabled(Boolean.TRUE.equals(updateReqVO.getWorkshopScopeEnabled()) ? 1 : 0);
         try {
             subSystemMapper.updateById(updateObj);
         } catch (DuplicateKeyException ex) {
@@ -382,6 +384,7 @@ public class SubSystemServiceImpl implements SubSystemService {
 
         SubSystemRespVO vo = BeanUtils.toBean(subSystem, SubSystemRespVO.class);
         vo.setClientId(subSystem.resolvePortalClientId(client != null ? client.getClientId() : null));
+        vo.setWorkshopScopeEnabled(subSystem.isWorkshopScopeEnabled());
 
         if (client != null) {
 

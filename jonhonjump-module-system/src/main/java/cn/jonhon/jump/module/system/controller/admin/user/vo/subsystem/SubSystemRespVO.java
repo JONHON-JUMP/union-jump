@@ -33,6 +33,9 @@ public class SubSystemRespVO {
     @Schema(description = "状态")
     private Integer status;
 
+    @Schema(description = "是否启用车间作用域")
+    private Boolean workshopScopeEnabled;
+
     @Schema(description = "创建时间")
     private LocalDateTime createTime;
 

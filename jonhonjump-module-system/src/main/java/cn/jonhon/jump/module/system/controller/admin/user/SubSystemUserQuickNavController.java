@@ -28,15 +28,17 @@ public class SubSystemUserQuickNavController {
     @GetMapping("/list")
     @Operation(summary = "获得当前用户在指定外部子系统的快捷导航配置")
     @Parameter(name = "subSystemId", description = "外部子系统编号", required = true)
-    public CommonResult<SubSystemUserQuickNavRespVO> getUserQuickNavList(@RequestParam("subSystemId") Long subSystemId) {
-        return success(subSystemUserQuickNavService.getUserQuickNav(getLoginUserId(), subSystemId));
+    public CommonResult<SubSystemUserQuickNavRespVO> getUserQuickNavList(
+            @RequestParam("subSystemId") Long subSystemId,
+            @RequestParam(value = "workshopCode", required = false) String workshopCode) {
+        return success(subSystemUserQuickNavService.getUserQuickNav(getLoginUserId(), subSystemId, workshopCode));
     }
 
     @PutMapping("/save")
     @Operation(summary = "保存当前用户在指定外部子系统的快捷导航配置")
     public CommonResult<SubSystemUserQuickNavRespVO> saveUserQuickNav(@Valid @RequestBody SubSystemUserQuickNavSaveReqVO reqVO) {
         return success(subSystemUserQuickNavService.saveUserQuickNav(
-                getLoginUserId(), reqVO.getSubSystemId(), reqVO.getMenuIds()));
+                getLoginUserId(), reqVO.getSubSystemId(), reqVO.getMenuIds(), reqVO.getWorkshopCode()));
     }
 
     @PostMapping("/sync-from-role")

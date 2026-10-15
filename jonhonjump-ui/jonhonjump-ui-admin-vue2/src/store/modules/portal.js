@@ -23,7 +23,7 @@ import {
   clearPersistedPortalCache
 } from '@/utils/portalMenuCache'
 import { syncPortalIframeView } from '@/utils/portalIframe'
-import { resolveRuleBasedPortalDefault } from '@/utils/portalSubsystem'
+import { resolveRuleBasedPortalDefault, resolveClientIdInSystemList } from '@/utils/portalSubsystem'
 import {
   buildQuickNavScopeKey,
   getQuickNavCache,
@@ -244,14 +244,44 @@ const mutations = {
 }
 
 const actions = {
-  loadSystemList({ commit }) {
+  loadSystemList({ commit, state, dispatch }) {
     return getMyExternalSystemList().then(res => {
-      commit('SET_SYSTEM_LIST', res.data || [])
+      const list = res.data || []
+      commit('SET_SYSTEM_LIST', list)
       // 注册各子系统对接用户名（clientId/subSystemId 主键 + origin/host 兜底）：
       // 切换系统时按"选择的系统"种对应身份的 Camstar Cookie（车间_工号 或 工号）
-      registerExternalUsernames(res.data)
-      return res.data || []
+      registerExternalUsernames(list)
+      // 已在某叶子：列表就绪后立刻按该叶子重写 Cookie（F5/迟到 my-list 时避免仍带着上一车间）
+      const current = state.currentSystem
+      if (current && current !== 'main') {
+        const sys = findPortalSystemEntry({ systemList: list }, current)
+        if (sys) {
+          refreshCamstarCookieForSystem(sys)
+        }
+      }
+      // 叶子拆分/列表变更后，会话里旧 clientId（如 HKMES）可能已不存在 → 对齐或回门户，避免快捷导航空白
+      return dispatch('reconcileCurrentSystemWithList', list).then(() => list)
     })
+  },
+
+  /**
+   * 当前系统不在可切换列表时：按 mesClientId/前缀映射到新入口，否则回统一门户。
+   */
+  reconcileCurrentSystemWithList({ commit, state, dispatch }, systemList) {
+    const list = systemList || state.systemList || []
+    const current = state.currentSystem || 'main'
+    if (current === 'main') {
+      return Promise.resolve('main')
+    }
+    const resolved = resolveClientIdInSystemList(list, current)
+    if (resolved && resolved === current) {
+      return Promise.resolve(current)
+    }
+    if (resolved && resolved !== 'main') {
+      return dispatch('activateSubSystemShell', { clientId: resolved })
+    }
+    // 彻底失效：回统一门户，清掉错误会话，恢复主系统快捷导航
+    return dispatch('enterMainSystem', { stayOnPortalHome: true, skipNavigate: true })
   },
 
   /**
@@ -260,9 +290,10 @@ const actions = {
    */
   loadQuickNavConfig({ state, commit }, payload = {}) {
     const subSystemId = Number(payload.subSystemId) || 0
+    const workshopCode = payload.workshopCode == null ? '' : String(payload.workshopCode).trim()
     const force = !!payload.force
     const cacheKey = subSystemId > 0
-      ? buildQuickNavScopeKey('x', subSystemId)
+      ? buildQuickNavScopeKey('x', subSystemId, workshopCode)
       : 'main'
     if (!force && state.quickNavInFlight[cacheKey]) {
       return state.quickNavInFlight[cacheKey]
@@ -279,7 +310,7 @@ const actions = {
       commit('SET_QUICK_NAV_SYNCING', true)
     }
     const request = subSystemId > 0
-      ? getSubSystemUserQuickNavList(subSystemId)
+      ? getSubSystemUserQuickNavList(subSystemId, workshopCode || undefined)
       : getUserQuickNavList()
     const task = request.then(res => {
       // 过期响应：绝不回写 stale data，否则保存加星后会被旧 GET 立刻盖掉
@@ -340,8 +371,9 @@ const actions = {
    */
   applyQuickNavConfig({ state }, payload = {}) {
     const subSystemId = Number(payload.subSystemId) || 0
+    const workshopCode = payload.workshopCode == null ? '' : String(payload.workshopCode).trim()
     const cacheKey = subSystemId > 0
-      ? buildQuickNavScopeKey('x', subSystemId)
+      ? buildQuickNavScopeKey('x', subSystemId, workshopCode)
       : 'main'
     const raw = payload.config || {}
     const hasAppsField = Object.prototype.hasOwnProperty.call(raw, 'apps')
@@ -414,10 +446,11 @@ const actions = {
     ]).then(([list, defaultConfig]) => {
       const targetSystem = resolveBootstrapTargetSystem(list, defaultConfig)
       const subSystemId = resolveQuickNavSubSystemIdFromList(list, targetSystem)
+      const workshopCode = resolveWorkshopCodeFromList(list, targetSystem)
       // 默认系统快捷导航与切壳并行；都完成再放行首页，避免先进页再等卡片
       // 只等 quick-nav（通常 Redis），不等全量菜单
       return Promise.all([
-        dispatch('loadQuickNavConfig', { subSystemId }).catch(err => {
+        dispatch('loadQuickNavConfig', { subSystemId, workshopCode }).catch(err => {
           console.warn('[portal] bootstrap quick-nav prefetch failed:', err)
           return {}
         }),
@@ -591,6 +624,7 @@ const actions = {
           }
           return dispatch('loadQuickNavConfig', {
             subSystemId: Number(subSystemId),
+            workshopCode: matched && matched.workshopId ? String(matched.workshopId).trim() : '',
             force: true
           }).catch(() => null)
         }).catch(err => {
@@ -659,13 +693,11 @@ const actions = {
       commit('SET_PORTAL_PATH_LINKS', sanitizePathLinkMap(cachedLinks))
     }
     // 切换系统立刻按该系统花名册身份重写 Camstar Cookie（拼接车间 → 车间_工号；不拼接 → 工号）
-    const sys = (state.systemList || []).find(item =>
-      item && (item.clientId === key || String(item.subSystemId) === String(key))
-    )
+    // 同 subSystemId 多叶子时禁止按 subSystemId 取第一条（会种成别的车间身份）
+    // 列表尚未命中时不要 ensure 裸工号，保留上一系统已种身份，等 my-list / refresh 纠正
+    const sys = findPortalSystemEntry(state, key)
     if (sys) {
       refreshCamstarCookieForSystem(sys)
-    } else {
-      ensureLocalCamstarCookie(undefined, key)
     }
     // 主系统侧栏快照后台做，绝不挡本次打开
     dispatch('cacheMainSidebar').catch(() => {})
@@ -798,11 +830,18 @@ const actions = {
       const targetSystem = ref.clientId
       const currentSystem = state.currentSystem
       const subSystemId = Number(ref.subSystemId) || 0
+      const workshopCode = ref.system && ref.system.workshopId
+        ? String(ref.system.workshopId).trim()
+        : ''
       if (!skipPersist) {
         persistPortalSystemChoice(targetSystem)
       }
+      // 异步拉快捷导航之前先种目标叶子 Cookie，避免同址多车间仍带着上一车间身份去开页
+      if (ref.system) {
+        refreshCamstarCookieForSystem(ref.system)
+      }
       // 先拉目标子系统快捷导航再切壳；全量 my-menus / SSO 仍后台
-      return dispatch('loadQuickNavConfig', { subSystemId }).catch(err => {
+      return dispatch('loadQuickNavConfig', { subSystemId, workshopCode }).catch(err => {
         console.warn('[portal] switch sub quick-nav failed:', err)
         return {}
       }).then(() => dispatch('cacheMainSidebar')).then(() => {
@@ -1085,7 +1124,8 @@ const actions = {
         return Promise.reject(new Error('无权访问该业务系统'))
       }
       const subSystemId = Number(target.subSystemId)
-      return getMyPortalMenus(subSystemId).then(res => {
+      const workshopCode = target.workshopId ? String(target.workshopId).trim() : ''
+      return getMyPortalMenus(subSystemId, workshopCode || undefined).then(res => {
         const menus = res.data || []
         if (menus.length === 0) {
           return Promise.reject(new Error('该业务系统暂无可用菜单'))
@@ -1243,8 +1283,13 @@ function resolveBootstrapTargetSystem(systemList, defaultConfig) {
     if (persisted === 'main') {
       return 'main'
     }
-    if (persisted && list.some(item => item.clientId === persisted)) {
-      return persisted
+    const resolved = resolveClientIdInSystemList(list, persisted)
+    if (resolved && resolved !== 'main') {
+      // 旧 clientId 映射到新叶子入口时，写回会话，避免芯片继续显示 HKMES
+      if (resolved !== persisted) {
+        persistPortalSystemChoice(resolved)
+      }
+      return resolved
     }
   }
   // 仅「重新登录 / 会话已清空」时才用星标或规则默认
@@ -1258,6 +1303,15 @@ function resolveQuickNavSubSystemIdFromList(systemList, systemKey) {
   }
   const sys = (systemList || []).find(item => item.clientId === systemKey)
   return sys && sys.subSystemId != null ? Number(sys.subSystemId) || 0 : 0
+}
+
+/** MES 车间拆分入口的车间编号；非拆分入口为空 */
+function resolveWorkshopCodeFromList(systemList, systemKey) {
+  if (!systemKey || systemKey === 'main') {
+    return ''
+  }
+  const sys = (systemList || []).find(item => item.clientId === systemKey)
+  return sys && sys.workshopId ? String(sys.workshopId).trim() : ''
 }
 
 function resolvePortalBootstrapSystem(defaultConfig, systemList) {
@@ -1413,7 +1467,23 @@ function findSystemByClientId(state, clientId) {
 }
 
 function findSystemBySubSystemId(state, subSystemId) {
-  return (state.systemList || []).find(item => Number(item.subSystemId) === Number(subSystemId)) || null
+  const hits = (state.systemList || []).filter(item => Number(item.subSystemId) === Number(subSystemId))
+  if (hits.length === 1) {
+    return hits[0]
+  }
+  return null
+}
+
+/** 切换/种 Cookie：必须精确到门户入口 clientId；同系统多叶子不可用 subSystemId 瞎匹配 */
+function findPortalSystemEntry(state, key) {
+  if (!key || key === 'main') {
+    return null
+  }
+  const byClient = findSystemByClientId(state, key)
+  if (byClient) {
+    return byClient
+  }
+  return findSystemBySubSystemId(state, key)
 }
 
 function resolveSystemRef(state, ref) {

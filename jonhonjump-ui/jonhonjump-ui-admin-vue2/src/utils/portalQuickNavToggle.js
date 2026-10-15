@@ -65,8 +65,8 @@ function normalizeSavedConfig(data, fallbackMenuIds) {
   }
 }
 
-function scopeKeyOf(subSystemId = 0) {
-  return subSystemId > 0 ? buildQuickNavScopeKey('x', subSystemId) : 'main'
+function scopeKeyOf(subSystemId = 0, workshopCode = '') {
+  return subSystemId > 0 ? buildQuickNavScopeKey('x', subSystemId, workshopCode) : 'main'
 }
 
 function withSaveLock(scopeKey, runner) {
@@ -80,13 +80,18 @@ function withSaveLock(scopeKey, runner) {
   return task
 }
 
-async function persistMenuIdsUnlocked(menuIds, subSystemId = 0) {
+async function persistMenuIdsUnlocked(menuIds, subSystemId = 0, workshopCode = '') {
   const ids = normalizeQuickNavMenuIds(menuIds)
+  const workshop = workshopCode == null ? '' : String(workshopCode).trim()
   const res = subSystemId > 0
-    ? await saveSubSystemUserQuickNav({ subSystemId, menuIds: ids })
+    ? await saveSubSystemUserQuickNav({
+      subSystemId,
+      workshopCode: workshop || undefined,
+      menuIds: ids
+    })
     : await saveUserQuickNav({ menuIds: ids })
   const config = normalizeSavedConfig(res && res.data, ids)
-  setQuickNavCache(scopeKeyOf(subSystemId), config.menuIds, config.configured, config.lockedMenuIds, config.apps)
+  setQuickNavCache(scopeKeyOf(subSystemId, workshop), config.menuIds, config.configured, config.lockedMenuIds, config.apps)
   return config
 }
 
@@ -94,16 +99,18 @@ async function persistMenuIdsUnlocked(menuIds, subSystemId = 0) {
  * 保存快捷导航，返回服务端权威结果（含锁定合并后的 menuIds）。
  * 显式全量写入会串行排队；若队列前有其它保存，仍以本次传入列表为准（用于拖拽排序）。
  */
-export function saveQuickNavMenuIds(menuIds, subSystemId = 0) {
-  return withSaveLock(scopeKeyOf(subSystemId), () => persistMenuIdsUnlocked(menuIds, subSystemId))
+export function saveQuickNavMenuIds(menuIds, subSystemId = 0, workshopCode = '') {
+  const workshop = workshopCode == null ? '' : String(workshopCode).trim()
+  return withSaveLock(scopeKeyOf(subSystemId, workshop), () => persistMenuIdsUnlocked(menuIds, subSystemId, workshop))
 }
 
 /**
  * 开关单个菜单：在锁内基于最新缓存计算，避免「取消后再收藏」用旧列表把已取消项写回。
  */
-export function toggleQuickNavMenu(menuId, menuIds, subSystemId = 0, lockedMenuIds = [], configured = true, displayedMenuIds = []) {
+export function toggleQuickNavMenu(menuId, menuIds, subSystemId = 0, lockedMenuIds = [], configured = true, displayedMenuIds = [], workshopCode = '') {
   const numId = Number(menuId)
-  const scopeKey = scopeKeyOf(subSystemId)
+  const workshop = workshopCode == null ? '' : String(workshopCode).trim()
+  const scopeKey = scopeKeyOf(subSystemId, workshop)
   return withSaveLock(scopeKey, async () => {
     const cached = getQuickNavCache(scopeKey)
     const baseMenuIds = cached && Array.isArray(cached.menuIds) ? cached.menuIds : menuIds
@@ -122,16 +129,17 @@ export function toggleQuickNavMenu(menuId, menuIds, subSystemId = 0, lockedMenuI
     } else {
       ids.push(numId)
     }
-    return persistMenuIdsUnlocked(ids, subSystemId)
+    return persistMenuIdsUnlocked(ids, subSystemId, workshop)
   })
 }
 
 /**
  * 取消单个菜单：锁内基于最新缓存删除，供首页快捷导航取消订阅使用。
  */
-export function removeQuickNavMenuId(menuId, menuIds, subSystemId = 0, lockedMenuIds = [], configured = true, displayedMenuIds = []) {
+export function removeQuickNavMenuId(menuId, menuIds, subSystemId = 0, lockedMenuIds = [], configured = true, displayedMenuIds = [], workshopCode = '') {
   const numId = Number(menuId)
-  const scopeKey = scopeKeyOf(subSystemId)
+  const workshop = workshopCode == null ? '' : String(workshopCode).trim()
+  const scopeKey = scopeKeyOf(subSystemId, workshop)
   return withSaveLock(scopeKey, async () => {
     const cached = getQuickNavCache(scopeKey)
     const baseMenuIds = cached && Array.isArray(cached.menuIds) ? cached.menuIds : menuIds
@@ -144,6 +152,6 @@ export function removeQuickNavMenuId(menuId, menuIds, subSystemId = 0, lockedMen
       ? displayedMenuIds
       : baseMenuIds
     const ids = removeFromQuickNavMenuIds(baseMenuIds, baseConfigured, displayBase, numId)
-    return persistMenuIdsUnlocked(ids, subSystemId)
+    return persistMenuIdsUnlocked(ids, subSystemId, workshop)
   })
 }
