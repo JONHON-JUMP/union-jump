@@ -223,6 +223,32 @@ export function parsePortalClientId(path) {
   return match ? match[1] : null
 }
 
+/**
+ * 一套 MES 多叶子时，sub_system_workshop 每一行是一个逻辑系统（如 HKMES_5500）。
+ * 快捷导航若仍写成父系统 /portal/HKMES/...，打开菜单会把当前叶子切掉。
+ * 当前已在某一叶子上时，把父系统路径改写到该叶子，关菜单后仍停在这一行。
+ */
+export function alignPortalPathToCurrentLeaf(path, systemList, currentSystem) {
+  const pathClientId = parsePortalClientId(path)
+  if (!path || !pathClientId || !currentSystem || currentSystem === 'main' || pathClientId === currentSystem) {
+    return path
+  }
+  const current = (systemList || []).find(item => item && item.clientId === currentSystem)
+  if (!current) {
+    return path
+  }
+  const mesClientId = current.mesClientId ? String(current.mesClientId) : ''
+  const sameMes = pathClientId === mesClientId || String(currentSystem).indexOf(pathClientId + '_') === 0
+  if (!sameMes) {
+    return path
+  }
+  const from = `/portal/${pathClientId}`
+  if (path !== from && path.indexOf(from + '/') !== 0) {
+    return path
+  }
+  return `/portal/${currentSystem}` + path.slice(from.length)
+}
+
 /** 兼容旧链接 /portal/1/... */
 export function parseLegacyPortalSubSystemId(path) {
   const match = (path || '').match(/^\/portal\/(\d+)(?:\/|$)/)

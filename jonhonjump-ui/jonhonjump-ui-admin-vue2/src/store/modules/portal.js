@@ -680,6 +680,16 @@ const actions = {
    */
   activateSubSystemShell({ commit, dispatch, state }, { clientId, skipPersist }) {
     const key = normalizeSystemKey(clientId)
+    // 路径里若是父 MES 编号（HKMES），不能把当前车间叶子（HKMES_5500）切掉
+    const listed = findSystemByClientId(state, key)
+    if (!listed && key && key !== 'main') {
+      const current = state.currentSystem
+      const currentEntry = findSystemByClientId(state, current)
+      const mesClientId = currentEntry && currentEntry.mesClientId ? String(currentEntry.mesClientId) : ''
+      if (currentEntry && (mesClientId === key || String(current).indexOf(key + '_') === 0)) {
+        return Promise.resolve(current)
+      }
+    }
     if (!skipPersist) {
       persistPortalSystemChoice(key)
     }

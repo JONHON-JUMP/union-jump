@@ -26,6 +26,14 @@ public interface SubSystemWorkshopMapper extends BaseMapperX<SubSystemWorkshopDO
                 .orderByDesc(SubSystemWorkshopDO::getId));
     }
 
+    default List<SubSystemWorkshopDO> selectEnabledBySubSystemId(Long subSystemId) {
+        return selectList(new LambdaQueryWrapperX<SubSystemWorkshopDO>()
+                .eq(SubSystemWorkshopDO::getSubSystemId, subSystemId)
+                .eq(SubSystemWorkshopDO::getStatus, 0)
+                .orderByAsc(SubSystemWorkshopDO::getSort)
+                .orderByAsc(SubSystemWorkshopDO::getWorkshopCode));
+    }
+
     default List<SubSystemWorkshopDO> selectEnabledList() {
         return selectList(new LambdaQueryWrapperX<SubSystemWorkshopDO>()
                 .eq(SubSystemWorkshopDO::getStatus, 0)

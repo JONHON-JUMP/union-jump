@@ -3,6 +3,7 @@ import store from './store'
 import { Message } from 'element-ui'
 import {
   parsePortalClientId,
+  alignPortalPathToCurrentLeaf,
   parseLegacyPortalSubSystemId,
   resolvePortalFrameRoute,
   isPortalSubSystemHomePath,
@@ -163,6 +164,26 @@ function isDirectExternalPortalTarget(to) {
   return true
 }
 
+/** 父 MES 路径改写到当前车间叶子后再放行，避免关菜单掉回统一门户 */
+function redirectPortalPathToCurrentLeaf(to, next) {
+  const aligned = alignPortalPathToCurrentLeaf(
+    to && to.path,
+    store.state.portal.systemList,
+    store.state.portal.currentSystem
+  )
+  if (!aligned || aligned === to.path) {
+    return false
+  }
+  next({
+    path: aligned,
+    query: to.query,
+    hash: to.hash,
+    replace: true
+  })
+  NProgress.done()
+  return true
+}
+
 function ensurePortalAccess(to, next) {
   const clientId = parsePortalClientId(to.path)
   if (!clientId) {
@@ -295,6 +316,9 @@ function ensurePortalBootstrap() {
 function continueNavigation(to, from, next) {
   // 必须等 bootstrap 切壳完成后再放行，避免先按错误系统渲染再跳
   ensurePortalBootstrap().then(() => {
+    if (redirectPortalPathToCurrentLeaf(to, next)) {
+      return
+    }
     clearDockOnPortalHome(to, from).then(() => {
       return enforceSystemScope(to, next)
     }).then(scopeHandled => {
@@ -346,6 +370,9 @@ router.beforeEach((to, from, next) => {
           // permWatch 已停用：菜单/权限变更靠后端 cache-aside（改数据删 Redis）+ 用户刷新页面获取
 
           const finishNavigation = () => {
+            if (redirectPortalPathToCurrentLeaf(to, next)) {
+              return
+            }
             enforceSystemScope(to, next).then(scopeHandled => {
               if (scopeHandled) {
                 return

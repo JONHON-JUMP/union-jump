@@ -18,7 +18,9 @@ import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMenuMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemRoleQuickNavMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUserQuickNavMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUserRoleMapper;
+import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemWorkshopDO;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUsersMapper;
+import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemWorkshopMapper;
 import cn.jonhon.jump.module.system.dal.redis.user.SubSystemUserQuickNavRedisDAO;
 import cn.jonhon.jump.module.system.dal.redis.user.SubSystemUserQuickNavRedisDAO.SubSystemQuickNavCacheKey;
 import cn.jonhon.jump.module.system.service.permission.MenuColorService;
@@ -72,6 +74,8 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
     private SubSystemMenuMapper subSystemMenuMapper;
     @Resource
     private SubSystemMapper subSystemMapper;
+    @Resource
+    private SubSystemWorkshopMapper subSystemWorkshopMapper;
     @Resource
     private OAuth2ClientMapper oauth2ClientMapper;
     @Resource
@@ -127,7 +131,7 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
         List<Long> displayMenuIds = mergeLockedMenuIds(result.getMenuIds(), lockedMenuIds);
         result.setMenuIds(displayMenuIds);
         result.setLockedMenuIds(lockedMenuIds);
-        result.setApps(buildQuickNavApps(subSystemId, displayMenuIds));
+        result.setApps(buildQuickNavApps(subSystemId, displayMenuIds, workshop));
         subSystemUserQuickNavRedisDAO.set(userId, subSystemId, workshop, result);
         return result;
     }
@@ -172,7 +176,7 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
                 subSystemUserQuickNavMapper.insert(record);
             }
             SubSystemUserQuickNavRespVO result = new SubSystemUserQuickNavRespVO(validMenuIds, true, lockedMenuIds);
-            result.setApps(buildQuickNavApps(subSystemId, validMenuIds));
+            result.setApps(buildQuickNavApps(subSystemId, validMenuIds, workshop));
             subSystemUserQuickNavRedisDAO.set(userId, subSystemId, workshop, result);
             return result;
         } catch (DataAccessException ex) {
@@ -446,9 +450,35 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
     }
 
     /**
+     * 门户入口编号与切换列表一致：sub_system_workshop 多行时，一行一个逻辑系统，编号为 父clientId_车间编号。
+     */
+    private String resolvePortalEntryClientId(SubSystemDO subSystem, String oauthClientId, String workshopCode) {
+        String mesClientId = subSystem.resolvePortalClientId(oauthClientId);
+        if (StrUtil.isBlank(mesClientId) || subSystem.getId() == null) {
+            return mesClientId;
+        }
+        String workshop = StrUtil.trim(workshopCode);
+        List<SubSystemWorkshopDO> leaves;
+        try {
+            leaves = subSystemWorkshopMapper.selectEnabledBySubSystemId(subSystem.getId());
+        } catch (Exception ex) {
+            log.debug("[resolvePortalEntryClientId] workshop lookup skip: {}", ex.toString());
+            return mesClientId;
+        }
+        if (CollUtil.isEmpty(leaves) || leaves.size() <= 1 || StrUtil.isBlank(workshop)) {
+            return mesClientId;
+        }
+        boolean known = leaves.stream().anyMatch(row -> workshop.equals(StrUtil.trim(row.getWorkshopCode())));
+        if (!known) {
+            return mesClientId;
+        }
+        return mesClientId + "_" + workshop;
+    }
+
+    /**
      * 仅按快捷导航勾选的菜单 id 组装可渲染卡片，不拉整棵 my-menus。
      */
-    private List<QuickNavAppItemVO> buildQuickNavApps(Long subSystemId, List<Long> menuIds) {
+    private List<QuickNavAppItemVO> buildQuickNavApps(Long subSystemId, List<Long> menuIds, String workshopCode) {
         if (CollUtil.isEmpty(menuIds) || subSystemId == null) {
             return Collections.emptyList();
         }
@@ -458,7 +488,7 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
         }
         OAuth2ClientDO client = subSystem.getOauth2ClientId() == null
                 ? null : oauth2ClientMapper.selectById(subSystem.getOauth2ClientId());
-        String clientId = subSystem.resolvePortalClientId(client != null ? client.getClientId() : null);
+        String clientId = resolvePortalEntryClientId(subSystem, client != null ? client.getClientId() : null, workshopCode);
         if (StrUtil.isBlank(clientId)) {
             return Collections.emptyList();
         }
