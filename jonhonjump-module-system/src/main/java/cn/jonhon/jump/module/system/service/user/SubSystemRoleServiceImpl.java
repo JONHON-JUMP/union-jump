@@ -17,6 +17,7 @@ import cn.jonhon.jump.module.system.enums.permission.RoleTypeEnum;
 import lombok.extern.slf4j.Slf4j;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import cn.jonhon.jump.module.system.framework.subsystemapi.ApiEndpointSpecs;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -158,7 +159,11 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
             // 导入等未传字段时不覆盖原注册状态
             updateObj.setRoleRegistered(null);
         }
-        subSystemRoleMapper.updateById(updateObj);
+        try {
+            subSystemRoleMapper.updateById(updateObj);
+        } catch (BadSqlGrammarException ex) {
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         subSystemPermissionContextService.evictByRoleId(updateReqVO.getId());
     }
 
@@ -461,7 +466,12 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         role.setMenuCheckStrictly(1);
         role.setDeptCheckStrictly(1);
         role.setRoleRegistered("0");
-        subSystemRoleMapper.insert(role);
+        try {
+            subSystemRoleMapper.insert(role);
+        } catch (BadSqlGrammarException ex) {
+            // workshop_code 等新列未升级时报「表结构未升级」，比兜底的「系统异常」可排查
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         return new SubSystemRoleCreateRespVO().setId(role.getId());
     }
 

@@ -15,6 +15,7 @@ import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMenuMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemRoleMenuMapper;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -93,7 +94,12 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         normalizeMenuStyle(createReqVO);
 
         SubSystemMenuDO menu = convertToDO(createReqVO);
-        subSystemMenuMapper.insert(menu);
+        try {
+            subSystemMenuMapper.insert(menu);
+        } catch (BadSqlGrammarException ex) {
+            // 通用菜单副本等新列未升级时报「表结构未升级」，比兜底的「系统异常」可排查
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         // 与角色菜单变更一致：清该系统门户 my-menus / 权限包并 bump 版本，在线用户切系统或打开全部应用时重拉
         subSystemPermissionContextService.evictBySubSystemId(menu.getSubSystemId());
         return menu.getId();
@@ -109,7 +115,11 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         normalizeMenuStyle(updateReqVO);
 
         SubSystemMenuDO updateObj = convertToDO(updateReqVO);
-        subSystemMenuMapper.updateById(updateObj);
+        try {
+            subSystemMenuMapper.updateById(updateObj);
+        } catch (BadSqlGrammarException ex) {
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         subSystemPermissionContextService.evictByMenuId(updateReqVO.getId());
         subSystemUserQuickNavService.evictCacheByMenuIds(collectQuickNavAffectedMenuIds(updateReqVO.getId()));
     }
@@ -360,12 +370,21 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     @Transactional(rollbackFor = Exception.class)
     public Long createCommonMenu(SubSystemCommonMenuSaveReqVO createReqVO) {
         SubSystemMenuDO template = buildCommonTemplateFromReqVO(createReqVO, null);
-        subSystemMenuMapper.insert(template);
+        try {
+            subSystemMenuMapper.insert(template);
+        } catch (BadSqlGrammarException ex) {
+            // 副本标记列 shared_source_id 未升级时缺列，提示执行升级脚本
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         // 向选中的子系统复制副本
         Set<Long> subSystemIds = normalizeMountIds(createReqVO.getSubSystemIds());
         for (Long subSystemId : subSystemIds) {
             validateSubSystemExists(subSystemId);
-            subSystemMenuMapper.insert(buildCommonCopy(template, subSystemId));
+            try {
+                subSystemMenuMapper.insert(buildCommonCopy(template, subSystemId));
+            } catch (BadSqlGrammarException ex) {
+                throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+            }
             subSystemPermissionContextService.evictBySubSystemId(subSystemId);
         }
         return template.getId();
@@ -394,7 +413,11 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         }
         // 1. 更新模板
         SubSystemMenuDO updateObj = buildCommonTemplateFromReqVO(updateReqVO, template.getId());
-        subSystemMenuMapper.updateById(updateObj);
+        try {
+            subSystemMenuMapper.updateById(updateObj);
+        } catch (BadSqlGrammarException ex) {
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         // 2. 同步仍保留的、且在可管范围内的副本（不可见系统的副本内容不动）
         for (SubSystemMenuDO copy : copies) {
             if (!targetIds.contains(copy.getSubSystemId()) || !canAccessSubSystem(allowedSubSystemIds, copy.getSubSystemId())) {
@@ -406,7 +429,11 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
             copyUpdate.setOrderNum(copy.getOrderNum());
             // 显示/停用归各子系统自主管理：模板同步不得覆盖子系统单独设置的开关
             copyUpdate.setStatus(copy.getStatus());
-            subSystemMenuMapper.updateById(copyUpdate);
+            try {
+                subSystemMenuMapper.updateById(copyUpdate);
+            } catch (BadSqlGrammarException ex) {
+                throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+            }
             subSystemPermissionContextService.evictBySubSystemId(copy.getSubSystemId());
         }
         // 3. 对齐挂载：新增的子系统补副本；取消的删副本（不可见系统的挂载已并入 targetIds，不会被删）
@@ -415,7 +442,11 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
                 continue;
             }
             validateSubSystemExists(subSystemId);
-            subSystemMenuMapper.insert(buildCommonCopy(updateObj, subSystemId));
+            try {
+                subSystemMenuMapper.insert(buildCommonCopy(updateObj, subSystemId));
+            } catch (BadSqlGrammarException ex) {
+                throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+            }
             subSystemPermissionContextService.evictBySubSystemId(subSystemId);
         }
         for (SubSystemMenuDO copy : copies) {

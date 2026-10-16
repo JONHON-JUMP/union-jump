@@ -58,9 +58,11 @@ public class SubSystemDO extends BaseDO {
     private Integer workshopScopeEnabled;
 
     /**
-     * 是否启用车间作用域（空视为 false）
+     * 是否启用车间作用域（空视为 false）。
+     * 勿命名为 isWorkshopScopeEnabled：MyBatis 会当成 boolean 属性，
+     * 向 PG smallint 写入 true/false 导致新增/修改报系统异常。
      */
-    public boolean isWorkshopScopeEnabled() {
+    public boolean workshopScopeOn() {
         return workshopScopeEnabled != null && workshopScopeEnabled == 1;
     }
 
@@ -76,8 +78,9 @@ public class SubSystemDO extends BaseDO {
 
     /**
      * 是否门户业务系统（有系统编号，或仍绑着旧 OAuth2 客户端）。仅接口目标为 false。
+     * 勿命名为 isPortalBound：is 前缀会被 MyBatis 当成 boolean 属性读取（同 workshopScopeOn 的教训）。
      */
-    public boolean isPortalBound() {
+    public boolean portalBound() {
         return (clientId != null && !clientId.trim().isEmpty()) || oauth2ClientId != null;
     }
 

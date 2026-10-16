@@ -19,7 +19,10 @@ import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.util.Assert;
 import org.springframework.validation.BindException;
@@ -110,6 +113,15 @@ public class GlobalExceptionHandler {
         }
         if (ex instanceof AccessDeniedException) {
             return accessDeniedExceptionHandler(request, (AccessDeniedException) ex);
+        }
+        if (ex instanceof DuplicateKeyException) {
+            return duplicateKeyExceptionHandler(request, (DuplicateKeyException) ex);
+        }
+        if (ex instanceof DataIntegrityViolationException) {
+            return dataIntegrityViolationExceptionHandler(request, (DataIntegrityViolationException) ex);
+        }
+        if (ex instanceof BadSqlGrammarException) {
+            return badSqlGrammarExceptionHandler(request, (BadSqlGrammarException) ex);
         }
         return defaultExceptionHandler(request, ex);
     }
@@ -299,6 +311,65 @@ public class GlobalExceptionHandler {
             }
         }
         return CommonResult.error(ex.getCode(), ex.getMessage());
+    }
+
+    /**
+     * 处理数据库唯一键冲突
+     *
+     * 例如说，新增业务系统时 client_id 撞了唯一索引。
+     * 提示里带上根因（索引名/字段），比笼统的「系统异常」可排查。
+     */
+    @ExceptionHandler(value = DuplicateKeyException.class)
+    public CommonResult<?> duplicateKeyExceptionHandler(HttpServletRequest req, DuplicateKeyException ex) {
+        log.warn("[duplicateKeyExceptionHandler][url({}) db({})]",
+                req.getRequestURI(), ExceptionUtil.getRootCauseMessage(ex));
+        return CommonResult.error(INTERNAL_SERVER_ERROR.getCode(),
+                "保存失败：数据已存在（唯一字段重复），请检查编号/名称是否重复后重试");
+    }
+
+    /**
+     * 处理数据库完整性冲突（非唯一键以外的部分）
+     *
+     * 例如说，NOT NULL 列缺值、外键约束、字段超长。
+     */
+    @ExceptionHandler(value = DataIntegrityViolationException.class)
+    public CommonResult<?> dataIntegrityViolationExceptionHandler(HttpServletRequest req, DataIntegrityViolationException ex) {
+        log.warn("[dataIntegrityViolationExceptionHandler][url({}) db({})]",
+                req.getRequestURI(), ExceptionUtil.getRootCauseMessage(ex));
+        return CommonResult.error(INTERNAL_SERVER_ERROR.getCode(),
+                "保存失败：数据不完整或超出字段长度限制，请检查必填项后重试");
+    }
+
+    /**
+     * 处理 SQL 语法/结构类异常（PostgreSQL 下最常见：表或列不存在、类型不匹配）
+     *
+     * PG 报错文案为 "relation ... does not exist" / "column ... does not exist" /
+     * "operator does not exist: smallint = boolean"，与 MySQL 的 "doesn't exist" 不同，
+     * {@link #handleTableNotExists} 匹配不到，此前全部落入兜底的「系统异常」，无法排查。
+     */
+    @ExceptionHandler(value = BadSqlGrammarException.class)
+    public CommonResult<?> badSqlGrammarExceptionHandler(HttpServletRequest req, BadSqlGrammarException ex) {
+        // 先保留 MySQL 风格（doesn't exist）的「模块未导入」专属提示，避免被下面的通用文案覆盖
+        CommonResult<?> tableNotExistsResult = handleTableNotExists(ex);
+        if (tableNotExistsResult != null) {
+            return tableNotExistsResult;
+        }
+        String rootCause = StrUtil.nullToEmpty(ExceptionUtil.getRootCauseMessage(ex));
+        log.error("[badSqlGrammarExceptionHandler][url({}) db({})]",
+                req.getRequestURI(), rootCause, ex);
+        // 表结构类问题属于运维事件，写入错误日志表，便于事后追溯（对齐 defaultExceptionHandler）
+        createExceptionLog(req, ex);
+        // 注意顺序：先判 operator does not exist（类型不匹配），它包含子串 does not exist，后判会被误报为缺表缺列
+        if (rootCause.contains("operator does not exist")) {
+            return CommonResult.error(INTERNAL_SERVER_ERROR.getCode(),
+                    "保存失败：数据类型与数据库字段类型不匹配，请联系管理员核对字段类型后重试");
+        }
+        if (rootCause.contains("does not exist")) {
+            return CommonResult.error(INTERNAL_SERVER_ERROR.getCode(),
+                    "数据库表结构与代码不一致（表或字段缺失），请联系管理员执行 sql/postgresql 目录下最新升级脚本后重试");
+        }
+        return CommonResult.error(INTERNAL_SERVER_ERROR.getCode(),
+                "数据库执行异常，请联系管理员查看后端日志定位");
     }
 
     /**

@@ -30,6 +30,7 @@ import cn.jonhon.jump.module.system.dal.mysql.user.*;
 
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.stereotype.Service;
 
 import org.springframework.transaction.annotation.Transactional;
@@ -150,6 +151,8 @@ public class SubSystemServiceImpl implements SubSystemService {
             throw exception(SUB_SYSTEM_CLIENT_ID_EXISTS, clientId);
         } catch (DataIntegrityViolationException ex) {
             throw exception(SUB_SYSTEM_SAVE_FAILED);
+        } catch (BadSqlGrammarException ex) {
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
         }
         return subSystem.getId();
     }
@@ -179,6 +182,8 @@ public class SubSystemServiceImpl implements SubSystemService {
         subSystem.setDescription("Camstar/人员接口目标（非 JUMP 门户业务系统，不出现在外部用户管理）");
 
         subSystem.setStatus(0);
+
+        subSystem.setWorkshopScopeEnabled(0);
 
         subSystemMapper.insert(subSystem);
 
@@ -234,6 +239,8 @@ public class SubSystemServiceImpl implements SubSystemService {
             throw exception(SUB_SYSTEM_CLIENT_ID_EXISTS, clientId);
         } catch (DataIntegrityViolationException ex) {
             throw exception(SUB_SYSTEM_SAVE_FAILED);
+        } catch (BadSqlGrammarException ex) {
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
         }
         subSystemPermissionContextService.evictBySubSystemId(updateReqVO.getId());
     }
@@ -384,7 +391,7 @@ public class SubSystemServiceImpl implements SubSystemService {
 
         SubSystemRespVO vo = BeanUtils.toBean(subSystem, SubSystemRespVO.class);
         vo.setClientId(subSystem.resolvePortalClientId(client != null ? client.getClientId() : null));
-        vo.setWorkshopScopeEnabled(subSystem.isWorkshopScopeEnabled());
+        vo.setWorkshopScopeEnabled(subSystem.workshopScopeOn());
 
         if (client != null) {
 

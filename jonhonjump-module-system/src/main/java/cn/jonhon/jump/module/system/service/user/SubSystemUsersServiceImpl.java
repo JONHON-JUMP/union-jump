@@ -22,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
@@ -145,7 +146,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         subSystems = filterByAllowedSubSystems(subSystems, SubSystemDO::getId);
         boolean onlyPortal = Boolean.TRUE.equals(portalOnly);
         return subSystems.stream()
-                .filter(subSystem -> !onlyPortal || subSystem.isPortalBound())
+                .filter(subSystem -> !onlyPortal || subSystem.portalBound())
                 .map(subSystem -> {
                     SubSystemClientSimpleRespVO vo = new SubSystemClientSimpleRespVO();
                     vo.setId(subSystem.getId());
@@ -153,7 +154,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                     vo.setClientId(subSystem.resolvePortalClientId(
                             oauth2Client != null ? oauth2Client.getClientId() : null));
                     vo.setName(subSystem.getSystemName());
-                    vo.setPortalBound(subSystem.isPortalBound());
+                    vo.setPortalBound(subSystem.portalBound());
                     if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
                         vo.setLogo(subSystem.getSystemIcon());
                     } else if (oauth2Client != null) {
@@ -164,7 +165,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                     vo.setMenuCount(subSystemMenuMapper.selectCountBySubSystemId(subSystem.getId()));
                     vo.setPostCount(subSystemPostMapper.selectCountBySubSystemId(subSystem.getId()));
                     vo.setTeamCount(subSystemTeamMapper.selectCountBySubSystemId(subSystem.getId()));
-                    vo.setWorkshopScopeEnabled(subSystem.isWorkshopScopeEnabled());
+                    vo.setWorkshopScopeEnabled(subSystem.workshopScopeOn());
                     return vo;
                 }).collect(Collectors.toList());
     }
@@ -227,7 +228,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         try {
             subSystemUsersMapper.insert(user);
         } catch (DuplicateKeyException ex) {
-            // 同叶子重名，或库仍是旧「系统+用户名」唯一（需执行 sql/postgresql/sub_system_users_uk_by_leaf.sql）
+            // 同叶子重名，或库仍是旧「系统+用户名」唯一（需执行 sql/postgresql/upgrade_20261016_sub_system_review_fix.sql）
             String detail = ex.getMostSpecificCause() != null
                     ? StrUtil.nullToEmpty(ex.getMostSpecificCause().getMessage()) : "";
             log.warn("[createSubSystemUser] duplicate key subSystemId={}, username={}, workshopId={}, cause={}",
@@ -241,6 +242,9 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                     createReqVO.getSubSystemId(), createReqVO.getUsername(), createReqVO.getWorkshopId(),
                     ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.toString());
             throw exception(SUB_SYSTEM_USER_USERNAME_EXISTS);
+        } catch (BadSqlGrammarException ex) {
+            // username_with_workshop / registered_api_type 等新列未升级时缺列，提示执行升级脚本
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
         }
         assignUserPosts(user.getId(), createReqVO.getSubSystemId(), createReqVO.getPostIds());
         tryAutoBindMainUser(user);
@@ -546,7 +550,16 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         // 关联车间编号（usernameWithWorkshop）由页面单独维护：1=对接用车间_工号，0=工号
         updateObj.setUsernameWithWorkshop(
                 "1".equals(StrUtil.trim(updateReqVO.getUsernameWithWorkshop())) ? "1" : "0");
-        subSystemUsersMapper.updateById(updateObj);
+        try {
+            subSystemUsersMapper.updateById(updateObj);
+        } catch (DuplicateKeyException ex) {
+            // 库仍是旧「系统+用户名」唯一（需执行 sql/postgresql/upgrade_20261016_sub_system_review_fix.sql）时，改车间会撞索引
+            log.warn("[updateSubSystemUser] duplicate key id={}, username={}, workshopId={}",
+                    updateReqVO.getId(), updateReqVO.getUsername(), updateReqVO.getWorkshopId());
+            throw exception(SUB_SYSTEM_USER_USERNAME_EXISTS);
+        } catch (BadSqlGrammarException ex) {
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         if (updateReqVO.getPostIds() != null) {
             assignUserPosts(updateReqVO.getId(), updateReqVO.getSubSystemId(), updateReqVO.getPostIds());
         }
@@ -1056,7 +1069,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         Set<String> leaves = loadWorkshopLeavesBySubSystemId().getOrDefault(subSystemId, Collections.emptySet());
         String workshop = StrUtil.trim(workshopId);
         // 真正多叶子才强制；仅开了开关但子表只有 0/1 条时不拦（兼容旧数据与一对一）
-        boolean multiLeafRequired = subSystem.isWorkshopScopeEnabled() && leaves.size() > 1;
+        boolean multiLeafRequired = subSystem.workshopScopeOn() && leaves.size() > 1;
         if (!multiLeafRequired) {
             if (StrUtil.isNotBlank(workshop) && !leaves.isEmpty() && !leaves.contains(workshop)) {
                 throw exception(SUB_SYSTEM_USER_WORKSHOP_LEAF_INVALID);
@@ -1218,7 +1231,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     }
     private UserExternalSystemRespVO convertExternal(SubSystemUsersDO item, AdminUserDO mainUser) {
         SubSystemDO subSystem = subSystemMapper.selectById(item.getSubSystemId());
-        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus()) || !subSystem.isPortalBound()) {
+        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus()) || !subSystem.portalBound()) {
             return null;
         }
         OAuth2ClientDO client = getOAuth2Client(subSystem);
@@ -1277,7 +1290,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         String mesClientId = StrUtil.blankToDefault(base.getMesClientId(), base.getClientId());
         Set<String> leaves = subSystem == null ? Collections.emptySet()
                 : workshopLeavesBySubSystem.getOrDefault(subSystem.getId(), Collections.emptySet());
-        boolean workshopScope = subSystem != null && subSystem.isWorkshopScopeEnabled();
+        boolean workshopScope = subSystem != null && subSystem.workshopScopeOn();
         String hungWorkshop = StrUtil.trim(item.getWorkshopId());
 
         // 未开车间维度、或尚未配置车间叶子：按业务系统本身进切换列表
