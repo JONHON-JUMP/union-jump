@@ -26,6 +26,7 @@
         :iframeId="'iframe-' + stableFrameId(iframeKey(item))"
         :src="normalizeLink(item)"
         :active="isIframeVisible(item)"
+        :releaseOnHide="isParkedFrame(item)"
         :clientId="parsePortalClientId(item.path)"
         :directExternal="isDirectExternalLink(normalizeLink(item))"
       />
@@ -215,6 +216,14 @@ export default {
     },
     isIframeVisible(item) {
       return portalTabsMatch(this.$route, item)
+    },
+    /** 已关页签、只在保温池里的帧。关掉后要释放业务会话，不能继续占着请求 */
+    isParkedFrame(item) {
+      const key = portalTabKey(item)
+      if (!key) {
+        return false
+      }
+      return !(this.iframeViews || []).some(view => portalTabKey(view) === key)
     },
     goPortalHome() {
       this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})

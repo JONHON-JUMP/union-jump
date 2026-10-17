@@ -61,7 +61,16 @@ function parkOrRemoveIframe(state, viewOrPath) {
   if (!ref.path) {
     return
   }
-  const idx = findViewIndexByPortalTab(state.iframeViews, ref)
+  let idx = findViewIndexByPortalTab(state.iframeViews, ref)
+  if (idx < 0) {
+    // 兜底：tab 与登记帧 query/hash 不一致时严格匹配会落空，帧滞留活跃列表
+    // → display:none 后台继续加载打不开的地址，且重开复用同一挂死请求。
+    // 按 path 别名再认一次，保证关闭时一定 park/销毁。
+    const aliasKey = portalPathAliasKey(ref.path)
+    idx = (state.iframeViews || []).findIndex(v =>
+      v && portalPathAliasKey(v.path) === aliasKey
+    )
+  }
   if (idx < 0) {
     const dropKey = portalTabKey(ref)
     state.warmIframeViews = (state.warmIframeViews || []).filter(

@@ -227,6 +227,9 @@ export function clearCamstarCookie() {
   sessionStorage.removeItem(COOKIEKEY_STORE)
   sessionStorage.removeItem(CAMSTAR_USERNAME_STORE)
   clearExternalUsernameMaps()
+  Object.keys(seedBridgeLastAtByOrigin).forEach(k => {
+    delete seedBridgeLastAtByOrigin[k]
+  })
   Cookies.remove(CAMSTAR_COOKIE, { path: '/' })
 }
 
@@ -337,6 +340,14 @@ export function ensureLocalCamstarCookie(url, systemId) {
 }
 
 /**
+ * 同一 origin 的 cookie-bridge 隐藏 iframe 冷却：目标主机不通时隐藏请求会长期占住
+ * 该 host 的连接配额（同 host 并发连接上限 6），反复打开/关闭打不开的菜单会连环塞请求，
+ * 把同一 nginx/主机下的新菜单 iframe 挤进队列，表现为新页面一直转圈。60s 内同 origin 只 seed 一次。
+ */
+const SEED_BRIDGE_COOLDOWN_MS = 60000
+const seedBridgeLastAtByOrigin = {}
+
+/**
  * 可选：后台尝试给其它 host 种 Cookie（需目标机已部署 camstar-cookie-bridge.html）。
  * 不阻塞业务打开；失败静默忽略。
  * Cookie 值优先按系统标识（clientId/subSystemId）取该系统的对接用户名，URL 匹配兜底；
@@ -361,6 +372,15 @@ export function seedCamstarCookieForUrlInBackground(httpUrl, systemId) {
   if (parsed.hostname === window.location.hostname) {
     return
   }
+  const originKey = parsed.origin.toLowerCase()
+  // 冷却维度必须是 origin+身份：同址多车间（4200/5500 共 :8888）切叶子换身份时
+  // 必须立刻重种，不得被冷却挡住；同一身份反复打开/关闭菜单才会被限流
+  const cooldownKey = originKey + '|' + key
+  const lastAt = seedBridgeLastAtByOrigin[cooldownKey] || 0
+  if (Date.now() - lastAt < SEED_BRIDGE_COOLDOWN_MS) {
+    return
+  }
+  seedBridgeLastAtByOrigin[cooldownKey] = Date.now()
   const bridges = []
   if (/camstarportal/i.test(parsed.pathname || '')) {
     bridges.push(`${parsed.origin}/CamstarPortal/camstar-cookie-bridge.html`)
