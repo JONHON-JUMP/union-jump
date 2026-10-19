@@ -144,6 +144,18 @@ export default {
       immediate: true,
       handler() {
         this.placeholderFailed = false
+        const isIframeRoute = !!this.routeClientId
+        // 从首页/主系统页进入业务页：
+        // - 第一次进入业务页：还没有业务态高度，先按容器自适应，再锁定；
+        // - 之后（首页 ↔ 已打开业务页）：保持业务态高度锁，绝不在首页高度和业务高度之间来回 resize，
+        //   否则 Camstar 视口一变就会闪/抖。
+        if (isIframeRoute && !this._lastWasIframeRoute) {
+          if (!this._hasBusinessHeight) {
+            this.frameHeight = 0
+            this.scheduleFrameHeightSync(false)
+          }
+        }
+        this._lastWasIframeRoute = isIframeRoute
         this.$nextTick(() => this.ensureFrameRegistered())
         this.armPlaceholderDelayed()
       }
@@ -166,11 +178,27 @@ export default {
   mounted() {
     this.ensureFrameRegistered()
     this.armPlaceholderDelayed()
-    this._onPortalLayoutChanged = () => this.scheduleFrameHeightSync(true)
-    this._onWindowResize = () => this.scheduleFrameHeightSync(true)
+    this._hasBusinessHeight = false
+    this._onPortalLayoutChanged = () => {
+      // 只有业务页里的布局变化（收起/展开顶栏、底栏）才需要重测；
+      // 首页的布局变化不影响已锁定的业务态高度，保持不动，避免回业务页时 resize。
+      if (this.routeClientId) {
+        this.scheduleFrameHeightSync(true)
+      }
+    }
+    this._onWindowResize = () => {
+      // 窗口尺寸变了，业务态高度需要重测；首页里先标记失效
+      this._hasBusinessHeight = false
+      if (this.routeClientId) {
+        this.scheduleFrameHeightSync(true)
+      }
+    }
     this.$root.$on('portal-layout-changed', this._onPortalLayoutChanged)
     window.addEventListener('resize', this._onWindowResize)
-    this.scheduleFrameHeightSync(false)
+    this._lastWasIframeRoute = !!this.routeClientId
+    if (this.routeClientId) {
+      this.scheduleFrameHeightSync(false)
+    }
   },
   beforeDestroy() {
     this.clearPlaceholderTimeout()
@@ -211,10 +239,14 @@ export default {
           this.frameHeightTimer = null
           const h = this.$el ? this.$el.clientHeight : 0
           this.frameHeight = h > 0 ? h : 0
+          if (this.routeClientId) {
+            this._hasBusinessHeight = true
+          }
         }, unlock ? 380 : 80)
       })
     },
-    stableFrameId(path) {      return String(path || '').replace(/[^\w]+/g, '_').slice(0, 120)
+    stableFrameId(path) {
+      return String(path || '').replace(/[^\w]+/g, '_').slice(0, 120)
     },
     /** 有业务 link 但尚未登记 iframe 时补登记，避免「未能挂载」空转 */
     ensureFrameRegistered() {
