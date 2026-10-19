@@ -14,6 +14,8 @@ import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMenuMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemRoleMenuMapper;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
+import cn.jonhon.jump.module.system.util.MenuStyleHelper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.stereotype.Service;
@@ -107,7 +109,13 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
 
     @Override
     public void updateSubSystemMenu(SubSystemMenuSaveReqVO updateReqVO) {
-        validateSubSystemMenuExists(updateReqVO.getId());
+        SubSystemMenuDO existMenu = validateSubSystemMenuExists(updateReqVO.getId());
+        // 有子菜单时不能改成按钮，否则子菜单会挂在按钮下、门户树整段消失
+        if (MenuTypeEnum.BUTTON.getType().equals(updateReqVO.getType())
+                && subSystemMenuMapper.selectCountByParentId(updateReqVO.getId()) > 0) {
+            throw exception(SUB_SYSTEM_MENU_TYPE_BUTTON_HAS_CHILDREN);
+        }
+        updateReqVO.setSubSystemId(existMenu.getSubSystemId());
         validateSubSystemExists(updateReqVO.getSubSystemId());
         validateParentMenu(updateReqVO.getSubSystemId(), updateReqVO.getParentId(), updateReqVO.getId());
         validateMenuName(updateReqVO.getSubSystemId(), updateReqVO.getParentId(), updateReqVO.getName(), updateReqVO.getId());
@@ -117,6 +125,14 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         SubSystemMenuDO updateObj = convertToDO(updateReqVO);
         try {
             subSystemMenuMapper.updateById(updateObj);
+            // 从一级移到子级时 styleId 需显式清空：updateById 会跳过 null，
+            // 否则旧颜色会留在库里（子菜单本应继承父级）
+            if (updateReqVO.getParentId() != null
+                    && !MenuStyleHelper.isFirstLevelMenu(updateReqVO.getParentId())) {
+                subSystemMenuMapper.update(null, new LambdaUpdateWrapper<SubSystemMenuDO>()
+                        .eq(SubSystemMenuDO::getId, updateReqVO.getId())
+                        .set(SubSystemMenuDO::getStyleId, null));
+            }
         } catch (BadSqlGrammarException ex) {
             throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
         }
@@ -127,16 +143,16 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteSubSystemMenu(Long id) {
+        validateSubSystemMenuExists(id);
         if (subSystemMenuMapper.selectCountByParentId(id) > 0) {
             throw exception(SUB_SYSTEM_MENU_EXISTS_CHILDREN);
         }
-        validateSubSystemMenuExists(id);
-        // 角色授权 / 快捷导航：不拦截；先清 Redis（含角色默认用户），再级联删库
+        // 先按角色-菜单反查受影响用户并清权限包，再删关联。顺序反了 evict 会查到空集。
+        subSystemPermissionContextService.evictByMenuId(id);
         subSystemUserQuickNavService.evictCacheByMenuIds(Collections.singletonList(id));
         subSystemUserQuickNavService.deleteByMenuId(id);
         subSystemRoleQuickNavService.deleteByMenuId(id);
         subSystemRoleMenuMapper.deleteListByMenuId(id);
-        subSystemPermissionContextService.evictByMenuId(id);
         subSystemMenuMapper.deleteById(id);
     }
 
@@ -144,16 +160,16 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     @Transactional(rollbackFor = Exception.class)
     public void deleteSubSystemMenuList(List<Long> ids) {
         ids.forEach(id -> {
+            validateSubSystemMenuExists(id);
             if (subSystemMenuMapper.selectCountByParentId(id) > 0) {
                 throw exception(SUB_SYSTEM_MENU_EXISTS_CHILDREN);
             }
-            validateSubSystemMenuExists(id);
         });
+        ids.forEach(subSystemPermissionContextService::evictByMenuId);
         subSystemUserQuickNavService.evictCacheByMenuIds(ids);
         subSystemUserQuickNavService.deleteByMenuIds(ids);
         subSystemRoleQuickNavService.deleteByMenuIds(ids);
         subSystemRoleMenuMapper.deleteListByMenuIds(ids);
-        ids.forEach(subSystemPermissionContextService::evictByMenuId);
         subSystemMenuMapper.deleteByIds(ids);
     }
 
@@ -285,12 +301,24 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         if (ObjectUtil.equal(ID_ROOT, parentId)) {
             return;
         }
-        if (ObjectUtil.equal(parentId, selfId)) {
+        if (selfId != null && ObjectUtil.equal(parentId, selfId)) {
             throw exception(SUB_SYSTEM_MENU_PARENT_ERROR);
         }
-        SubSystemMenuDO parentMenu = subSystemMenuMapper.selectById(parentId);
-        if (parentMenu == null || !ObjectUtil.equal(parentMenu.getSubSystemId(), subSystemId)) {
-            throw exception(SUB_SYSTEM_MENU_PARENT_NOT_EXISTS);
+        Set<Long> seen = new HashSet<>();
+        Long current = parentId;
+        while (current != null && !ObjectUtil.equal(ID_ROOT, current)) {
+            if (!seen.add(current) || (selfId != null && ObjectUtil.equal(current, selfId))) {
+                throw exception(SUB_SYSTEM_MENU_PARENT_ERROR);
+            }
+            SubSystemMenuDO node = subSystemMenuMapper.selectById(current);
+            if (node == null || !ObjectUtil.equal(node.getSubSystemId(), subSystemId)) {
+                throw exception(SUB_SYSTEM_MENU_PARENT_NOT_EXISTS);
+            }
+            // 按钮不能有下级：否则门户树会把挂在其下的菜单整段过滤掉
+            if (!"M".equals(node.getType()) && !"C".equals(node.getType())) {
+                throw exception(SUB_SYSTEM_MENU_PARENT_TYPE_INVALID);
+            }
+            current = node.getParentId();
         }
     }
 
@@ -609,7 +637,9 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
             if (child == null || child.getId() == null) {
                 continue;
             }
-            collector.add(child.getId());
+            if (!collector.add(child.getId())) {
+                continue;
+            }
             if ("M".equals(child.getType())) {
                 collectDescendantMenuIds(child.getId(), collector);
             }

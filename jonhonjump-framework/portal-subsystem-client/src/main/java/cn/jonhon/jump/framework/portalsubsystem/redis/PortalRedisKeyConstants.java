@@ -8,8 +8,17 @@ public final class PortalRedisKeyConstants {
     private PortalRedisKeyConstants() {
     }
 
-    /** 权限包：portal:perm:context:{tenantId}:{userId}:{subSystemId} */
-    public static final String PERM_CONTEXT = "portal:perm:context:%s:%s:%s";
+    /**
+     * 现行权限包：portal:perm:context:{username}:{clientId}。
+     * 与主系统 RedisKeyConstants.PORTAL_PERM_CONTEXT 一致。
+     */
+    public static final String PERM_CONTEXT = "portal:perm:context:%s:%s";
+
+    /**
+     * 过渡权限包：portal:perm:context:{tenantId}:{userId}:{subSystemId}。
+     * 主系统写入现行 key 时会镜像这一份，已部署且只知道 userId 的客户端仍能命中。
+     */
+    public static final String PERM_CONTEXT_LEGACY = "portal:perm:context:%s:%s:%s";
 
     /** RBAC 版本：portal_rbac_version:{subSystemId}（与主系统 RedisKeyConstants 一致） */
     public static final String RBAC_VERSION = "portal_rbac_version:%s";
@@ -17,8 +26,13 @@ public final class PortalRedisKeyConstants {
     /** 扩展缓存：portal:ext:{clientId}:{namespace}:{key} */
     public static final String EXT_CACHE = "portal:ext:%s:%s:%s";
 
+    public static String buildPermContextKey(String username, String clientId) {
+        return String.format(PERM_CONTEXT, username, clientId);
+    }
+
     public static String buildPermContextKey(Long tenantId, Long userId, Long subSystemId) {
-        return String.format(PERM_CONTEXT, tenantId, userId, subSystemId);
+        long tenant = tenantId != null ? tenantId : 1L;
+        return String.format(PERM_CONTEXT_LEGACY, tenant, userId, subSystemId);
     }
 
     public static String buildRbacVersionKey(Long subSystemId) {

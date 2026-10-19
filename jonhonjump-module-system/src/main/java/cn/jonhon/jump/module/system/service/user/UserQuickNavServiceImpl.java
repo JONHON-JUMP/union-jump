@@ -114,6 +114,7 @@ public class UserQuickNavServiceImpl implements UserQuickNavService {
         List<Long> validMenuIds = CollUtil.isEmpty(menuIds) ? Collections.emptyList()
                 : menuIds.stream().filter(allowedMenuIds::contains).distinct().collect(Collectors.toList());
         validMenuIds = mergeLockedMenuIds(validMenuIds, lockedMenuIds);
+        validMenuIds = retainOmittedExistingMenuIds(userId, validMenuIds, allowedMenuIds, lockedMenuIds);
 
         userQuickNavMapper.deleteByUserId(userId);
         for (int i = 0; i < validMenuIds.size(); i++) {
@@ -127,6 +128,42 @@ public class UserQuickNavServiceImpl implements UserQuickNavService {
         result.setApps(buildQuickNavApps(validMenuIds));
         userQuickNavRedisDAO.set(userId, result);
         return result;
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public UserQuickNavRespVO addUserQuickNavMenu(Long userId, Long menuId) {
+        if (menuId != null) {
+            // 无权限菜单不落库，直接返回权威结果
+            Set<Long> allowed = retainAllowedQuickNavMenuIds(userId, Collections.singleton(menuId));
+            if (allowed.contains(menuId)) {
+                List<UserQuickNavDO> savedList = userQuickNavMapper.selectListByUserId(userId);
+                boolean exists = savedList.stream().anyMatch(row -> Objects.equals(row.getMenuId(), menuId));
+                if (!exists) {
+                    UserQuickNavDO record = new UserQuickNavDO();
+                    record.setUserId(userId);
+                    record.setMenuId(menuId);
+                    record.setSort(savedList.size());
+                    userQuickNavMapper.insert(record);
+                    userQuickNavRedisDAO.delete(userId);
+                }
+            }
+        }
+        return rebuildUserQuickNav(userId);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public UserQuickNavRespVO removeUserQuickNavMenu(Long userId, Long menuId) {
+        if (menuId != null) {
+            // 角色锁定默认项不可移除：忽略本次操作，返回权威结果（锁定项仍在列表中）
+            List<Long> roleDefaults = roleQuickNavService.getUserDefaultMenuIds(userId);
+            if (CollUtil.isEmpty(roleDefaults) || !roleDefaults.contains(menuId)) {
+                userQuickNavMapper.deleteByUserIdAndMenuId(userId, menuId);
+                userQuickNavRedisDAO.delete(userId);
+            }
+        }
+        return rebuildUserQuickNav(userId);
     }
 
     @Override
@@ -313,6 +350,31 @@ public class UserQuickNavServiceImpl implements UserQuickNavService {
             userQuickNavMapper.insert(record);
         }
         userQuickNavRedisDAO.delete(userId);
+    }
+
+    /**
+     * 全量保存会先删后插。排序只调整顺序，删除走单项接口。
+     * 请求里没带到的已有菜单一律保留，空列表也不许把库清空。
+     */
+    private List<Long> retainOmittedExistingMenuIds(Long userId, List<Long> validMenuIds,
+                                                    Set<Long> allowedMenuIds, List<Long> lockedMenuIds) {
+        List<Long> existingMenuIds = loadUserQuickNavFromDb(userId).getMenuIds();
+        if (CollUtil.isEmpty(existingMenuIds)) {
+            return validMenuIds;
+        }
+        LinkedHashSet<Long> kept = new LinkedHashSet<>();
+        if (CollUtil.isNotEmpty(validMenuIds)) {
+            validMenuIds.forEach(kept::add);
+        }
+        for (Long id : existingMenuIds) {
+            if (id != null && allowedMenuIds.contains(id)) {
+                kept.add(id);
+            }
+        }
+        if (kept.isEmpty()) {
+            return validMenuIds;
+        }
+        return mergeLockedMenuIds(new ArrayList<>(kept), lockedMenuIds);
     }
 
     private List<Long> mergeLockedMenuIds(List<Long> menuIds, List<Long> lockedMenuIds) {

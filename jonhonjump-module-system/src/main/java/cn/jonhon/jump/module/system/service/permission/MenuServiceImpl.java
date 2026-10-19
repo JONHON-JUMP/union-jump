@@ -284,17 +284,28 @@ public class MenuServiceImpl implements MenuService {
             return;
         }
         // 不能设置自己为父菜单
-        if (parentId.equals(childId)) {
+        if (childId != null && parentId.equals(childId)) {
             throw exception(MENU_PARENT_ERROR);
         }
-        MenuDO menu = menuMapper.selectById(parentId);
-        // 父菜单不存在
-        if (menu == null) {
-            throw exception(MENU_PARENT_NOT_EXISTS);
+        Set<Long> seen = new HashSet<>();
+        Long current = parentId;
+        MenuDO directParent = null;
+        while (current != null && !ID_ROOT.equals(current)) {
+            if (!seen.add(current) || (childId != null && current.equals(childId))) {
+                throw exception(MENU_PARENT_ERROR);
+            }
+            MenuDO node = menuMapper.selectById(current);
+            if (node == null) {
+                throw exception(MENU_PARENT_NOT_EXISTS);
+            }
+            if (directParent == null) {
+                directParent = node;
+            }
+            current = node.getParentId();
         }
-        // 父菜单必须是目录或者菜单类型
-        if (!MenuTypeEnum.DIR.getType().equals(menu.getType())
-                && !MenuTypeEnum.MENU.getType().equals(menu.getType())) {
+        if (directParent != null
+                && !MenuTypeEnum.DIR.getType().equals(directParent.getType())
+                && !MenuTypeEnum.MENU.getType().equals(directParent.getType())) {
             throw exception(MENU_PARENT_NOT_DIR_OR_MENU);
         }
     }
@@ -407,7 +418,9 @@ public class MenuServiceImpl implements MenuService {
             if (child == null || child.getId() == null) {
                 continue;
             }
-            collector.add(child.getId());
+            if (!collector.add(child.getId())) {
+                continue;
+            }
             if (MenuTypeEnum.DIR.getType().equals(child.getType())) {
                 collectDescendantMenuIds(child.getId(), collector);
             }

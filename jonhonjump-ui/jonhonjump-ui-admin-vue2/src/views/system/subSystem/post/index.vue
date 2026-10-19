@@ -148,7 +148,7 @@
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
@@ -206,6 +206,7 @@ import { CommonStatusEnum } from '@/utils/constants'
 import { DICT_TYPE, ensureDictDatas, getDictDatas } from '@/utils/dict'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
+import { escapeHtml } from '@/utils/escapeHtml'
 
 export default {
   name: 'SubSystemPost',
@@ -221,6 +222,8 @@ export default {
       selectedClient: null,
       title: '',
       open: false,
+      // 提交中：防双击重复创建
+      submitting: false,
       checkedIds: [],
       upload: {
         open: false,
@@ -301,19 +304,27 @@ export default {
         this.total = 0
         return
       }
+      const seq = (this._listSeq = (this._listSeq || 0) + 1)
       this.loading = true
       getSubSystemPostPage({
         ...this.queryParams,
         subSystemId: this.selectedClient.id
       }).then(res => {
+        if (seq !== this._listSeq) {
+          return
+        }
         this.postList = res.data.list || []
         this.total = res.data.total || 0
       }).catch(() => {
-        this.postList = []
-        this.total = 0
-        this.$modal.msgError('加载岗位列表失败，请重试')
+        if (seq === this._listSeq) {
+          this.postList = []
+          this.total = 0
+        }
+        // 加载失败（含切页主动取消）由请求拦截器统一处理
       }).finally(() => {
-        this.loading = false
+        if (seq === this._listSeq) {
+          this.loading = false
+        }
       })
     },
     handleQuery() {
@@ -375,13 +386,13 @@ export default {
       }
       const data = response.data || {}
       let text = '新建：' + ((data.createKeys && data.createKeys.length) || 0)
-      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) })
       text += '<br />更新：' + ((data.updateKeys && data.updateKeys.length) || 0)
-      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) })
       const failMap = data.failureKeys || {}
       const failKeys = Object.keys(failMap)
       text += '<br />失败：' + failKeys.length
-      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + k + '：' + failMap[k] })
+      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) + '：' + escapeHtml(failMap[k]) })
       this.$alert(text, '导入结果', { dangerouslyUseHTMLString: true })
       this.getList()
       this.loadClientList()
@@ -408,10 +419,14 @@ export default {
       })
     },
     submitForm() {
+      if (this.submitting) {
+        return
+      }
       this.$refs.form.validate(valid => {
         if (!valid) {
           return
         }
+        this.submitting = true
         const request = this.form.id ? updateSubSystemPost : createSubSystemPost
         request(this.form).then(() => {
           this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
@@ -419,7 +434,9 @@ export default {
           this.getList()
           this.loadClientList()
         }).catch(() => {
-          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
+          // 具体原因已由请求拦截器提示，不再叠加通用 toast
+        }).finally(() => {
+          this.submitting = false
         })
       })
     },
@@ -427,6 +444,9 @@ export default {
       this.$modal.confirm('是否确认删除岗位"' + row.name + '"？').then(() => {
         return deleteSubSystemPost(row.id)
       }).then(() => {
+        if (this.postList && this.postList.length === 1 && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.$modal.msgSuccess('删除成功')
         this.getList()
         this.loadClientList()
@@ -436,6 +456,10 @@ export default {
       this.$modal.confirm('是否确认批量删除选中的业务系统岗位？').then(() => {
         return deleteSubSystemPostList(this.checkedIds)
       }).then(() => {
+        const removing = (this.checkedIds || []).length
+        if (this.postList && this.postList.length <= removing && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.$modal.msgSuccess('删除成功')
         this.checkedIds = []
         this.getList()

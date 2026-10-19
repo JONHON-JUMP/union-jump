@@ -112,6 +112,21 @@ function reviveCamstarIframe(state, view) {
   return item
 }
 
+/** 同一业务地址（纯 http 直链）视为同一菜单：侧栏壳 path（只编码叶子）与快捷导航
+ *  壳 path（后端拼上级目录段）编码不同，按 path 认会拆成两个帧、切换时重新加载 */
+function sameRootMenuView(a, b) {
+  if (!a || !b) {
+    return false
+  }
+  if (portalPathAliasKey(a.path) === portalPathAliasKey(b.path)) {
+    return true
+  }
+  const linkA = (a.meta && a.meta.link) || ''
+  const linkB = (b.meta && b.meta.link) || ''
+  return !!(linkA && linkB && linkA === linkB
+    && isCamstarIframeView(a) && isCamstarIframeView(b))
+}
+
 const mutations = {
   ADD_IFRAME_VIEW: (state, view) => {
     const title = resolveViewTitle(view)
@@ -162,6 +177,31 @@ const mutations = {
       }))
       return
     }
+    // 身份继承（根菜单）：同一菜单（path 别名相同）已登记帧时，路由的 query/hash/别名
+    // 漂移不得另立第二个帧（两个组件并存，切换命中哪个都像"重新加载"）。
+    // 沿用旧帧身份（path/hash/query），仅更新标题与链接；子页页签不在此列。
+    if (!isChild) {
+      const aliasIdx = state.iframeViews.findIndex(v => v
+        && portalQueryBucket(v) !== 'child'
+        && sameRootMenuView(v, view))
+      if (aliasIdx > -1) {
+        const aliasPrev = state.iframeViews[aliasIdx]
+        const aliasPrevLink = (aliasPrev.meta && aliasPrev.meta.link) || ''
+        const aliasHomeLink = (aliasPrev.meta && aliasPrev.meta.portalHomeLink) || aliasPrevLink || nextLink
+        const aliasKeepLink = isCamstarIframeView(aliasPrev)
+          ? (aliasHomeLink || aliasPrevLink || nextLink)
+          : (nextLink || aliasPrevLink)
+        const aliasTitle = (title && title !== 'no-name') ? title : aliasPrev.title
+        state.iframeViews.splice(aliasIdx, 1, Object.assign({}, aliasPrev, {
+          title: aliasTitle,
+          path: aliasPrev.path,
+          hash: aliasPrev.hash,
+          query: aliasPrev.query,
+          meta: { ...(aliasPrev.meta || {}), ...(view.meta || {}), link: aliasKeepLink, portalHomeLink: aliasHomeLink || aliasKeepLink }
+        }))
+        return
+      }
+    }
     state.iframeViews.push(Object.assign({}, view, {
       title,
       meta: {
@@ -198,6 +238,26 @@ const mutations = {
         }
       }))
       return
+    }
+    // 身份继承（根菜单）：同一菜单（path 别名相同）已有根页签时，路由的 query/hash/别名
+    // 漂移不得新开第二个页签——沿用旧页签身份，仅更新标题。
+    if (portalQueryBucket(view) !== 'child') {
+      const aliasIdx = state.visitedViews.findIndex(v => v
+        && portalQueryBucket(v) !== 'child'
+        && sameRootMenuView(v, view))
+      if (aliasIdx > -1) {
+        const aliasPrev = state.visitedViews[aliasIdx]
+        let aliasTitle = resolveViewTitle(view)
+        if (isGenericPortalTitle(aliasTitle) && aliasPrev.title && !isGenericPortalTitle(aliasPrev.title)) {
+          aliasTitle = aliasPrev.title
+        }
+        aliasTitle = aliasTitle || aliasPrev.title
+        state.visitedViews.splice(aliasIdx, 1, Object.assign({}, aliasPrev, {
+          title: aliasTitle,
+          meta: { ...(aliasPrev.meta || {}), ...(view.meta || {}), title: aliasTitle, menuTitle: aliasTitle }
+        }))
+        return
+      }
     }
     state.visitedViews.push(Object.assign({}, view, { title }))
   },

@@ -54,6 +54,19 @@ public interface SubSystemUserQuickNavMapper extends BaseMapperX<SubSystemUserQu
                                                  @Param("subSystemId") Long subSystemId,
                                                  @Param("workshopCode") String workshopCode);
 
+    @Delete("<script>DELETE FROM sub_system_user_quick_nav WHERE user_id = #{userId} AND sub_system_id = #{subSystemId} "
+            + "<choose>"
+            + "<when test='workshopCode == null or workshopCode == \"\"'>"
+            + " AND (workshop_code IS NULL OR workshop_code = '')"
+            + "</when>"
+            + "<otherwise> AND workshop_code = #{workshopCode}</otherwise>"
+            + "</choose>"
+            + " AND menu_id = #{menuId}</script>")
+    void deleteByUserIdAndSubSystemIdAndWorkshopAndMenuId(@Param("userId") Long userId,
+                                                          @Param("subSystemId") Long subSystemId,
+                                                          @Param("workshopCode") String workshopCode,
+                                                          @Param("menuId") Long menuId);
+
     default List<SubSystemUserQuickNavDO> selectListByMenuId(Long menuId) {
         return selectList(SubSystemUserQuickNavDO::getMenuId, menuId);
     }

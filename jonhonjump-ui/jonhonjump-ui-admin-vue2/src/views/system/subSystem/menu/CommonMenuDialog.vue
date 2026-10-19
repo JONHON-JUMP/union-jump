@@ -60,7 +60,7 @@
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
         <el-button @click="formOpen = false">取 消</el-button>
       </div>
     </el-dialog>
@@ -85,6 +85,8 @@ export default {
       list: [],
       subSystemOptions: [],
       formOpen: false,
+      // 提交中：防双击重复创建
+      submitting: false,
       form: {},
       /** 编辑时的原始挂载，用于清空挂载时的二次确认 */
       originalSubSystemIds: [],
@@ -150,6 +152,9 @@ export default {
       this.formOpen = true
     },
     submitForm() {
+      if (this.submitting) {
+        return
+      }
       this.$refs.form.validate(valid => {
         if (!valid) {
           return
@@ -159,6 +164,7 @@ export default {
           && this.originalSubSystemIds && this.originalSubSystemIds.length > 0
           && (!this.form.subSystemIds || this.form.subSystemIds.length === 0)
         const doSubmit = () => {
+          this.submitting = true
           const action = this.form.id ? updateCommonMenu(this.form) : createCommonMenu(this.form)
           action.then(() => {
             this.$modal.msgSuccess(this.form.id ? '修改成功，已同步到各挂载业务系统' : '新增成功')
@@ -168,6 +174,10 @@ export default {
               .map(Number)
               .filter(id => Number.isFinite(id) && id > 0)
             this.$emit('changed', { subSystemIds: [...new Set(ids)] })
+          }).catch(() => {
+            // 具体原因由请求拦截器提示
+          }).finally(() => {
+            this.submitting = false
           })
         }
         if (willUnmountAll) {

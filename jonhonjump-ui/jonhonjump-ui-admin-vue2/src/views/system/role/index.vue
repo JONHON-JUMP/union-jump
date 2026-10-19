@@ -116,7 +116,7 @@
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
@@ -180,7 +180,7 @@
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitMenu">确 定</el-button>
+        <el-button type="primary" :disabled="!menuChecksReady" @click="submitMenu">确 定</el-button>
         <el-button @click="cancelMenu">取 消</el-button>
       </div>
     </el-dialog>
@@ -192,6 +192,7 @@
       :menu-tree="quickNavMenuTree"
       :leaf-menu-ids="quickNavLeafMenuIds"
       :menu-ids="quickNavMenuIds"
+      :loaded="quickNavLoaded"
       :saving="quickNavSaving"
       @save="submitQuickNav"
     />
@@ -240,11 +241,15 @@ export default {
       title: "",
       // 是否显示弹出层
       open: false,
+      // 提交中：防双击重复创建
+      submitting: false,
       // 是否显示弹出层（数据权限）
       openDataScope: false,
       // 是否显示弹出层（菜单权限）
       openMenu: false,
+      menuChecksReady: false,
       openQuickNav: false,
+      quickNavLoaded: false,
       quickNavSaving: false,
       quickNavForm: {},
       quickNavMenuTree: [],
@@ -322,16 +327,28 @@ export default {
   methods: {
     /** 查询角色列表 */
     getList() {
+      const seq = (this._listSeq = (this._listSeq || 0) + 1)
       this.loading = true;
       listRole(this.queryParams).then(
         response => {
+          if (seq !== this._listSeq) {
+            return
+          }
           const list = response.data.list || [];
           this.fillSubSystemScopeText(list);
           this.roleList = list;
           this.total = response.data.total;
-          this.loading = false;
         }
-      );
+      ).catch(() => {
+        if (seq === this._listSeq) {
+          this.roleList = []
+          this.total = 0
+        }
+      }).finally(() => {
+        if (seq === this._listSeq) {
+          this.loading = false
+        }
+      });
     },
     /** 加载业务系统选项（可管系统范围配置用） */
     loadSubSystems() {
@@ -384,6 +401,7 @@ export default {
     },
     // 取消按钮
     cancel() {
+      this._roleLoadSeq = (this._roleLoadSeq || 0) + 1
       this.open = false;
       this.reset();
     },
@@ -465,6 +483,7 @@ export default {
     },
     /** 新增按钮操作 */
     handleAdd() {
+      this._roleLoadSeq = (this._roleLoadSeq || 0) + 1
       this.reset();
       this.open = true;
       this.title = "添加角色";
@@ -473,7 +492,12 @@ export default {
     handleUpdate(row) {
       this.reset();
       const id = row.id
+      const seq = (this._roleLoadSeq = (this._roleLoadSeq || 0) + 1)
       getRole(id).then(response => {
+        // 连点两行时丢弃过期响应
+        if (seq !== this._roleLoadSeq) {
+          return
+        }
         this.form = response.data;
         // 可管系统为空 = 不限；保证多选下拉可绑定数组
         if (!this.form.subSystemIds) {
@@ -492,6 +516,7 @@ export default {
       this.form.name = row.name;
       this.form.code = row.code;
       // 打开弹窗
+      this.menuChecksReady = false;
       this.openMenu = true;
       // 获得菜单列表
       listSimpleMenus().then(response => {
@@ -504,7 +529,8 @@ export default {
             this,
             this.$refs.menu,
             response.data,
-            value => { this.form.menuCheckStrictly = value }
+            value => { this.form.menuCheckStrictly = value },
+            () => { this.menuChecksReady = true }
           )
         })
       });
@@ -520,6 +546,7 @@ export default {
       this.quickNavMenuTree = []
       this.quickNavLeafMenuIds = []
       this.quickNavMenuIds = []
+      this.quickNavLoaded = false
       this.openQuickNav = true
       Promise.all([
         listSimpleMenus(),
@@ -531,8 +558,12 @@ export default {
         this.quickNavMenuTree = buildMainRoleQuickNavCheckTree(allMenus, roleMenuIds)
         this.quickNavLeafMenuIds = getMainQuickNavLeafIds(allMenus, roleMenuIds)
         this.quickNavMenuIds = (quickNavRes.data && quickNavRes.data.menuIds) || []
-      })
-    },
+        this.quickNavLoaded = true
+      }).catch(() => {
+        this.quickNavLoaded = false
+        this.$modal.msgError('加载快捷导航菜单失败')
+        this.openQuickNav = false
+      })    },
     submitQuickNav(menuIds) {
       this.quickNavSaving = true
       saveRoleQuickNav({
@@ -571,21 +602,30 @@ export default {
     },
     /** 提交按钮 */
     submitForm: function() {
+      if (this.submitting) {
+        return
+      }
       this.$refs["form"].validate(valid => {
-        if (valid) {
-          if (this.form.id !== undefined) {
-            updateRole(this.form).then(response => {
-              this.$modal.msgSuccess("修改成功");
-              this.open = false;
-              this.getList();
-            });
-          } else {
-            addRole(this.form).then(response => {
-              this.$modal.msgSuccess("新增成功");
-              this.open = false;
-              this.getList();
-            });
-          }
+        if (!valid) {
+          return
+        }
+        this.submitting = true
+        if (this.form.id !== undefined) {
+          updateRole(this.form).then(() => {
+            this.$modal.msgSuccess("修改成功");
+            this.open = false;
+            this.getList();
+          }).finally(() => {
+            this.submitting = false
+          });
+        } else {
+          addRole(this.form).then(() => {
+            this.$modal.msgSuccess("新增成功");
+            this.open = false;
+            this.getList();
+          }).finally(() => {
+            this.submitting = false
+          });
         }
       });
     },
@@ -606,6 +646,16 @@ export default {
     },
     /** 提交按钮（菜单权限） */
     submitMenu: function() {
+      if (!this.menuChecksReady) {
+        this.$modal.msgWarning("菜单权限还在加载，请稍后再保存");
+        return;
+      }
+      const menuTree = this.$refs.menu
+      const nodeCount = menuTree && menuTree.store ? Object.keys(menuTree.store.nodesMap || {}).length : 0
+      if ((this.menuOptions || []).length > 0 && nodeCount === 0) {
+        this.$modal.msgWarning("菜单树还没准备好，请稍后再保存");
+        return;
+      }
       if (this.form.id !== undefined) {
         assignRoleMenu({
           roleId: this.form.id,
@@ -624,6 +674,9 @@ export default {
       this.$modal.confirm('是否确认删除角色编号为"' + ids + '"的数据项?').then(function() {
           return delRole(ids);
         }).then(() => {
+          if (this.roleList && this.roleList.length === 1 && this.queryParams.pageNo > 1) {
+            this.queryParams.pageNo -= 1
+          }
           this.getList();
           this.$modal.msgSuccess("删除成功");
       }).catch(() => {});
@@ -632,8 +685,12 @@ export default {
     async handleDeleteBatch() {
       await this.$modal.confirm('是否确认批量删除选中的角色数据?')
       try {
+        const removing = (this.checkedIds || []).length
         await delRoleList(this.checkedIds);
         this.checkedIds = [];
+        if (this.roleList && this.roleList.length <= removing && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         await this.getList();
         this.$modal.msgSuccess("删除成功");
       } catch {}

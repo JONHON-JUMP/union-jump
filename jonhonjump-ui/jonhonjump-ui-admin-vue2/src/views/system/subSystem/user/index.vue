@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="app-container">
     <el-row :gutter="20">
       <!-- 左侧：业务系统列表（与业务菜单同款卡片） -->
@@ -196,7 +196,7 @@
     </el-row>
 
     <!-- 新增/修改：关闭销毁表单，避免下次 resetFields 踩到上次残留字段 -->
-    <el-dialog :title="title" :visible.sync="open" width="760px" append-to-body destroy-on-close>
+    <el-dialog :title="title" :visible.sync="open" width="760px" append-to-body destroy-on-close :before-close="handleDialogBeforeClose">
       <el-form ref="form" :model="form" :rules="rules" label-width="110px">
         <el-form-item v-if="!form.id" label="挂接目标" prop="hangLeafKey">
           <el-cascader
@@ -222,13 +222,33 @@
         </el-form-item>
         <el-divider content-position="left">组织与权限</el-divider>
         <el-form-item label="车间编号" prop="workshopId">
-          <el-input
+          <el-select
+            v-if="formWorkshopOptions.length"
             v-model="form.workshopId"
-            placeholder="可空；可改；关联车间编号=是时拼到工号前"
+            placeholder="请选择车间叶子，没有车间维度可留空"
+            clearable
+            filterable
+            style="width: 100%"
+            @change="handleWorkshopChange"
+          >
+            <el-option
+              v-for="item in formWorkshopOptions"
+              :key="item.workshopCode"
+              :label="(item.workshopName || '') + ' (' + item.workshopCode + ')'"
+              :value="item.workshopCode"
+            />
+          </el-select>
+          <el-input
+            v-else
+            v-model="form.workshopId"
+            :placeholder="syncWorkshopRequired ? 'Camstar 同步注册请填写车间编号' : '该系统没有车间叶子，可留空'"
             maxlength="50"
             clearable
             @change="handleWorkshopChange"
           />
+          <div v-if="form.id" class="form-tip">
+            修改用户名或车间后，已关联的外部账号会变为“未关联”，需要重新注册或关联
+          </div>
         </el-form-item>
         <el-form-item v-if="form.id" label="班组" prop="teamId">
           <el-select v-model="form.teamId" placeholder="请选择班组" clearable filterable style="width: 100%">
@@ -486,11 +506,14 @@ import { getHangableExternalTree } from '@/api/system/subSystemWorkshop'
 import { getUser } from '@/api/system/user'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
+import { escapeHtml } from '@/utils/escapeHtml'
+import { subSystemRoleOptionLabel, isSubSystemRoleOptionDisabled } from '@/utils/subSystemRoleOption'
+import dialogDirtyGuard from '@/mixins/dialogDirtyGuard'
 import workshopLeftNav from '../mixins/workshopLeftNav'
 
 export default {
   name: 'SubSystemUser',
-  mixins: [subSystemImportGate, workshopLeftNav],
+  mixins: [subSystemImportGate, workshopLeftNav, dialogDirtyGuard],
   data() {
     return {
       loading: false,
@@ -594,12 +617,12 @@ export default {
         }],
         workshopId: [{
           validator: (rule, value, callback) => {
-            if (this.form.id || !this.form.syncToExternal) {
+            if (!this.syncWorkshopRequired) {
               callback()
               return
             }
             if (!value) {
-              callback(new Error('同步注册必须填写车间编号'))
+              callback(new Error('请选择车间'))
               return
             }
             callback()
@@ -619,6 +642,34 @@ export default {
         (item.name && item.name.toLowerCase().includes(keyword)) ||
         (item.clientId && item.clientId.toLowerCase().includes(keyword))
       )
+    },
+    formTargetSystem() {
+      const id = this.form && this.form.subSystemId
+      if (id != null) {
+        const hit = (this.clientList || []).find(item => item.id === id)
+        if (hit) {
+          return hit
+        }
+      }
+      return this.selectedClient || null
+    },
+    formWorkshopOptions() {
+      const system = this.formTargetSystem
+      const id = system && system.id
+      if (!id) {
+        return []
+      }
+      return (this.workshopList || []).filter(item => item.subSystemId === id)
+    },
+    syncWorkshopRequired() {
+      if (!this.form || this.form.id || !this.form.syncToExternal) {
+        return false
+      }
+      const api = (this.registerApis || []).find(item => item.subSystemId === this.form.apiSubSystemId)
+      const camstar = !!(api && api.apiType && String(api.apiType).toLowerCase().indexOf('camstar') >= 0)
+      const system = this.formTargetSystem
+      const multi = !!(system && system.workshopScopeEnabled) && this.formWorkshopOptions.length > 1
+      return camstar || multi
     },
     hangableCascaderOptions() {
       return (this.hangableTree || []).map(node => {
@@ -842,12 +893,12 @@ export default {
         this.teamOptions = []
       })
     },
-    handleClientClick(item) {
+    handleClientClick(item, options = {}) {
       this.leftNavMode = 'system'
       this.selectedWorkshop = null
       this.selectedClient = item
       this.queryParams.subSystemId = item.id
-      this.queryParams.workshopId = undefined
+      this.queryParams.workshopId = options.workshopId || undefined
       this.queryParams.username = undefined
       this.queryParams.nickname = undefined
       this.queryParams.teamName = undefined
@@ -855,9 +906,12 @@ export default {
       this.queryParams.employeeRegistered = undefined
       this.queryParams.pageNo = 1
       this.listSubSystemId = item.id
-      this.getList()
+      if (options.skipGetList !== true) {
+        this.getList()
+      }
     },
     getList() {
+      const seq = (this._listSeq = (this._listSeq || 0) + 1)
       const params = { ...this.queryParams }
       if (this.listSubSystemId != null) {
         params.subSystemId = this.listSubSystemId
@@ -866,14 +920,21 @@ export default {
       }
       this.loading = true
       getSubSystemUserPage(params).then(res => {
+        // 快速切系统/筛选：只认最后一次请求
+        if (seq !== this._listSeq) {
+          return
+        }
         this.userList = res.data.list || []
         this.total = res.data.total || 0
       }).catch(() => {
-        this.userList = []
-        this.total = 0
-        this.$modal.msgError('加载用户列表失败，请重试')
+        if (seq === this._listSeq) {
+          this.userList = []
+          this.total = 0
+        }
       }).finally(() => {
-        this.loading = false
+        if (seq === this._listSeq) {
+          this.loading = false
+        }
       })
     },
     handleQuery() {
@@ -920,8 +981,21 @@ export default {
       })
     },
     cancel() {
-      this.open = false
-      this.resetFormData()
+      this.confirmCloseDialog(this.dialogFormValue(), () => {
+        this.open = false
+        this.resetFormData()
+      })
+    },
+    /** 关闭弹窗（右上角/遮罩/ESC）前做一次脏检查 */
+    handleDialogBeforeClose(done) {
+      this.confirmCloseDialog(this.dialogFormValue(), () => {
+        this.open = false
+        this.resetFormData()
+        done()
+      })
+    },
+    dialogFormValue() {
+      return { ...this.form }
     },
     handleAdd() {
       // 与人员管理一致：挂接树选系统，不强制锁死左侧当前系统
@@ -934,6 +1008,8 @@ export default {
           if (this.$refs.form && typeof this.$refs.form.clearValidate === 'function') {
             this.$refs.form.clearValidate()
           }
+          // 预选完成后再记快照，避免一打开就显示"有未保存修改"
+          this.markDialogPristine(this.dialogFormValue())
         })
       })
     },
@@ -964,13 +1040,13 @@ export default {
       }
       const data = response.data || {}
       let text = '新建绑定：' + ((data.createKeys && data.createKeys.length) || 0)
-      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) })
       text += '<br />更新绑定：' + ((data.updateKeys && data.updateKeys.length) || 0)
-      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) })
       const failMap = data.failureKeys || {}
       const failKeys = Object.keys(failMap)
       text += '<br />失败：' + failKeys.length
-      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + k + '：' + failMap[k] })
+      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) + '：' + escapeHtml(failMap[k]) })
       this.$alert(text, '导入结果', { dangerouslyUseHTMLString: true })
       this.getList()
       this.loadClientList()
@@ -979,9 +1055,14 @@ export default {
       this.$refs.upload.submit()
     },
     handleUpdate(row) {
-      this.openingKey = 'update:' + row.id
+      const openKey = 'update:' + row.id
+      this.openingKey = openKey
       // 只等详情 → 立刻开弹窗；下拉后台补。禁止在未打开时 resetFields（会 indexOf undefined）
       getSubSystemUser(row.id).then(res => {
+        // 连点两行时丢弃先到但已过期的响应，避免 A 的详情盖掉 B
+        if (this.openingKey !== openKey) {
+          return
+        }
         this.form = {
           id: res.data.id,
           subSystemId: res.data.subSystemId,
@@ -1000,6 +1081,7 @@ export default {
         }
         this.open = true
         this.title = '修改业务系统用户'
+        this.markDialogPristine(this.dialogFormValue())
         this.openingKey = ''
         this.$nextTick(() => {
           if (this.$refs.form && typeof this.$refs.form.clearValidate === 'function') {
@@ -1010,11 +1092,16 @@ export default {
           return this.reloadTeams(this.form.subSystemId)
         })
       }).catch(() => {
-        this.$modal.msgError('加载用户信息失败，请重试')
-        this.openingKey = ''
+        if (this.openingKey === openKey) {
+          this.$modal.msgError('加载用户信息失败，请重试')
+          this.openingKey = ''
+        }
       })
     },
     submitForm() {
+      if (this.submitting) {
+        return
+      }
       this.$refs.form.validate(valid => {
         if (!valid) {
           return
@@ -1055,13 +1142,13 @@ export default {
           const client = (this.clientList || []).find(c => c.id === sid)
           if (isAdd) {
             // 新增后按保存的车间定位列表，避免仍停在别的车间筛选里看不见新人
-            this.queryParams.workshopId = payload.workshopId || undefined
-            this.selectedWorkshop = null
             if (client && (!this.selectedClient || this.selectedClient.id !== sid)) {
-              this.handleClientClick(client)
-              this.queryParams.workshopId = payload.workshopId || undefined
-              this.getList()
+              // handleClientClick 内部已按「新系统 + 车间」刷新一次；不要再补一次 getList，
+              // 否则两个请求并发返回，先到的旧筛选结果可能覆盖后到的新结果
+              this.handleClientClick(client, { workshopId: payload.workshopId })
             } else {
+              this.queryParams.workshopId = payload.workshopId || undefined
+              this.selectedWorkshop = null
               this.getList()
               this.loadClientList()
             }
@@ -1094,14 +1181,8 @@ export default {
             }
             afterSaved('新增成功，已同步注册并关联外部人员')
           })
-        }).catch(err => {
-          // request 拦截器已弹出后端 msg（如「用户名已存在」）；仅在无明确文案时再兜底
-          const msg = err && err.message && err.message !== 'error' ? err.message : ''
-          if (!msg || msg === '系统异常') {
-            this.$modal.msgError(isAdd
-              ? '新增失败：请确认该车间下用户名未重复，或查看后端日志'
-              : '修改失败，请重试')
-          }
+        }).catch(() => {
+          // 具体原因由请求拦截器提示（如「用户名已存在」「角色车间不一致」），不再叠加通用提示
         }).finally(() => {
           this.submitting = false
         })
@@ -1111,6 +1192,9 @@ export default {
       this.$modal.confirm('是否确认删除该业务系统用户？').then(() => {
         return deleteSubSystemUser(row.id)
       }).then(() => {
+        if (this.userList && this.userList.length === 1 && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.$modal.msgSuccess('删除成功')
         this.getList()
         this.loadClientList()
@@ -1120,6 +1204,10 @@ export default {
       this.$modal.confirm('是否确认批量删除选中的业务系统用户？').then(() => {
         return deleteSubSystemUserList(this.checkedIds)
       }).then(() => {
+        const removing = (this.checkedIds || []).length
+        if (this.userList && this.userList.length <= removing && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.$modal.msgSuccess('删除成功')
         this.getList()
         this.loadClientList()
@@ -1149,46 +1237,50 @@ export default {
         nickname: row.nickname,
         workshopId: row.workshopId || '',
         roleIds: [],
-        syncToExternal: true,
+        // 默认不同步外部：多数角色未关联外部角色，默认勾选会让“分配成功”看起来像失败
+        syncToExternal: false,
         apiSubSystemId: undefined
       }
       this.openRole = true
-      this.openingKey = 'role:' + row.id
+      const openKey = 'role:' + row.id
+      this.openingKey = openKey
       const sid = row.subSystemId
       Promise.all([
-        getSubSystemRoleSimpleList(sid).then(res => { this.roleOptions = res.data || [] }).catch(() => { this.roleOptions = [] }),
-        getSubSystemUserRoleIds(row.id).then(res => { this.roleForm.roleIds = res.data || [] }).catch(() => {
-          this.$modal.msgError('加载已分配角色失败，请重试')
+        getSubSystemRoleSimpleList(sid).then(res => {
+          if (this.openingKey === openKey) {
+            this.roleOptions = res.data || []
+          }
+        }).catch(() => {
+          if (this.openingKey === openKey) {
+            this.roleOptions = []
+          }
+        }),
+        getSubSystemUserRoleIds(row.id).then(res => {
+          if (this.openingKey === openKey) {
+            this.roleForm.roleIds = res.data || []
+          }
+        }).catch(() => {
+          if (this.openingKey === openKey) {
+            this.$modal.msgError('加载已分配角色失败，请重试')
+          }
         }),
         this.loadRegisterableApis()
       ]).then(() => {
-        this.applyDefaultAssignApi(sid)
+        if (this.openingKey === openKey) {
+          this.applyDefaultAssignApi(sid)
+        }
       }).finally(() => {
-        this.openingKey = ''
+        if (this.openingKey === openKey) {
+          this.openingKey = ''
+        }
       })
     },
     roleOptionLabel(item) {
-      if (!item) {
-        return ''
-      }
-      let label = item.name
-      if (item.workshopCode) {
-        label += '（车间 ' + item.workshopCode + '）'
-      }
-      if (this.roleForm.syncToExternal && !item.externalRoleId) {
-        return label + '（未关联外部）'
-      }
-      return label
+      return subSystemRoleOptionLabel(item, { syncToExternal: this.roleForm.syncToExternal })
     },
-    /** 车间叶子下：禁选其它车间编号的角色（未打车间的角色如超管可选） */
+    /** 车间叶子下：禁选其它车间编号的角色（未打车间的角色如超管可选）；停用角色也不可选 */
     roleOptionDisabled(item) {
-      if (!this.roleForm.workshopId || !item) {
-        return false
-      }
-      if (!item.workshopCode) {
-        return false
-      }
-      return String(item.workshopCode) !== String(this.roleForm.workshopId)
+      return isSubSystemRoleOptionDisabled(item, this.roleForm.workshopId)
     },
     /** 接口目标默认带出本花名册系统已启用的人员接口；没有同系统配置且只有一个目标时用那一个 */
     applyDefaultAssignApi(rosterSubSystemId) {
@@ -1234,7 +1326,7 @@ export default {
         this.openRole = false
         this.getList()
       }).catch(() => {
-        this.$modal.msgError('分配角色失败，请重试')
+        // 具体原因由请求拦截器提示（车间角色不一致、角色已停用等）
       }).finally(() => {
         this.roleSubmitting = false
       })

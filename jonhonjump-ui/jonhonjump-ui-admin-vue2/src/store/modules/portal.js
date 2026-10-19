@@ -735,6 +735,28 @@ const actions = {
   },
 
   /**
+   * 后台版本比对：有变更才重拉菜单缓存（activate:false 只写缓存、不抢壳）。
+   * 打开菜单路径不得 await 它——它只决定缓存要不要刷新，不该挡住用户进页面。
+   */
+  refreshSubSystemIfChanged({ dispatch, state }, clientId) {
+    const key = normalizeSystemKey(clientId)
+    if (!state.loadedSubSystems[key]) {
+      return Promise.resolve()
+    }
+    return dispatch('resolveSubSystemReload', key).then(force => {
+      if (!force) {
+        return
+      }
+      return dispatch('ensureSubSystemLoaded', { clientId: key, activate: false, force: true })
+        .catch(err => {
+          console.warn('[portal] background sub-system refresh failed:', key, err)
+        })
+    }).catch(err => {
+      console.warn('[portal] background sub-system version check failed:', key, err)
+    })
+  },
+
+  /**
    * 与主系统 RBAC 版本比对：未加载或版本变化 → 需要重拉；否则复用内存树。
    */
   resolveSubSystemReload({ state }, clientId) {

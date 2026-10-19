@@ -20,7 +20,7 @@ public interface ErrorCodeConstants {
     // ========== 菜单模块 1-002-001-000 ==========
     ErrorCode MENU_NAME_DUPLICATE = new ErrorCode(1_002_001_000, "主系统已存在同名菜单");
     ErrorCode MENU_PARENT_NOT_EXISTS = new ErrorCode(1_002_001_001, "父菜单不存在");
-    ErrorCode MENU_PARENT_ERROR = new ErrorCode(1_002_001_002, "不能设置自己为父菜单");
+    ErrorCode MENU_PARENT_ERROR = new ErrorCode(1_002_001_002, "不能把上级菜单设成自己或自己的下级");
     ErrorCode MENU_NOT_EXISTS = new ErrorCode(1_002_001_003, "菜单不存在");
     ErrorCode MENU_EXISTS_CHILDREN = new ErrorCode(1_002_001_004, "存在子菜单，无法删除");
     ErrorCode MENU_PARENT_NOT_DIR_OR_MENU = new ErrorCode(1_002_001_005, "父菜单的类型必须是目录或者菜单");
@@ -88,7 +88,9 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_COMMON_MENU_COPY_HAS_CHILDREN = new ErrorCode(1_002_003_044, "业务系统「{}」下有菜单挂在通用菜单副本之下，请先移走后再调整挂载");
     ErrorCode SUB_SYSTEM_MENU_NAME_DUPLICATE = new ErrorCode(1_002_003_022, "已经存在该名字的菜单");
     ErrorCode SUB_SYSTEM_MENU_PARENT_NOT_EXISTS = new ErrorCode(1_002_003_023, "父菜单不存在");
-    ErrorCode SUB_SYSTEM_MENU_PARENT_ERROR = new ErrorCode(1_002_003_024, "不能设置自己为父菜单");
+    ErrorCode SUB_SYSTEM_MENU_PARENT_ERROR = new ErrorCode(1_002_003_024, "不能把上级菜单设成自己或自己的下级");
+    ErrorCode SUB_SYSTEM_MENU_PARENT_TYPE_INVALID = new ErrorCode(1_002_003_091, "上级菜单只能是目录或菜单，不能选择按钮");
+    ErrorCode SUB_SYSTEM_MENU_TYPE_BUTTON_HAS_CHILDREN = new ErrorCode(1_002_003_092, "该菜单下还有子菜单，不能把类型改成按钮");
     ErrorCode SUB_SYSTEM_POST_NOT_EXISTS = new ErrorCode(1_002_003_025, "业务系统岗位不存在");
     ErrorCode SUB_SYSTEM_POST_NAME_DUPLICATE = new ErrorCode(1_002_003_026, "已经存在名为【{}】的业务系统岗位");
     ErrorCode SUB_SYSTEM_POST_CODE_DUPLICATE = new ErrorCode(1_002_003_027, "已经存在编码为【{}】的业务系统岗位");

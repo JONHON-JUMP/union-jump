@@ -11,6 +11,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 import org.hibernate.validator.constraints.Length;
 
+import javax.validation.Valid;
 import javax.validation.constraints.*;
 import java.util.List;
 import java.util.Set;
@@ -110,7 +111,15 @@ public class UserSaveReqVO {
     @Length(min = 4, max = 16, message = "密码长度为 4-16 位")
     private String password;
 
-    @Schema(description = "登记子系统编号数组（仅新增时生效；本地花名册登记，不调外部接口）", example = "[1,2]")
+    @Schema(description = "登记业务系统目标（仅新增时生效；本地花名册登记，不调外部接口；多车间系统需选到叶子）")
+    @Valid
+    private List<UserSubSystemRosterReqVO> subSystemTargets;
+
+    /**
+     * 兼容旧前端/旧调用：只给系统编号。多车间系统不会自动登记（空车间行不出现在门户），
+     * 新页面请改用 {@link #subSystemTargets} 指定车间叶子。
+     */
+    @Schema(description = "登记子系统编号数组（仅新增时生效；兼容旧调用，多车间系统请用 subSystemTargets）", example = "[1,2]")
     private List<Long> subSystemIds;
 
     @AssertTrue(message = "密码不能为空")

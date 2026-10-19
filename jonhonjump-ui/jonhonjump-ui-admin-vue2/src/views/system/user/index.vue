@@ -138,12 +138,15 @@
     </el-row>
 
     <!-- 添加或修改参数配置对话框 -->
-    <el-dialog :title="title" :visible.sync="open" width="720px" append-to-body>
+    <el-dialog :title="title" :visible.sync="open" width="720px" append-to-body :before-close="handleDialogBeforeClose">
       <el-form ref="form" :model="form" :rules="rules" label-width="90px">
         <el-row>
           <el-col :span="12">
             <el-form-item label="用户姓名" prop="nickname">
               <el-input v-model="form.nickname" placeholder="请输入用户姓名" />
+              <div v-if="form.id" style="color:#909399;font-size:12px;line-height:1.4;margin-top:4px">
+                仍显示原姓名的业务系统用户会一起改。登录名不会改业务系统里的账号。
+              </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -226,7 +229,7 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <!-- 登记子系统用户（仅新增时显示；纯本地花名册登记，不调外部接口，可多选） -->
+        <!-- 登记业务系统用户（仅新增时显示；纯本地花名册登记，不调外部接口，可多选） -->
         <el-row v-if="form.id === undefined">
           <el-col :span="24">
             <el-form-item label="登记业务系统">
@@ -237,33 +240,36 @@
           </el-col>
           <template v-if="syncSubSystem">
             <el-col :span="24">
-              <el-form-item label="业务系统">
-                <el-select
-                  v-model="syncForm.subSystemIds"
-                  multiple
-                  collapse-tags
-                  placeholder="可多选；选项为已绑定门户的业务系统"
-                  clearable
+              <el-form-item label="业务系统/车间">
+                <el-cascader
+                  v-model="syncHangPath"
+                  :options="syncCascaderOptions"
+                  :props="syncCascaderProps"
                   filterable
+                  clearable
+                  collapse-tags
+                  placeholder="可多选：无车间系统直接选系统；多车间系统请选到车间叶子"
                   style="width: 100%"
-                >
-                  <el-option
-                    v-for="item in syncSystemOptions"
-                    :key="item.id"
-                    :label="item.name"
-                    :value="item.id"
-                  />
-                </el-select>
+                  @change="handleSyncTargetChange"
+                />
                 <div class="sync-hint">
-                  仅在 JUMP「业务系统用户管理」登记并关联该用户，不调用业务系统接口；车间按部门对照自动带出，角色与车间可在登记后于【业务系统 → 用户管理】中调整。
+                  仅在 JUMP「业务系统用户管理」登记并关联该用户，不调用业务系统接口。多车间系统必须选到具体车间，登记后该用户从对应车间入口进入；角色可在登记后于【业务系统 → 用户管理】调整。
                 </div>
+                <el-alert
+                  v-if="syncHangableTree.length === 0"
+                  title="暂无可登记的业务系统（需在【业务系统管理】绑定门户）"
+                  type="info"
+                  :closable="false"
+                  show-icon
+                  style="margin-top: 8px"
+                />
               </el-form-item>
             </el-col>
           </template>
         </el-row>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
@@ -337,7 +343,7 @@ import "@riophae/vue-treeselect/dist/vue-treeselect.css";
 
 import {listSimpleDepts} from "@/api/system/dept";
 import {listSimplePosts} from "@/api/system/post";
-import { getSubSystemClientSimpleList } from "@/api/system/subSystemUsers";
+import { getHangableExternalTree } from "@/api/system/subSystemWorkshop";
 
 import {CommonStatusEnum} from "@/utils/constants";
 import {DICT_TYPE, getDictDatas} from "@/utils/dict";
@@ -345,10 +351,12 @@ import {assignUserRole, listUserRoles} from "@/api/system/permission";
 import {listSimpleRoles} from "@/api/system/role";
 import {getBaseHeader} from "@/utils/request";
 import { formatErpNos } from "@/utils/userFieldDisplay";
+import dialogDirtyGuard from '@/mixins/dialogDirtyGuard'
 
 export default {
   name: "SystemUser",
   components: { Treeselect },
+  mixins: [dialogDirtyGuard],
   data() {
     return {
       // 遮罩层
@@ -367,6 +375,8 @@ export default {
       deptOptions: undefined,
       // 是否显示弹出层
       open: false,
+      // 提交中：防双击重复创建
+      submitting: false,
       // 部门名称
       deptName: undefined,
       // 默认密码
@@ -379,12 +389,22 @@ export default {
       roleOptions: [],
       // 表单参数
       form: {},
-      // 登记子系统用户（新增时联动，可多选；纯本地花名册，不调外部接口）
+      // 登记业务系统用户（新增时联动，可多选；纯本地花名册，不调外部接口）
       syncSubSystem: false,
-      syncForm: {
-        subSystemIds: []
+      // 选中的叶子（emitPath=false，值为 `${subSystemId}|${workshopCode}`）
+      syncHangPath: [],
+      // 提交给后端的登记目标：[{ subSystemId, workshopId }]
+      syncTargets: [],
+      // 人员可挂外部树（仅叶子可选：系统本身或车间）
+      syncHangableTree: [],
+      syncCascaderProps: {
+        value: 'value',
+        label: 'label',
+        children: 'children',
+        multiple: true,
+        emitPath: false,
+        checkStrictly: false
       },
-      syncSystemOptions: [],
       defaultProps: {
         children: "children",
         label: "name"
@@ -463,6 +483,25 @@ export default {
     },
     sexDictDatas() {
       return getDictDatas(DICT_TYPE.SYSTEM_USER_SEX)
+    },
+    /** 业务系统/车间叶子级联选项：分组节点只作父级，叶子才可选 */
+    syncCascaderOptions() {
+      return (this.syncHangableTree || []).map(node => {
+        if (node.nodeType === 'group') {
+          return {
+            value: 'g-' + node.subSystemId,
+            label: node.label,
+            children: (node.children || []).map(child => ({
+              value: this.syncLeafKey(child.subSystemId, child.workshopCode),
+              label: child.label
+            }))
+          }
+        }
+        return {
+          value: this.syncLeafKey(node.subSystemId, node.workshopCode),
+          label: node.label
+        }
+      })
     }
   },
   watch: {
@@ -474,9 +513,14 @@ export default {
   created() {
     this.getList();
     this.getTreeselect();
-    // this.getConfigKey("sys.user.init-password").then(response => {
-    //   this.initPassword = response.msg;
-    // });
+    // 新建用户默认密码：key 与后端 AdminUserServiceImpl.USER_INIT_PASSWORD_KEY 一致；
+    // 没配置就保持空，由管理员手填（不要再读旧的 sys.user.init-password）
+    this.getConfigKey("system.user.init-password").then(response => {
+      const value = response && response.data
+      if (value) {
+        this.initPassword = String(value)
+      }
+    }).catch(() => {});
   },
   methods: {
     formatErpNos,
@@ -520,13 +564,26 @@ export default {
     },
     /** 查询用户列表 */
     getList() {
+      const seq = (this._listSeq = (this._listSeq || 0) + 1)
       this.loading = true;
       listUser(this.queryParams).then(response => {
+          // 快速切筛选/部门：只认最后一次请求，避免旧结果覆盖新结果
+          if (seq !== this._listSeq) {
+            return
+          }
           this.userList = response.data.list;
           this.total = response.data.total;
-          this.loading = false;
         }
-      );
+      ).catch(() => {
+        if (seq === this._listSeq) {
+          this.userList = []
+          this.total = 0
+        }
+      }).finally(() => {
+        if (seq === this._listSeq) {
+          this.loading = false
+        }
+      });
     },
     /** 查询部门下拉树结构 + 岗位下拉 */
     getTreeselect() {
@@ -565,8 +622,28 @@ export default {
     },
     // 取消按钮
     cancel() {
-      this.open = false;
-      this.reset();
+      this.confirmCloseDialog(this.dialogFormValue(), () => {
+        this._userLoadSeq = (this._userLoadSeq || 0) + 1
+        this.open = false;
+        this.reset();
+      })
+    },
+    /** 关闭弹窗（右上角/遮罩/ESC）前做一次脏检查 */
+    handleDialogBeforeClose(done) {
+      this.confirmCloseDialog(this.dialogFormValue(), () => {
+        this._userLoadSeq = (this._userLoadSeq || 0) + 1
+        this.open = false
+        this.reset()
+        done()
+      })
+    },
+    /** 参与脏检查的表单值（含登记业务系统的选择） */
+    dialogFormValue() {
+      return {
+        ...this.form,
+        _syncSubSystem: !!this.syncSubSystem,
+        _syncTargets: this.syncSubSystem ? (this.syncTargets || []) : []
+      }
     },
     // 取消按钮（角色权限）
     cancelRole() {
@@ -593,7 +670,9 @@ export default {
         roleIds: []
       };
       this.syncSubSystem = false;
-      this.syncForm = { subSystemIds: [] };
+      this.syncHangPath = [];
+      this.syncTargets = [];
+      this.syncHangableTree = [];
       this.resetForm("form");
     },
     /** 搜索按钮操作 */
@@ -608,27 +687,35 @@ export default {
     },
     /** 新增按钮操作 */
     handleAdd() {
+      this._userLoadSeq = (this._userLoadSeq || 0) + 1
       this.reset();
       // 获得下拉数据
       this.getTreeselect();
-      this.loadSyncSystems();
+      // 业务系统/车间树在勾选"登记业务系统"时再拉，避免每次打开新增都请求
       // 打开表单，并设置初始化
       this.open = true;
       this.title = "添加用户";
       this.form.password = this.initPassword;
+      this.markDialogPristine(this.dialogFormValue());
     },
     /** 修改按钮操作 */
     handleUpdate(row) {
       this.reset();
       this.getTreeselect();
       const id = row.id;
+      const seq = (this._userLoadSeq = (this._userLoadSeq || 0) + 1)
       getUser(id).then(response => {
+        // 连点两行/加载中切去新增：丢弃过期响应，避免旧详情盖掉当前弹窗
+        if (seq !== this._userLoadSeq) {
+          return
+        }
         this.form = {
           ...response.data,
           erpNos: Array.isArray(response.data.erpNos) ? response.data.erpNos : []
         };
         this.open = true;
         this.title = "修改用户";
+        this.markDialogPristine(this.dialogFormValue());
       });
     },
     /** 重置密码按钮操作 */
@@ -666,55 +753,110 @@ export default {
     },
     /** 提交按钮 */
     submitForm: function() {
-      this.$refs["form"].validate(valid => {
-        if (valid) {
-          if (this.form.id !== undefined) {
-            updateUser(this.form).then(response => {
-              this.$modal.msgSuccess("修改成功");
-              this.open = false;
-              this.getList();
-            });
-          } else {
-            if (this.syncSubSystem
-                && (!this.syncForm.subSystemIds || !this.syncForm.subSystemIds.length)) {
-              this.$modal.msgWarning("请选择要登记的业务系统");
-              return;
-            }
-            // 勾选登记时随用户创建一并提交（后端同事务写入外部用户管理，不调外部接口）
-            addUser(Object.assign({}, this.form, {
-              subSystemIds: this.syncSubSystem ? this.syncForm.subSystemIds : []
-            })).then(() => {
-              this.$modal.msgSuccess("新增成功");
-              this.open = false;
-              this.getList();
-            });
-          }
-        }
-      });
-    },
-    /** 勾选登记子系统：拉取已绑定门户的业务系统列表 */
-    handleSyncChange(val) {
-      if (val) {
-        this.loadSyncSystems();
-      } else {
-        this.syncForm.subSystemIds = [];
+      if (this.submitting) {
+        return
       }
-    },
-    loadSyncSystems() {
-      getSubSystemClientSimpleList(true).then(res => {
-        this.syncSystemOptions = res.data || [];
-        if (this.syncSystemOptions.length === 0) {
-          this.$modal.msgWarning("没有已绑定门户的业务系统。请先在【业务系统管理】绑定 OAuth 客户端");
+      this.$refs["form"].validate(valid => {
+        if (!valid) {
+          return
+        }
+        if (this.form.id === undefined
+            && this.syncSubSystem && (!this.syncTargets || !this.syncTargets.length)) {
+          this.$modal.msgWarning("请选择要登记的业务系统（多车间系统需选到车间叶子）");
           return;
         }
-        // 只有一个可登记系统时自动选中
-        if (this.syncSystemOptions.length === 1 && (!this.syncForm.subSystemIds || !this.syncForm.subSystemIds.length)) {
-          this.syncForm.subSystemIds = [this.syncSystemOptions[0].id];
+        this.submitting = true
+        if (this.form.id !== undefined) {
+          updateUser(this.form).then(() => {
+            this.$modal.msgSuccess("修改成功");
+            this.open = false;
+            this.getList();
+          }).finally(() => {
+            this.submitting = false
+          });
+        } else {
+          // 勾选登记时随用户创建一并提交（后端同事务写入外部用户管理，不调外部接口）
+          const payload = Object.assign({}, this.form, {
+            subSystemTargets: this.syncSubSystem ? this.syncTargets : []
+          });
+          // 旧字段只给旧调用用，这里不再发送，避免多车间系统被当成"未选叶子"
+          delete payload.subSystemIds;
+          addUser(payload).then(() => {
+            this.$modal.msgSuccess("新增成功");
+            this.open = false;
+            this.getList();
+          }).finally(() => {
+            this.submitting = false
+          });
+        }
+      });
+    },
+    /** 勾选登记业务系统：拉取"系统/车间叶子"树（仅叶子可选） */
+    handleSyncChange(val) {
+      if (val) {
+        this.loadSyncHangableTree();
+      } else {
+        this.syncHangPath = [];
+        this.syncTargets = [];
+      }
+    },
+    loadSyncHangableTree() {
+      return getHangableExternalTree().then(res => {
+        this.syncHangableTree = res.data || [];
+        if (this.syncHangableTree.length === 0) {
+          this.$modal.msgWarning("没有已绑定门户的业务系统。请先在【业务系统管理】绑定门户");
+          return;
+        }
+        // 只有一个可选叶子时自动选中
+        const leaves = this.flattenHangableLeaves(this.syncHangableTree);
+        if (leaves.length === 1 && (!this.syncHangPath || !this.syncHangPath.length)) {
+          this.syncHangPath = [this.syncLeafKey(leaves[0].subSystemId, leaves[0].workshopCode)];
+          this.handleSyncTargetChange(this.syncHangPath);
         }
       }).catch(() => {
-        this.syncSystemOptions = [];
-        this.$modal.msgWarning("业务系统列表加载失败");
+        this.syncHangableTree = [];
+        // 加载失败（含切页主动取消）由请求拦截器统一处理；空树会显示提示
+        console.warn('[user] 登记业务系统树加载失败')
       });
+    },
+    syncLeafKey(subSystemId, workshopCode) {
+      const workshop = workshopCode == null ? '' : String(workshopCode);
+      return subSystemId + '|' + workshop;
+    },
+    flattenHangableLeaves(nodes) {
+      const leaves = [];
+      const walk = list => {
+        (list || []).forEach(node => {
+          if (!node) {
+            return;
+          }
+          if (node.nodeType === 'group') {
+            walk(node.children);
+          } else {
+            leaves.push(node);
+          }
+        });
+      };
+      walk(nodes);
+      return leaves;
+    },
+    findSyncLeaf(key) {
+      return this.flattenHangableLeaves(this.syncHangableTree)
+        .find(leaf => this.syncLeafKey(leaf.subSystemId, leaf.workshopCode) === key) || null;
+    },
+    handleSyncTargetChange(keys) {
+      const list = Array.isArray(keys) ? keys : (keys ? [keys] : []);
+      const targets = [];
+      list.forEach(key => {
+        const leaf = this.findSyncLeaf(key);
+        if (leaf && leaf.subSystemId) {
+          targets.push({
+            subSystemId: leaf.subSystemId,
+            workshopId: leaf.workshopCode ? String(leaf.workshopCode) : undefined
+          });
+        }
+      });
+      this.syncTargets = targets;
     },
     /** 提交按钮（角色权限） */
     submitRole: function() {
@@ -734,6 +876,10 @@ export default {
       this.$modal.confirm('是否确认删除用户编号为"' + row.id + '"的数据项?').then(() => {//红号变更
         return delUser(row.id);
       }).then(() => {
+        // 删除的是当前页最后一条 → 回退一页，避免停在空列表
+        if (this.userList && this.userList.length === 1 && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.getList();
         this.$modal.msgSuccess("删除成功");
       }).catch(() => {});

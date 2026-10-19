@@ -273,11 +273,18 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         Map<Long, SubSystemDO> subSystemMap = convertMap(
                 subSystemMapper.selectListByIds(apiSubSystemIds), SubSystemDO::getId);
         // 保序：按配置列表出现顺序
+        Map<Long, String> apiTypeById = new java.util.LinkedHashMap<>();
+        for (SubSystemApiConfigDO config : configs) {
+            if (config.getSubSystemId() != null && StrUtil.isNotBlank(config.getApiType())) {
+                apiTypeById.putIfAbsent(config.getSubSystemId(), config.getApiType());
+            }
+        }
         return apiSubSystemIds.stream()
                 .filter(subSystemMap::containsKey)
                 .map(id -> new SubSystemRegisterableApiRespVO()
                         .setSubSystemId(id)
-                        .setSystemName(subSystemMap.get(id).getSystemName()))
+                        .setSystemName(subSystemMap.get(id).getSystemName())
+                        .setApiType(apiTypeById.get(id)))
                 .collect(Collectors.toList());
     }
 

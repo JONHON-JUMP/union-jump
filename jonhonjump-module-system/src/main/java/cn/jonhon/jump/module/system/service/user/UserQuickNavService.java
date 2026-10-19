@@ -17,6 +17,17 @@ public interface UserQuickNavService {
      */
     UserQuickNavRespVO saveUserQuickNav(Long userId, List<Long> menuIds);
 
+    /**
+     * 单项加入个人快捷导航（增量：只插一行，不动其它项），返回落库后的权威结果。
+     * 星标开/关必须走增量接口，save 是全量覆盖语义，前端列表不完整时会把其它项全删。
+     */
+    UserQuickNavRespVO addUserQuickNavMenu(Long userId, Long menuId);
+
+    /**
+     * 单项移除个人快捷导航（增量：只删一行，不动其它项）；角色锁定默认项不移除。
+     */
+    UserQuickNavRespVO removeUserQuickNavMenu(Long userId, Long menuId);
+
     void deleteByMenuId(Long menuId);
 
     void deleteByMenuIds(List<Long> menuIds);

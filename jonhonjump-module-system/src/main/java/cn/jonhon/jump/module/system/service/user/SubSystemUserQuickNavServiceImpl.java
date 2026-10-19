@@ -144,6 +144,65 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public SubSystemUserQuickNavRespVO addUserQuickNavMenu(Long userId, Long subSystemId, String workshopCode, Long menuId) {
+        String workshop = StrUtil.trim(workshopCode);
+        if (menuId != null) {
+            // 无权限菜单不落库，直接返回权威结果
+            Set<Long> allowed = subSystemUsersService.retainAllowedQuickNavMenuIds(
+                    userId, subSystemId, Collections.singleton(menuId), workshop);
+            if (allowed.contains(menuId)) {
+                List<SubSystemUserQuickNavDO> savedList = subSystemUserQuickNavMapper
+                        .selectListByUserIdAndSubSystemIdAndWorkshop(userId, subSystemId, workshop);
+                // 该车间还没有个人行时，先把系统级（workshop 空）已有快捷导航带过来再追加。
+                // 否则第一次加星只插入新菜单，读这个车间时旧列表全部看不见。
+                if (CollUtil.isEmpty(savedList) && StrUtil.isNotBlank(workshop)) {
+                    List<SubSystemUserQuickNavDO> legacyList = subSystemUserQuickNavMapper
+                            .selectListByUserIdAndSubSystemIdAndWorkshop(userId, subSystemId, "");
+                    if (CollUtil.isNotEmpty(legacyList)) {
+                        LinkedHashSet<Long> seed = new LinkedHashSet<>();
+                        for (SubSystemUserQuickNavDO row : legacyList) {
+                            if (row.getMenuId() != null) {
+                                seed.add(row.getMenuId());
+                            }
+                        }
+                        seed.add(menuId);
+                        return saveUserQuickNav(userId, subSystemId, new ArrayList<>(seed), workshop);
+                    }
+                }
+                boolean exists = savedList.stream().anyMatch(row -> Objects.equals(row.getMenuId(), menuId));
+                if (!exists) {
+                    SubSystemUserQuickNavDO record = new SubSystemUserQuickNavDO();
+                    record.setUserId(userId);
+                    record.setSubSystemId(subSystemId);
+                    record.setWorkshopCode(StrUtil.blankToDefault(workshop, ""));
+                    record.setMenuId(menuId);
+                    record.setSort(savedList.size());
+                    subSystemUserQuickNavMapper.insert(record);
+                    subSystemUserQuickNavRedisDAO.delete(userId, subSystemId, workshop);
+                }
+            }
+        }
+        return rebuildUserQuickNav(userId, subSystemId, workshop);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public SubSystemUserQuickNavRespVO removeUserQuickNavMenu(Long userId, Long subSystemId, String workshopCode, Long menuId) {
+        String workshop = StrUtil.trim(workshopCode);
+        if (menuId != null) {
+            // 角色锁定默认项不可移除：忽略本次操作，返回权威结果（锁定项仍在列表中）
+            List<Long> roleDefaults = subSystemRoleQuickNavService.getUserDefaultMenuIds(userId, subSystemId, workshop);
+            if (CollUtil.isEmpty(roleDefaults) || !roleDefaults.contains(menuId)) {
+                subSystemUserQuickNavMapper.deleteByUserIdAndSubSystemIdAndWorkshopAndMenuId(
+                        userId, subSystemId, workshop, menuId);
+                subSystemUserQuickNavRedisDAO.delete(userId, subSystemId, workshop);
+            }
+        }
+        return rebuildUserQuickNav(userId, subSystemId, workshop);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public SubSystemUserQuickNavRespVO saveUserQuickNav(Long userId, Long subSystemId, List<Long> menuIds,
                                                         String workshopCode) {
         String workshop = StrUtil.trim(workshopCode);
@@ -162,6 +221,7 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
         List<Long> validMenuIds = CollUtil.isEmpty(menuIds) ? Collections.emptyList()
                 : menuIds.stream().filter(allowedMenuIds::contains).distinct().collect(Collectors.toList());
         validMenuIds = mergeLockedMenuIds(validMenuIds, lockedMenuIds);
+        validMenuIds = retainOmittedExistingMenuIds(userId, subSystemId, workshop, validMenuIds, allowedMenuIds, lockedMenuIds);
 
         try {
             subSystemUserQuickNavMapper.deleteByUserIdAndSubSystemIdAndWorkshop(userId, subSystemId, workshop);
@@ -281,11 +341,7 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
             return;
         }
         subSystemUserQuickNavMapper.deleteByUserIdsAndSubSystemIdAndMenuIds(userIds, subSystemId, menuIds);
-        Set<SubSystemQuickNavCacheKey> keys = userIds.stream()
-                .filter(Objects::nonNull)
-                .map(uid -> SubSystemUserQuickNavRedisDAO.cacheKey(uid, subSystemId))
-                .collect(Collectors.toSet());
-        subSystemUserQuickNavRedisDAO.deleteList(keys);
+        subSystemUserQuickNavRedisDAO.deleteBySubSystemId(subSystemId, userIds);
     }
 
     @Override
@@ -321,7 +377,10 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
                     if (subUser == null || subUser.getMainUserId() == null || subUser.getSubSystemId() == null) {
                         continue;
                     }
-                    keys.add(SubSystemUserQuickNavRedisDAO.cacheKey(subUser.getMainUserId(), subUser.getSubSystemId()));
+                    keys.add(SubSystemUserQuickNavRedisDAO.cacheKey(
+                            subUser.getMainUserId(), subUser.getSubSystemId(), subUser.getWorkshopId()));
+                    keys.add(SubSystemUserQuickNavRedisDAO.cacheKey(
+                            subUser.getMainUserId(), subUser.getSubSystemId()));
                 }
             }
         }
@@ -428,6 +487,32 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
             subSystemUserQuickNavMapper.insert(record);
         }
         subSystemUserQuickNavRedisDAO.delete(userId, subSystemId, null);
+    }
+
+    /**
+     * 全量保存会先删后插。排序只调整顺序，删除走单项接口。
+     * 请求里没带到的已有菜单一律保留，空列表也不许把该车间清空。
+     */
+    private List<Long> retainOmittedExistingMenuIds(Long userId, Long subSystemId, String workshop,
+                                                    List<Long> validMenuIds, Set<Long> allowedMenuIds,
+                                                    List<Long> lockedMenuIds) {
+        List<Long> existingMenuIds = loadUserQuickNavFromDb(userId, subSystemId, workshop).getMenuIds();
+        if (CollUtil.isEmpty(existingMenuIds)) {
+            return validMenuIds;
+        }
+        LinkedHashSet<Long> kept = new LinkedHashSet<>();
+        if (CollUtil.isNotEmpty(validMenuIds)) {
+            validMenuIds.forEach(kept::add);
+        }
+        for (Long id : existingMenuIds) {
+            if (id != null && allowedMenuIds.contains(id)) {
+                kept.add(id);
+            }
+        }
+        if (kept.isEmpty()) {
+            return validMenuIds;
+        }
+        return mergeLockedMenuIds(new ArrayList<>(kept), lockedMenuIds);
     }
 
     private List<Long> mergeLockedMenuIds(List<Long> menuIds, List<Long> lockedMenuIds) {

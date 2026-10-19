@@ -196,7 +196,7 @@
 
       <div slot="footer" class="dialog-footer">
 
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
 
         <el-button @click="cancel">取 消</el-button>
 
@@ -271,6 +271,8 @@ export default {
       },
 
       form: {},
+      // 提交中：防双击重复创建
+      submitting: false,
 
       rules: {
         clientId: [
@@ -308,9 +310,15 @@ export default {
 
     getList() {
 
+      const seq = (this._listSeq = (this._listSeq || 0) + 1)
+
       this.loading = true
 
       getSubSystemPage(this.queryParams).then(res => {
+
+        if (seq !== this._listSeq) {
+          return
+        }
 
         this.systemList = res.data.list || []
 
@@ -318,15 +326,18 @@ export default {
 
       }).catch(() => {
 
-        this.systemList = []
+        if (seq === this._listSeq) {
+          this.systemList = []
+          this.total = 0
+        }
 
-        this.total = 0
-
-        this.$modal.msgError('加载业务系统列表失败，请重试')
+        // 加载失败（含切页主动取消）由请求拦截器统一处理
 
       }).finally(() => {
 
-        this.loading = false
+        if (seq === this._listSeq) {
+          this.loading = false
+        }
 
       })
 
@@ -411,33 +422,25 @@ export default {
     },
 
     submitForm() {
-
+      if (this.submitting) {
+        return
+      }
       this.$refs.form.validate(valid => {
-
         if (!valid) {
-
           return
-
         }
-
+        this.submitting = true
         const request = this.form.id ? updateSubSystem : createSubSystem
-
         request(this.form).then(() => {
-
           this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
-
           this.open = false
-
           this.getList()
-
         }).catch(() => {
-
-          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
-
+          // 具体原因由请求拦截器提示（如 clientId 重复），不再叠加通用 toast
+        }).finally(() => {
+          this.submitting = false
         })
-
       })
-
     },
 
     handleDelete(row) {
@@ -447,6 +450,10 @@ export default {
         return deleteSubSystem(row.id)
 
       }).then(() => {
+
+        if (this.systemList && this.systemList.length === 1 && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
 
         this.$modal.msgSuccess('删除成功')
 
@@ -463,6 +470,12 @@ export default {
         return deleteSubSystemList(this.checkedIds)
 
       }).then(() => {
+
+        const removing = (this.checkedIds || []).length
+
+        if (this.systemList && this.systemList.length <= removing && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
 
         this.$modal.msgSuccess('删除成功')
 

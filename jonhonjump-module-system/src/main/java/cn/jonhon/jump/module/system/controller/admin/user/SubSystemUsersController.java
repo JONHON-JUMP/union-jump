@@ -120,30 +120,6 @@ public class SubSystemUsersController {
 
 
 
-    @PostMapping("/bind-main-user")
-
-    @Operation(summary = "挂接主系统用户到外部系统同名用户")
-
-    @Parameters({
-
-            @Parameter(name = "subSystemId", description = "外部系统编号", required = true),
-
-            @Parameter(name = "mainUserId", description = "主系统用户编号", required = true)
-
-    })
-
-    @PreAuthorize("@ss.hasPermission('sub-system:user:create')")
-
-    public CommonResult<Long> bindMainUser(@RequestParam("subSystemId") Long subSystemId,
-
-                                           @RequestParam("mainUserId") Long mainUserId) {
-
-        return success(subSystemUsersService.bindMainUser(subSystemId, mainUserId));
-
-    }
-
-
-
     @PostMapping("/create")
 
     @Operation(summary = "创建外部系统用户")

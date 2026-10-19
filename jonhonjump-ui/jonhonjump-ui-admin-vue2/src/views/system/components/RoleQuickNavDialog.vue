@@ -35,7 +35,7 @@
     </el-form>
 
     <div slot="footer" class="dialog-footer">
-      <el-button type="primary" :loading="saving" @click="submit">确 定</el-button>
+      <el-button type="primary" :loading="saving" :disabled="!loaded || !checksReady" @click="submit">确 定</el-button>
       <el-button @click="dialogVisible = false">取 消</el-button>
     </div>
   </el-dialog>
@@ -72,6 +72,11 @@ export default {
       type: Array,
       default: () => []
     },
+    /** 父页面接口返回后才为 true。打开瞬间菜单还是空的，不能当成「用户清空了勾选」 */
+    loaded: {
+      type: Boolean,
+      default: false
+    },
     saving: {
       type: Boolean,
       default: false
@@ -82,6 +87,7 @@ export default {
       menuExpand: false,
       menuNodeAll: false,
       menuCheckStrictly: false,
+      checksReady: false,
       syncSeq: 0,
       treeProps: {
         label: 'name',
@@ -127,6 +133,15 @@ export default {
         }
       },
       deep: true
+    },
+    loaded(val) {
+      if (val && this.visible) {
+        this.$nextTick(() => {
+          this.syncCheckedKeys()
+        })
+      } else if (!val) {
+        this.checksReady = false
+      }
     }
   },
   methods: {
@@ -157,6 +172,7 @@ export default {
       this.refreshDeniedCheckboxMarks()
     },
     syncCheckedKeys() {
+      this.checksReady = false
       if (!this.$refs.menuTree) {
         return
       }
@@ -175,6 +191,7 @@ export default {
             return
           }
           this.menuNodeAll = this.isAllLeafChecked()
+          this.checksReady = !!this.loaded
           this.refreshDeniedCheckboxMarks()
         }
       )
@@ -225,9 +242,22 @@ export default {
         }
       )
     },
+    collectTreeIds(nodes, bucket) {
+      ;(nodes || []).forEach(node => {
+        if (node && node.id != null) {
+          const id = Number(node.id)
+          if (id > 0) {
+            bucket.add(id)
+          }
+        }
+        if (node && node.children && node.children.length) {
+          this.collectTreeIds(node.children, bucket)
+        }
+      })
+    },
     submit() {
-      if (!this.$refs.menuTree) {
-        this.$emit('save', [])
+      if (!this.loaded || !this.checksReady || !this.$refs.menuTree) {
+        this.$message.warning('快捷导航还在加载，请稍后再保存')
         return
       }
       const checkedIds = [
@@ -235,12 +265,23 @@ export default {
         ...this.$refs.menuTree.getHalfCheckedKeys()
       ]
       const menuIds = collectOrderedQuickNavMenuIds(this.menuTree, checkedIds)
+      const inTree = new Set()
+      this.collectTreeIds(this.menuTree, inTree)
+      const seen = new Set(menuIds)
+      ;(this.menuIds || []).forEach(raw => {
+        const id = Number(raw)
+        if (id > 0 && !inTree.has(id) && !seen.has(id)) {
+          seen.add(id)
+          menuIds.push(id)
+        }
+      })
       this.$emit('save', menuIds)
     },
     handleClosed() {
       this.menuExpand = false
       this.menuNodeAll = false
       this.menuCheckStrictly = false
+      this.checksReady = false
       this.syncSeq += 1
       if (this.$refs.menuTree) {
         this.$refs.menuTree.setCheckedKeys([])

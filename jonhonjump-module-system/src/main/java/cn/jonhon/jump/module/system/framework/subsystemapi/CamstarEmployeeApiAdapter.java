@@ -161,26 +161,8 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         EndpointSpec writeEndpoint = assignRoleEndpoint != null && assignRoleEndpoint.isEnabled()
                 ? assignRoleEndpoint : updateEndpoint;
         requireEnabled(writeEndpoint, "人员分配角色");
-        // 1. 查现状
-        Map<String, Object> query = new HashMap<>();
-        query.put("userCode", userCode);
-        query.put("page", 1);
-        query.put("rows", 20);
-        JsonNode resp = executeWithRelogin(queryEndpoint, query);
-        JsonNode matched = null;
-        JsonNode rows = resp.path("rows");
-        String wanted = userCode.trim();
-        if (rows.isArray()) {
-            for (JsonNode row : rows) {
-                String code = text(row, "userCode", "").trim();
-                if (wanted.equalsIgnoreCase(code)) {
-                    matched = row;
-                    if (wanted.equals(code)) {
-                        break;
-                    }
-                }
-            }
-        }
+        // 1. 查现状。对方若忽略 userCode，目标用户可能不在第一页，按页往后找，有上限。
+        JsonNode matched = findEmployeeByUserCode(userCode);
         if (matched == null) {
             throw new ExternalApiException("对方系统未找到用户【" + userCode + "】，请先在花名册完成人员注册");
         }
@@ -239,6 +221,47 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
     }
 
     // ===================== 私有方法 =====================
+
+    /**
+     * 按工号找人员。每页 100 条，最多 20 页。某一页不足一页就停止，避免对方不按工号过滤时只看首页。
+     */
+    private JsonNode findEmployeeByUserCode(String userCode) {
+        String wanted = userCode == null ? "" : userCode.trim();
+        if (wanted.isEmpty()) {
+            return null;
+        }
+        final int pageSize = 100;
+        final int maxPages = 20;
+        JsonNode ignoreCaseHit = null;
+        for (int page = 1; page <= maxPages; page++) {
+            Map<String, Object> query = new HashMap<>();
+            query.put("userCode", wanted);
+            query.put("page", page);
+            query.put("rows", pageSize);
+            JsonNode resp = executeWithRelogin(queryEndpoint, query);
+            JsonNode rows = resp.path("rows");
+            int count = rows.isArray() ? rows.size() : 0;
+            if (count == 0) {
+                break;
+            }
+            for (JsonNode row : rows) {
+                String code = text(row, "userCode", "").trim();
+                if (wanted.equals(code)) {
+                    return row;
+                }
+                if (ignoreCaseHit == null && wanted.equalsIgnoreCase(code)) {
+                    ignoreCaseHit = row;
+                }
+            }
+            if (ignoreCaseHit != null) {
+                return ignoreCaseHit;
+            }
+            if (count < pageSize) {
+                break;
+            }
+        }
+        return ignoreCaseHit;
+    }
 
     /** 必选接口：未配置接口行时直接抛错（与原 JSON 列「未配置」行为一致） */
     private static EndpointSpec requireSpec(Map<String, EndpointSpec> specs, String purpose, String label) {

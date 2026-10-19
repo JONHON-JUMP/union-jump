@@ -1,6 +1,7 @@
 /**
  * 数据字典工具类
  */
+import Vue from 'vue'
 import store from '@/store'
 
 const requestedTypes = new Set()
@@ -102,11 +103,18 @@ function triggerDictTypeLoad(dictType) {
 }
 
 /**
- * 获取 dictType 对应的数据字典数组（按需懒加载，渲染期间只读不写）
+ * 获取 dictType 对应的数据字典数组（按需懒加载，渲染期间只读不写）。
+ * 首次访问即在 store 里放响应式占位数组，加载完成后由 store 原地填充——
+ * 组件 data() 里持有的数组引用（如 statusDictDatas）不会失效，
+ * 字典接口晚到时表单选项会在数据到达后自动出现，而不是永远空白。
  */
 export function getDictDatas(dictType) {
   triggerDictTypeLoad(dictType)
-  return store.getters.dict_datas[dictType] || []
+  const map = store.getters.dict_datas
+  if (!Object.prototype.hasOwnProperty.call(map, dictType)) {
+    Vue.set(map, dictType, [])
+  }
+  return map[dictType] || []
 }
 
 export function ensureDictDatas(dictType) {

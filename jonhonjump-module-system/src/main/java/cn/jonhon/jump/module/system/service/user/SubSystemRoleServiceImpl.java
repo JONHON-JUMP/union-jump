@@ -81,6 +81,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     private SubSystemApiConfigMapper subSystemApiConfigMapper;
     @Resource
     private SubSystemApiEndpointMapper subSystemApiEndpointMapper;
+    @Resource
+    private SubSystemWorkshopMapper subSystemWorkshopMapper;
 
     @Override
     public PageResult<SubSystemRoleRespVO> getSubSystemRolePage(SubSystemRolePageReqVO pageReqVO) {
@@ -107,15 +109,15 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         validateSubSystemExists(createReqVO.getSubSystemId());
         boolean syncToExternal = Boolean.TRUE.equals(createReqVO.getSyncToExternal());
         String roleName = StrUtil.trim(createReqVO.getName());
-        createReqVO.setWorkshopCode(StrUtil.trimToNull(createReqVO.getWorkshopCode()));
-        String workshopCode = resolveWorkshopCode(createReqVO.getWorkshopCode(), null, roleName);
+        String workshopCode = acceptWorkshopCode(createReqVO.getSubSystemId(),
+                resolveWorkshopCode(createReqVO.getSubSystemId(),
+                        StrUtil.trimToNull(createReqVO.getWorkshopCode()), null, roleName),
+                syncToExternal);
+        createReqVO.setWorkshopCode(workshopCode);
         if (!syncToExternal) {
             String localName = roleName;
             return new TransactionTemplate(transactionManager).execute(status ->
                     insertLocalRole(createReqVO, localName));
-        }
-        if (StrUtil.isBlank(workshopCode)) {
-            throw exception(SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED);
         }
         Long apiSubSystemId = createReqVO.getApiSubSystemId();
         if (apiSubSystemId == null || apiSubSystemId <= 0) {
@@ -126,16 +128,15 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         createReqVO.setName(roleName);
         String externalName = roleName;
         Long resolvedApiId = apiSubSystemId;
-        // 先提交本地角色，再调 Camstar，避免查询和推送占着数据库连接
-        Long roleId = new TransactionTemplate(transactionManager).execute(status -> {
-            validateRoleDuplicate(createReqVO.getSubSystemId(), externalName, createReqVO.getCode(), null);
-            return insertLocalRole(createReqVO, externalName).getId();
-        });
-        assertExternalRoleNameFree(resolvedApiId, workshopCode, externalName, true);
+        // 外部查询不依赖本地行：同名或查失败时还没落库，避免「失败但已建」再点一次撞重名
+        validateRoleDuplicate(createReqVO.getSubSystemId(), externalName, createReqVO.getCode(), null);
+        assertExternalRoleNameFree(resolvedApiId, workshopCode, externalName, false);
+        Long roleId = new TransactionTemplate(transactionManager).execute(status ->
+                insertLocalRole(createReqVO, externalName).getId());
         try {
             subSystemApiConfigService.pushExternalRoleCreate(resolvedApiId, workshopCode, externalName);
         } catch (RuntimeException e) {
-            throw exception0(BAD_REQUEST.getCode(),
+            return new SubSystemRoleCreateRespVO().setId(roleId).setWarning(
                     "本地角色已保存，但推送到 Camstar 失败：" + e.getMessage()
                             + "。请到列表中重新注册，不要再次新建。");
         }
@@ -147,12 +148,23 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     @Override
     public void updateSubSystemRole(SubSystemRoleSaveReqVO updateReqVO) {
         SubSystemRoleDO role = validateSubSystemRoleExists(updateReqVO.getId());
-        validateSubSystemExists(updateReqVO.getSubSystemId());
-        validateRoleDuplicate(updateReqVO.getSubSystemId(), updateReqVO.getName(), updateReqVO.getCode(), updateReqVO.getId());
+        updateReqVO.setSubSystemId(role.getSubSystemId());
+        validateSubSystemExists(role.getSubSystemId());
+        validateRoleDuplicate(role.getSubSystemId(), updateReqVO.getName(), updateReqVO.getCode(), updateReqVO.getId());
+        String workshopCode = acceptWorkshopCode(role.getSubSystemId(),
+                StrUtil.trimToNull(updateReqVO.getWorkshopCode()), false);
+        String oldWorkshop = StrUtil.trimToNull(role.getWorkshopCode());
+        if (!Objects.equals(oldWorkshop, workshopCode)) {
+            List<SubSystemUserRoleDO> assigned = subSystemUserRoleMapper.selectListByRoleId(role.getId());
+            if (CollUtil.isNotEmpty(assigned)) {
+                throw exception0(BAD_REQUEST.getCode(),
+                        "该角色已分配给 " + assigned.size() + " 个用户，修改车间后这些人会从对应门户入口消失。请先取消分配再改车间。");
+            }
+        }
 
         SubSystemRoleDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemRoleDO.class);
         updateObj.setSubSystemId(role.getSubSystemId());
-        updateObj.setWorkshopCode(StrUtil.trimToNull(updateReqVO.getWorkshopCode()));
+        updateObj.setWorkshopCode(workshopCode);
         if (StrUtil.isNotBlank(updateReqVO.getRoleRegistered())) {
             updateObj.setRoleRegistered("1".equals(updateReqVO.getRoleRegistered()) ? "1" : "0");
         } else {
@@ -170,7 +182,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteSubSystemRole(Long id) {
-        validateSubSystemRoleExists(id);
+        SubSystemRoleDO role = validateSubSystemRoleExists(id);
+        validateRoleDeletable(role);
         validateRoleNotAssigned(id);
         subSystemRoleMapper.deleteById(id);
         subSystemRoleMenuMapper.deleteListByRoleId(id);
@@ -181,7 +194,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     @Transactional(rollbackFor = Exception.class)
     public void deleteSubSystemRoleList(List<Long> ids) {
         ids.forEach(id -> {
-            validateSubSystemRoleExists(id);
+            SubSystemRoleDO role = validateSubSystemRoleExists(id);
+            validateRoleDeletable(role);
             validateRoleNotAssigned(id);
         });
         subSystemRoleMapper.deleteByIds(ids);
@@ -213,13 +227,11 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         if ("1".equals(role.getRoleRegistered())) {
             throw exception(SUB_SYSTEM_ROLE_ALREADY_REGISTERED);
         }
-        String workshopCode = resolveWorkshopCode(
+        String workshopCode = acceptWorkshopCode(role.getSubSystemId(), resolveWorkshopCode(
+                role.getSubSystemId(),
                 reqVO != null ? reqVO.getWorkshopCode() : null,
-                role.getWorkshopCode(), role.getName());
+                role.getWorkshopCode(), role.getName()), true);
         String roleName = StrUtil.trim(role.getName());
-        if (StrUtil.isBlank(workshopCode)) {
-            throw exception(SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED);
-        }
         Long apiSubSystemId = reqVO != null ? reqVO.getApiSubSystemId() : null;
         if (apiSubSystemId == null || apiSubSystemId <= 0) {
             apiSubSystemId = role.getSubSystemId();
@@ -227,19 +239,24 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         String externalName = buildExternalRoleName(workshopCode, roleName);
         assertRoleNameLength(externalName);
         if (!Objects.equals(externalName, roleName)) {
-            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
-                validateRoleDuplicate(role.getSubSystemId(), externalName, role.getCode(), role.getId());
-                SubSystemRoleDO rename = new SubSystemRoleDO();
-                rename.setId(role.getId());
-                rename.setName(externalName);
-                subSystemRoleMapper.updateById(rename);
-            });
+            validateRoleDuplicate(role.getSubSystemId(), externalName, role.getCode(), role.getId());
         }
-        // 先确认对方没有同名角色，查询失败则不推送
+        // 外部同名或查询失败时不改本地角色名
         assertExternalRoleNameFree(apiSubSystemId, workshopCode, externalName, true);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            SubSystemRoleDO patch = new SubSystemRoleDO();
+            patch.setId(role.getId());
+            patch.setWorkshopCode(workshopCode);
+            if (!Objects.equals(externalName, roleName)) {
+                patch.setName(externalName);
+            }
+            subSystemRoleMapper.updateById(patch);
+        });
         subSystemApiConfigService.pushExternalRoleCreate(apiSubSystemId, workshopCode, externalName);
         markRoleRegistered(role.getId(), "1");
-        return storeExternalRoleId(role.getId(), apiSubSystemId, workshopCode, externalName);
+        String warning = storeExternalRoleId(role.getId(), apiSubSystemId, workshopCode, externalName);
+        subSystemPermissionContextService.evictByRoleId(role.getId());
+        return warning;
     }
 
     /**
@@ -508,15 +525,72 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         subSystemRoleMapper.updateById(updateObj);
     }
 
-    /** 车间优先：入参 > 角色自身编号 > 角色名前缀；不再从业务系统/车间对照推断 */
-    private String resolveWorkshopCode(String explicit, String storedOnRole, String roleName) {
+    /**
+     * 多叶子且这次是同步/注册时，车间必须是该系统的叶子。
+     * 没开车间维度允许空。填了编号则必须落在已启用的车间叶子上。
+     */
+    private String acceptWorkshopCode(Long subSystemId, String workshopCode, boolean requiredWhenMulti) {
+        String code = StrUtil.trimToNull(workshopCode);
+        List<SubSystemWorkshopDO> leaves = subSystemId == null
+                ? Collections.emptyList()
+                : subSystemWorkshopMapper.selectEnabledBySubSystemId(subSystemId);
+        SubSystemDO subSystem = subSystemId == null ? null : subSystemMapper.selectById(subSystemId);
+        boolean hasLeaves = leaves != null && !leaves.isEmpty();
+        boolean workshopScope = subSystem != null && subSystem.workshopScopeOn();
+        if (code == null) {
+            // 开了车间维度且已有叶子才要求填写；EAM 这类系统不必编一个编号
+            if (requiredWhenMulti && workshopScope && hasLeaves) {
+                throw exception(SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED);
+            }
+            return null;
+        }
+        if (CollUtil.isNotEmpty(leaves)) {
+            boolean known = false;
+            for (SubSystemWorkshopDO leaf : leaves) {
+                if (code.equals(StrUtil.trim(leaf.getWorkshopCode()))) {
+                    known = true;
+                    break;
+                }
+            }
+            if (!known) {
+                throw exception(SUB_SYSTEM_USER_WORKSHOP_LEAF_INVALID);
+            }
+        }
+        return code;
+    }
+
+    /**
+     * 显式车间、角色上已有车间优先。
+     * 名字里第一个下划线前的一段，只有确实是本系统已启用叶子时才当成车间，否则当没填。
+     */
+    private String resolveWorkshopCode(Long subSystemId, String explicit, String storedOnRole, String roleName) {
         if (StrUtil.isNotBlank(explicit)) {
             return explicit.trim();
         }
         if (StrUtil.isNotBlank(storedOnRole)) {
             return storedOnRole.trim();
         }
-        return parseWorkshopPrefix(roleName);
+        String prefix = parseWorkshopPrefix(roleName);
+        if (StrUtil.isBlank(prefix) || !isEnabledLeaf(subSystemId, prefix)) {
+            return null;
+        }
+        return prefix;
+    }
+
+    private boolean isEnabledLeaf(Long subSystemId, String workshopCode) {
+        if (subSystemId == null || StrUtil.isBlank(workshopCode)) {
+            return false;
+        }
+        List<SubSystemWorkshopDO> leaves = subSystemWorkshopMapper.selectEnabledBySubSystemId(subSystemId);
+        if (CollUtil.isEmpty(leaves)) {
+            return false;
+        }
+        for (SubSystemWorkshopDO leaf : leaves) {
+            if (workshopCode.equals(StrUtil.trim(leaf.getWorkshopCode()))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 车间编号_短名；若已带此前缀则原样返回 */
@@ -593,7 +667,7 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
             Set<Long> validMenuIds = convertSet(menus, SubSystemMenuDO::getId);
             for (Long menuId : menuIds) {
                 if (!validMenuIds.contains(menuId)) {
-                    throw exception(SUB_SYSTEM_ROLE_NOT_EXISTS);
+                    throw exception(SUB_SYSTEM_MENU_NOT_EXISTS);
                 }
             }
         }
@@ -719,6 +793,7 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     }
 
     private void validateRoleDuplicate(Long subSystemId, String name, String code, Long id) {
+        rejectReservedRoleCode(code, id);
         SubSystemRoleDO role = subSystemRoleMapper.selectBySubSystemIdAndName(subSystemId, name);
         if (role != null && !ObjectUtil.equal(role.getId(), id)) {
             throw exception(SUB_SYSTEM_ROLE_NAME_DUPLICATE, name);
@@ -726,6 +801,32 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         role = subSystemRoleMapper.selectBySubSystemIdAndCode(subSystemId, code);
         if (role != null && !ObjectUtil.equal(role.getId(), id)) {
             throw exception(SUB_SYSTEM_ROLE_CODE_DUPLICATE, code);
+        }
+    }
+
+    /** admin / super_admin 会在子系统拿到全部权限，不能被新建或改占。已是该编码的角色允许原样保存。 */
+    private void rejectReservedRoleCode(String code, Long id) {
+        if (!"admin".equals(code) && !"super_admin".equals(code)) {
+            return;
+        }
+        if (id != null) {
+            SubSystemRoleDO current = subSystemRoleMapper.selectById(id);
+            if (current != null && code.equals(current.getCode())) {
+                return;
+            }
+        }
+        throw exception(ROLE_ADMIN_CODE_ERROR, code);
+    }
+
+    private void validateRoleDeletable(SubSystemRoleDO role) {
+        if (role == null) {
+            return;
+        }
+        if (RoleTypeEnum.SYSTEM.getType().equals(role.getType())) {
+            throw exception(ROLE_CAN_NOT_UPDATE_SYSTEM_TYPE_ROLE);
+        }
+        if ("1".equals(role.getRoleRegistered()) || StrUtil.isNotBlank(role.getExternalRoleId())) {
+            throw exception0(BAD_REQUEST.getCode(), "角色已在外部系统注册，不能删除。请先在对方系统删除或解除关联后再删");
         }
     }
 

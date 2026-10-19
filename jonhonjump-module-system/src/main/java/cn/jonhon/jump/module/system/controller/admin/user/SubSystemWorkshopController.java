@@ -45,7 +45,7 @@ public class SubSystemWorkshopController {
 
     @GetMapping("/hangable-tree")
     @Operation(summary = "人员可挂外部树（仅子表叶子可选）")
-    @PreAuthorize("@ss.hasPermission('sub-system:user:create') or @ss.hasPermission('system:user:update') or @ss.hasPermission('system:user:query') or @ss.hasPermission('sub-system:workshop:list')")
+    @PreAuthorize("@ss.hasPermission('sub-system:user:create') or @ss.hasPermission('system:user:create') or @ss.hasPermission('system:user:update') or @ss.hasPermission('system:user:query') or @ss.hasPermission('sub-system:workshop:list')")
     public CommonResult<List<SubSystemHangableNodeRespVO>> getHangableTree() {
         return success(workshopService.getHangableTree());
     }

@@ -181,13 +181,29 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item label="车间编号" prop="workshopCode">
-          <el-input
+          <el-select
+            v-if="workshopFilterOptions.length"
             v-model="form.workshopCode"
-            placeholder="可空；同步/关联外部时必填"
+            placeholder="请选择车间叶子，没有车间维度可留空"
+            clearable
+            filterable
+            style="width: 100%"
+          >
+            <el-option
+              v-for="item in workshopFilterOptions"
+              :key="item.workshopCode"
+              :label="(item.workshopName || '') + ' (' + item.workshopCode + ')'"
+              :value="item.workshopCode"
+            />
+          </el-select>
+          <el-input
+            v-else
+            v-model="form.workshopCode"
+            placeholder="该系统没有车间叶子，可留空"
             maxlength="50"
             clearable
           />
-          <div class="form-tip">写在角色自身；同步/关联外部时用</div>
+          <div class="form-tip">写在角色自身。开了车间维度时，同步注册才必须选择叶子</div>
         </el-form-item>
         <template v-if="!form.id">
           <el-form-item label="同步注册">
@@ -242,9 +258,27 @@
           </el-select>
         </el-form-item>
         <el-form-item label="车间" required>
-          <el-input
+          <el-select
+            v-if="workshopFilterOptions.length"
             v-model="bindForm.workshopCode"
-            placeholder="请填写车间编号"
+            placeholder="请选择车间叶子"
+            clearable
+            filterable
+            style="width: 100%"
+            :disabled="bindLoading"
+            @change="onBindFilterChange"
+          >
+            <el-option
+              v-for="item in workshopFilterOptions"
+              :key="item.workshopCode"
+              :label="(item.workshopName || '') + ' (' + item.workshopCode + ')'"
+              :value="item.workshopCode"
+            />
+          </el-select>
+          <el-input
+            v-else
+            v-model="bindForm.workshopCode"
+            placeholder="该系统没有车间叶子，请填写车间编号"
             maxlength="50"
             clearable
             :disabled="bindLoading"
@@ -316,7 +350,7 @@
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitMenu">确 定</el-button>
+        <el-button type="primary" :disabled="!menuChecksReady" @click="submitMenu">确 定</el-button>
         <el-button @click="openMenu = false">取 消</el-button>
       </div>
     </el-dialog>
@@ -328,6 +362,7 @@
       :menu-tree="quickNavMenuTree"
       :leaf-menu-ids="quickNavLeafMenuIds"
       :menu-ids="quickNavMenuIds"
+      :loaded="quickNavLoaded"
       :saving="quickNavSaving"
       @save="submitQuickNav"
     />
@@ -398,6 +433,7 @@ import { CommonStatusEnum } from '@/utils/constants'
 import { DICT_TYPE, ensureDictDatas, getDictDatas } from '@/utils/dict'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
+import { escapeHtml } from '@/utils/escapeHtml'
 import workshopLeftNav from '../mixins/workshopLeftNav'
 
 export default {
@@ -428,6 +464,7 @@ export default {
       open: false,
       openMenu: false,
       openQuickNav: false,
+      quickNavLoaded: false,
       quickNavSaving: false,
       quickNavForm: {},
       quickNavMenuTree: [],
@@ -436,6 +473,7 @@ export default {
       menuExpand: false,
       menuNodeAll: false,
       menuCheckStrictly: true,
+      menuChecksReady: false,
       menuOptions: [],
       menuForm: {},
       checkedIds: [],
@@ -486,6 +524,13 @@ export default {
     roleCreateApiReady() {
       return (this.roleCreateApis || []).length > 0
     },
+    syncWorkshopRequired() {
+      if (!this.form || this.form.id || !this.form.syncToExternal) {
+        return false
+      }
+      return !!(this.selectedClient && this.selectedClient.workshopScopeEnabled)
+        && this.workshopFilterOptions.length > 0
+    },
     syncRoleNamePreview() {
       if (!this.form || !this.form.syncToExternal) {
         return ''
@@ -500,10 +545,13 @@ export default {
     },
     formRules() {
       if (this.form && this.form.syncToExternal && !this.form.id) {
-        return Object.assign({}, this.rules, {
-          apiSubSystemId: [{ required: true, message: '请选择接口目标', trigger: 'change' }],
-          workshopCode: [{ required: true, message: '同步注册必须填写车间编号', trigger: 'blur' }]
-        })
+        const extra = {
+          apiSubSystemId: [{ required: true, message: '请选择接口目标', trigger: 'change' }]
+        }
+        if (this.syncWorkshopRequired) {
+          extra.workshopCode = [{ required: true, message: '请选择车间', trigger: 'change' }]
+        }
+        return Object.assign({}, this.rules, extra)
       }
       return this.rules
     },
@@ -567,20 +615,27 @@ export default {
         this.total = 0
         return
       }
+      const seq = (this._listSeq = (this._listSeq || 0) + 1)
       this.loading = true
       getSubSystemRolePage({
         ...this.queryParams,
         subSystemId: this.selectedClient.id,
         workshopCode: this.selectedWorkshop ? this.selectedWorkshop.workshopCode : this.queryParams.workshopCode
       }).then(res => {
+        if (seq !== this._listSeq) {
+          return
+        }
         this.roleList = res.data.list || []
         this.total = res.data.total || 0
       }).catch(() => {
-        this.roleList = []
-        this.total = 0
-        this.$modal.msgError('加载角色列表失败，请重试')
+        if (seq === this._listSeq) {
+          this.roleList = []
+          this.total = 0
+        }
       }).finally(() => {
-        this.loading = false
+        if (seq === this._listSeq) {
+          this.loading = false
+        }
       })
     },
     handleQuery() {
@@ -672,13 +727,13 @@ export default {
       }
       const data = response.data || {}
       let text = '新建：' + ((data.createKeys && data.createKeys.length) || 0)
-      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) })
       text += '<br />更新：' + ((data.updateKeys && data.updateKeys.length) || 0)
-      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) })
       const failMap = data.failureKeys || {}
       const failKeys = Object.keys(failMap)
       text += '<br />失败：' + failKeys.length
-      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + k + '：' + failMap[k] })
+      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) + '：' + escapeHtml(failMap[k]) })
       this.$alert(text, '导入结果', { dangerouslyUseHTMLString: true })
       this.getList()
       this.loadClientList()
@@ -699,6 +754,8 @@ export default {
         }
         this.open = true
         this.title = '修改业务系统角色'
+        // 记录原 code，保存时若变更要二次确认（子系统按 code 判断 admin/super_admin）
+        this._originalCode = res.data.code
         this.$nextTick(() => {
           if (this.$refs.form && typeof this.$refs.form.clearValidate === 'function') {
             this.$refs.form.clearValidate()
@@ -709,6 +766,9 @@ export default {
       })
     },
     submitForm() {
+      if (this.submitting) {
+        return
+      }
       this.$refs.form.validate(valid => {
         if (!valid) {
           return
@@ -726,23 +786,32 @@ export default {
           payload.syncToExternal = true
           payload.apiSubSystemId = this.form.apiSubSystemId
         }
-        this.submitting = true
         const request = this.form.id ? updateSubSystemRole : createSubSystemRole
-        request(payload).then(res => {
-          if (!this.form.id && res && res.msg) {
-            this.$modal.msgWarning(res.msg)
-          } else {
-            this.$modal.msgSuccess(this.form.id ? '修改成功'
-              : (this.form.syncToExternal ? '新增成功，已同步注册并关联外部角色' : '新增成功'))
-          }
-          this.open = false
-          this.getList()
-          this.loadClientList()
-        }).catch(() => {
-          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
-        }).finally(() => {
-          this.submitting = false
-        })
+        const doSubmit = () => {
+          request(payload).then(res => {
+            if (!this.form.id && res && res.msg) {
+              this.$modal.msgWarning(res.msg)
+            } else {
+              this.$modal.msgSuccess(this.form.id ? '修改成功'
+                : (this.form.syncToExternal ? '新增成功，已同步注册并关联外部角色' : '新增成功'))
+            }
+            this.open = false
+            this.getList()
+            this.loadClientList()
+          }).catch(() => {
+            // 具体原因由请求拦截器提示（角色重名、外部同名、已分配等）
+          }).finally(() => {
+            this.submitting = false
+          })
+        }
+        if (this.form.id && this._originalCode && payload.code !== this._originalCode) {
+          this.$confirm('角色标识（code）是子系统判断权限的依据，修改后可能影响已对接的系统（如 admin/super_admin）。确定修改吗？',
+            '修改角色标识', { type: 'warning', confirmButtonText: '确定修改', cancelButtonText: '取消' })
+            .then(doSubmit)
+            .catch(() => {})
+          return
+        }
+        doSubmit()
       })
     },
     /** 关联外部角色：把对方系统已有角色的 roleId 绑到本地角色 */
@@ -864,6 +933,9 @@ export default {
       this.$modal.confirm('是否确认删除角色"' + row.name + '"？').then(() => {
         return deleteSubSystemRole(row.id)
       }).then(() => {
+        if (this.roleList && this.roleList.length === 1 && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.$modal.msgSuccess('删除成功')
         this.getList()
         this.loadClientList()
@@ -873,6 +945,10 @@ export default {
       this.$modal.confirm('是否确认批量删除选中的业务系统角色？').then(() => {
         return deleteSubSystemRoleList(this.checkedIds)
       }).then(() => {
+        const removing = (this.checkedIds || []).length
+        if (this.roleList && this.roleList.length <= removing && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.$modal.msgSuccess('删除成功')
         this.checkedIds = []
         this.getList()
@@ -897,6 +973,7 @@ export default {
       }
       this.menuExpand = false
       this.menuNodeAll = false
+      this.menuChecksReady = false
       this.openMenu = true
       getSubSystemMenuSimpleList(row.subSystemId).then(res => {
         const allMenus = res.data || []
@@ -909,7 +986,7 @@ export default {
               this.$refs.menu,
               menuRes.data || [],
               value => { this.menuCheckStrictly = value },
-              null,
+              () => { this.menuChecksReady = true },
               allMenus
             )
           })
@@ -926,6 +1003,7 @@ export default {
       this.quickNavMenuTree = []
       this.quickNavLeafMenuIds = []
       this.quickNavMenuIds = []
+      this.quickNavLoaded = false
       this.openQuickNav = true
       Promise.all([
         getSubSystemMenuSimpleList(row.subSystemId),
@@ -937,7 +1015,9 @@ export default {
         this.quickNavMenuTree = buildSubSystemRoleQuickNavCheckTree(allMenus, roleMenuIds)
         this.quickNavLeafMenuIds = getSubSystemQuickNavLeafIds(allMenus, roleMenuIds)
         this.quickNavMenuIds = (quickNavRes.data && quickNavRes.data.menuIds) || []
+        this.quickNavLoaded = true
       }).catch(() => {
+        this.quickNavLoaded = false
         this.$modal.msgError('加载快捷导航菜单失败')
         this.openQuickNav = false
       })
@@ -974,6 +1054,16 @@ export default {
       }
     },
     submitMenu() {
+      if (!this.menuChecksReady) {
+        this.$modal.msgWarning('菜单权限还在加载，请稍后再保存')
+        return
+      }
+      const menuTree = this.$refs.menu
+      const nodeCount = menuTree && menuTree.store ? Object.keys(menuTree.store.nodesMap || {}).length : 0
+      if ((this.menuOptions || []).length > 0 && nodeCount === 0) {
+        this.$modal.msgWarning('菜单树还没准备好，请稍后再保存')
+        return
+      }
       assignSubSystemRoleMenu({
         roleId: this.menuForm.roleId,
         menuIds: [...this.$refs.menu.getCheckedKeys(), ...this.$refs.menu.getHalfCheckedKeys()]

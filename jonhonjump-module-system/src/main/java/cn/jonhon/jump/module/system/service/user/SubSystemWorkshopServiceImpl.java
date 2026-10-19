@@ -89,8 +89,12 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
         }
 
         List<SubSystemHangableNodeRespVO> tree = new ArrayList<>();
+        // 可管系统范围：与其它管理页一致，受限角色只看到授权系统
+        Set<Long> allowedSubSystemIds = subSystemAccessService.getAllowedSubSystemIds(
+                SecurityFrameworkUtils.getLoginUserId());
         List<SubSystemDO> systems = byId.values().stream()
                 .filter(ss -> ss != null && ss.portalBound())
+                .filter(ss -> allowedSubSystemIds == null || allowedSubSystemIds.contains(ss.getId()))
                 .sorted(Comparator.comparing(SubSystemDO::getId, Comparator.nullsLast(Long::compareTo)))
                 .collect(Collectors.toList());
 
@@ -173,7 +177,11 @@ public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
     @Transactional(rollbackFor = Exception.class)
     public void updateWorkshop(SubSystemWorkshopSaveReqVO updateReqVO) {
         SubSystemWorkshopDO exist = validateWorkshopExists(updateReqVO.getId());
-        SubSystemDO ss = validateSubSystemExists(updateReqVO.getSubSystemId());
+        if (exist.getSubSystemId() == null) {
+            throw exception(SUB_SYSTEM_NOT_EXISTS);
+        }
+        updateReqVO.setSubSystemId(exist.getSubSystemId());
+        SubSystemDO ss = validateSubSystemExists(exist.getSubSystemId());
         String code = normalizeCode(updateReqVO.getWorkshopCode());
         validateCodeDuplicate(code, updateReqVO.getId());
         boolean leafIdentityChanged = false;

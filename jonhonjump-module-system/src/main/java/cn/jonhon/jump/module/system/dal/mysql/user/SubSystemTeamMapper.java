@@ -69,6 +69,16 @@ public interface SubSystemTeamMapper extends BaseMapperX<SubSystemTeamDO> {
                 .orderByAsc(SubSystemTeamDO::getTeamCode));
     }
 
+    default List<SubSystemTeamDO> selectListBySubSystemIdsAndTeamCodes(Collection<Long> subSystemIds,
+                                                                        Collection<String> teamCodes) {
+        if (subSystemIds == null || subSystemIds.isEmpty() || teamCodes == null || teamCodes.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        return selectList(new LambdaQueryWrapperX<SubSystemTeamDO>()
+                .in(SubSystemTeamDO::getSubSystemId, subSystemIds)
+                .in(SubSystemTeamDO::getTeamCode, teamCodes));
+    }
+
     default SubSystemTeamDO selectBySubSystemIdAndTeamCode(Long subSystemId, String teamCode) {
 
         return selectOne(new LambdaQueryWrapperX<SubSystemTeamDO>()

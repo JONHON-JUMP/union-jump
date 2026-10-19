@@ -21,10 +21,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
 import java.util.stream.Collectors;
 
+import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeConstants.BAD_REQUEST;
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception0;
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.SUB_SYSTEM_IMPORT_LIST_EMPTY;
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.SUB_SYSTEM_IMPORT_NOT_BOUND;
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.SUB_SYSTEM_NOT_EXISTS;
@@ -80,11 +82,18 @@ public class SubSystemUserImportService {
                     continue;
                 }
                 String username = row.getUsername().trim();
+                String workshopId = StrUtil.trim(row.getWorkshopId());
                 // 角色入库唯一入口是「分配角色」：导入填了角色标识时，走统一入口写角色
-                List<Long> roleIds = StrUtil.isBlank(row.getRoleCodes())
-                        ? null
-                        : resolveRoleIds(subSystemId, row.getRoleCodes());
-                SubSystemUsersDO exist = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, username);
+                List<Long> roleIds = null;
+                if (StrUtil.isNotBlank(row.getRoleCodes())) {
+                    ResolvedRoles resolved = resolveRoleIds(subSystemId, row.getRoleCodes());
+                    if (CollUtil.isNotEmpty(resolved.unknownCodes)) {
+                        resp.getFailureKeys().put(rowKey, "角色标识未匹配：" + String.join("、", resolved.unknownCodes));
+                        continue;
+                    }
+                    roleIds = resolved.roleIds;
+                }
+                SubSystemUsersDO exist = findImportRow(subSystemId, username, workshopId);
                 if (exist == null) {
                     SubSystemUsersSaveReqVO createReq = new SubSystemUsersSaveReqVO();
                     createReq.setSubSystemId(subSystemId);
@@ -135,25 +144,67 @@ public class SubSystemUserImportService {
         subSystemUsersService.assignSubSystemUserRole(assignReq);
     }
 
-    private List<Long> resolveRoleIds(Long subSystemId, String roleCodes) {
-        if (StrUtil.isBlank(roleCodes)) {
-            return new ArrayList<>();
+    /**
+     * Excel 填了车间就按 (系统, 用户名, 车间) 精确命中，没有则新建该叶子。
+     * 车间为空时只更新唯一的空车间行；已经挂在叶子上则要求补车间编号，避免改到别的叶子或再插一条空车间。
+     */
+    private SubSystemUsersDO findImportRow(Long subSystemId, String username, String workshopId) {
+        List<SubSystemUsersDO> rows = subSystemUsersMapper.selectListBySubSystemIdAndUsername(subSystemId, username);
+        if (CollUtil.isEmpty(rows)) {
+            return null;
         }
+        if (StrUtil.isNotBlank(workshopId)) {
+            List<SubSystemUsersDO> exact = rows.stream()
+                    .filter(row -> workshopId.equals(StrUtil.trim(row.getWorkshopId())))
+                    .collect(Collectors.toList());
+            if (exact.size() > 1) {
+                throw exception0(BAD_REQUEST.getCode(), "该工号在车间 " + workshopId + " 存在多条记录，请先清理重复数据");
+            }
+            return exact.isEmpty() ? null : exact.get(0);
+        }
+        List<SubSystemUsersDO> blank = rows.stream()
+                .filter(row -> StrUtil.isBlank(row.getWorkshopId()))
+                .collect(Collectors.toList());
+        if (rows.size() == 1 && blank.size() == 1) {
+            return blank.get(0);
+        }
+        if (rows.size() == 1) {
+            throw exception0(BAD_REQUEST.getCode(),
+                    "该工号已挂在车间 " + StrUtil.trim(rows.get(0).getWorkshopId()) + "，请在 Excel 填车间编号");
+        }
+        throw exception0(BAD_REQUEST.getCode(), "该工号在多个车间存在，请在 Excel 填车间编号");
+    }
+
+    private ResolvedRoles resolveRoleIds(Long subSystemId, String roleCodes) {
+        ResolvedRoles resolved = new ResolvedRoles();
         List<String> codes = Arrays.stream(roleCodes.split("[,，;；\\s]+"))
                 .map(String::trim)
                 .filter(StrUtil::isNotBlank)
+                .distinct()
                 .collect(Collectors.toList());
         if (codes.isEmpty()) {
-            return new ArrayList<>();
+            return resolved;
         }
-        List<SubSystemRoleDO> roles = subSystemRoleMapper.selectListBySubSystemId(subSystemId);
-        if (CollUtil.isEmpty(roles)) {
-            return new ArrayList<>();
+        Map<String, Long> roleIdByCode = new LinkedHashMap<>();
+        for (SubSystemRoleDO role : CollUtil.emptyIfNull(subSystemRoleMapper.selectListBySubSystemId(subSystemId))) {
+            if (StrUtil.isNotBlank(role.getCode())) {
+                roleIdByCode.putIfAbsent(role.getCode(), role.getId());
+            }
         }
-        return roles.stream()
-                .filter(r -> codes.stream().anyMatch(c -> Objects.equals(c, r.getCode())))
-                .map(SubSystemRoleDO::getId)
-                .collect(Collectors.toList());
+        for (String code : codes) {
+            Long roleId = roleIdByCode.get(code);
+            if (roleId == null) {
+                resolved.unknownCodes.add(code);
+            } else {
+                resolved.roleIds.add(roleId);
+            }
+        }
+        return resolved;
+    }
+
+    private static final class ResolvedRoles {
+        private final List<Long> roleIds = new ArrayList<>();
+        private final List<String> unknownCodes = new ArrayList<>();
     }
 
     private static String normalizeStatus(String status) {
@@ -168,8 +219,13 @@ public class SubSystemUserImportService {
     }
 
     private static String buildRowKey(SubSystemUserImportExcelVO row, int rowIndex) {
-        if (StrUtil.isNotBlank(row.getUsername())) {
-            return row.getUsername().trim();
+        String username = StrUtil.trim(row.getUsername());
+        String workshopId = StrUtil.trim(row.getWorkshopId());
+        if (StrUtil.isNotBlank(username) && StrUtil.isNotBlank(workshopId)) {
+            return username + " / " + workshopId;
+        }
+        if (StrUtil.isNotBlank(username)) {
+            return username;
         }
         return "第" + rowIndex + "行";
     }

@@ -22,7 +22,7 @@ import { loadMenuStyleDefault } from '@/utils/menuIconStyle'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
 import { getAccessToken } from '@/utils/auth'
-import { isRelogin } from '@/utils/request'
+import { isRelogin, cancelPendingPageRequests } from '@/utils/request'
 import { redirectToLogin, getTopWindow } from '@/utils/switchUser'
 
 NProgress.configure({ showSpinner: false })
@@ -340,6 +340,9 @@ function continueNavigation(to, from, next) {
 }
 
 router.beforeEach((to, from, next) => {
+  // 取消上一页仍在跑的页面级 GET：卡住的页面关掉后不再继续占用同域连接，
+  // 避免「打开一个很慢的页面 → 关掉 → 其它页面也打不开」
+  cancelPendingPageRequests()
   // 公共页面无需用户信息和门户初始化，残留的过期 token 也不影响访问。
   if (to.meta && to.meta.publicPage) {
     NProgress.done()

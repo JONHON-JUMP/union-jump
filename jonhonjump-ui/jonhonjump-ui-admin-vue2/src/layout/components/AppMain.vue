@@ -14,13 +14,18 @@
         </keep-alive>
       </transition>
     </div>
-    <iframe-toggle v-show="isPortalIframeRoute" class="app-main__iframe-host" />
+    <!-- 不要用 v-show 切换 iframe 宿主：display:none→block 会让 iframe 白闪一下（Chrome 82 尤其明显）。
+         宿主常驻、绝对定位，用 visibility 隐藏；已打开的 iframe 不重建，符合「已打开页面不刷新」。 -->
+    <iframe-toggle
+      class="app-main__iframe-host"
+      :class="{ 'is-portal-hidden': !isPortalIframeRoute }"
+    />
   </section>
 </template>
 
 <script>
 import iframeToggle from './IframeToggle/index'
-import { resolvePortalFrameRoute } from '@/utils/portalRoute'
+import { resolvePortalFrameRoute, parsePortalClientId } from '@/utils/portalRoute'
 import { syncPortalIframeView } from '@/utils/portalIframe'
 
 export default {
@@ -49,7 +54,13 @@ export default {
         this.$store.state.portal.pathLinkMap,
         this.$store.state.portal.systemList
       )
-      return Boolean(route.meta && route.meta.link)
+      if (route.meta && route.meta.link) {
+        return true
+      }
+      // path 归一化/二次 replace 的瞬间 link 可能还没算出来；
+      // 不能因此把 iframe 宿主隐藏，否则切换瞬间会白闪
+      const clientId = parsePortalClientId(this.$route.path)
+      return !!(clientId && (this.$route.name === 'PortalFrame' || this.$route.name === 'PortalFrameLegacy'))
     }
   },
   watch: {
@@ -110,14 +121,28 @@ export default {
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  /* 数据加载把内容撑高时不要触发滚动锚定，避免整页跳动 */
+  overflow-anchor: none;
 }
 
 .app-main__iframe-host {
-  flex: 1 1 auto;
-  min-height: 0;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   width: 100%;
   height: 100%;
   background: #f5f7fb;
+  z-index: 1;
+}
+
+/* 非门户路由：只隐藏（visibility），不用 display:none。
+   display 切换会让 iframe 重新合成、出现白闪，且可能触发子页重排。 */
+.app-main__iframe-host.is-portal-hidden {
+  visibility: hidden;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .app-main.portal-embedded.portal-iframe {

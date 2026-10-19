@@ -36,6 +36,9 @@ public class PortalPermissionReader {
     /**
      * 仅读主系统 Redis 权限包，不走 HTTP fallback。
      * miss（返回 null）表示主系统已失效该用户权限包，子系统应提示重登或重建。
+     * <p>
+     * 此入口只有 userId，读的是主系统镜像的过渡 key（tenant + userId + subSystemId）。
+     * SSO 后已有登录名时优先用 {@link #peekRedis(String)}，读现行 key（username + clientId）。
      */
     public PortalPermissionContext peekRedis(Long mainUserId, Long subSystemId) {
         if (mainUserId == null || subSystemId == null) {
@@ -47,6 +50,23 @@ public class PortalPermissionReader {
         // 绕过本地短缓存，避免主系统已 evict 后仍命中本地假阳性
         localCache.remove(localCacheKey(mainUserId, subSystemId));
         return getFromRedis(mainUserId, subSystemId);
+    }
+
+    /**
+     * 按登录名读现行权限包 {@code portal:perm:context:{username}:{clientId}}。
+     * clientId 取配置 {@code portal.subsystem.client-id}，须与主系统写入时的门户 clientId 一致。
+     * miss 表示主系统已失效该用户权限包。
+     */
+    public PortalPermissionContext peekRedis(String username) {
+        if (username == null || username.trim().isEmpty() || properties.getClientId() == null
+                || properties.getClientId().trim().isEmpty()) {
+            return null;
+        }
+        if (!redisReadTemplate.isAvailable()) {
+            return null;
+        }
+        String key = PortalRedisKeyConstants.buildPermContextKey(username.trim(), properties.getClientId().trim());
+        return redisReadTemplate.getObject(key, PortalPermissionContext.class);
     }
 
     /**
@@ -138,9 +158,10 @@ public class PortalPermissionReader {
     }
 
     private PortalPermissionContext getFromRedis(Long mainUserId, Long subSystemId) {
-        Long tenantId = properties.getTenantId() != null ? properties.getTenantId() : 1L;
-        String key = PortalRedisKeyConstants.buildPermContextKey(tenantId, mainUserId, subSystemId);
-        return redisReadTemplate.getObject(key, PortalPermissionContext.class);
+        // 这个入口没有登录名，读主系统镜像的过渡 key。现行 key 走 peekRedis(username)。
+        String legacyKey = PortalRedisKeyConstants.buildPermContextKey(
+                properties.getTenantId(), mainUserId, subSystemId);
+        return redisReadTemplate.getObject(legacyKey, PortalPermissionContext.class);
     }
 
     private PortalPermissionContext getFromHttp(String accessToken) {

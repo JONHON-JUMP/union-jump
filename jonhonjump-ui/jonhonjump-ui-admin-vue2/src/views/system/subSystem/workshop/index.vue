@@ -255,19 +255,27 @@ export default {
         this.total = 0
         return
       }
+      const seq = (this._listSeq = (this._listSeq || 0) + 1)
       this.loading = true
       getSubSystemWorkshopPage({
         ...this.queryParams,
         subSystemId: this.selectedClient.id
       }).then(res => {
+        if (seq !== this._listSeq) {
+          return
+        }
         this.workshopList = res.data.list || []
         this.total = res.data.total || 0
       }).catch(() => {
-        this.workshopList = []
-        this.total = 0
-        this.$modal.msgError('加载叶子列表失败，请重试')
+        if (seq === this._listSeq) {
+          this.workshopList = []
+          this.total = 0
+        }
+        // 加载失败（含切页主动取消）由请求拦截器统一处理，不再弹通用 toast
       }).finally(() => {
-        this.loading = false
+        if (seq === this._listSeq) {
+          this.loading = false
+        }
       })
     },
     handleQuery() {
@@ -323,6 +331,9 @@ export default {
       })
     },
     submitForm() {
+      if (this.submitting) {
+        return
+      }
       this.$refs.form.validate(valid => {
         if (!valid) {
           return
@@ -338,7 +349,7 @@ export default {
           this.open = false
           this.getList()
         }).catch(() => {
-          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
+          // 具体原因由请求拦截器提示（叶子编号重复、仍在使用等）
         }).finally(() => {
           this.submitting = false
         })
@@ -348,6 +359,9 @@ export default {
       this.$modal.confirm('是否确认删除叶子「' + row.workshopCode + '」？').then(() => {
         return deleteSubSystemWorkshop(row.id)
       }).then(() => {
+        if (this.workshopList && this.workshopList.length === 1 && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.$modal.msgSuccess('删除成功')
         this.getList()
       }).catch(() => {})
@@ -356,6 +370,10 @@ export default {
       this.$modal.confirm('是否确认删除选中的 ' + this.checkedIds.length + ' 条叶子？').then(() => {
         return deleteSubSystemWorkshopList(this.checkedIds)
       }).then(() => {
+        const removing = (this.checkedIds || []).length
+        if (this.workshopList && this.workshopList.length <= removing && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.$modal.msgSuccess('删除成功')
         this.getList()
       }).catch(() => {})

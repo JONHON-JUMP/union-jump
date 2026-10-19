@@ -8,6 +8,7 @@ import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSyst
 import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSystemUserPermissionRespVO;
 import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.PortalPermContextRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSubSystemRosterReqVO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 
 
@@ -130,11 +131,6 @@ public interface SubSystemUsersService {
     SubSystemUsersRespVO getBySubSystemIdAndUsername(Long subSystemId, String username, String workshopId);
 
     /**
-     * 将主系统用户挂接到外部系统同名用户（main_user_id 可选关联）
-     */
-    Long bindMainUser(Long subSystemId, Long mainUserId);
-
-    /**
      * 新建 JUMP 用户时：花名册用户名完全相同、且该行还没挂到仍存在的 JUMP 用户（空、0、已删除）则写入 mainUserId。
      * 同一业务系统里该主用户已挂过别的行则跳过。打开列表或详情不会调用。
      */
@@ -149,9 +145,22 @@ public interface SubSystemUsersService {
     /**
      * 从主系统用户登记子系统花名册（纯本地，不调外部接口；upsert 语义）
      *
-     * 仅登记已绑定 OAuth 的门户业务系统；车间按部门对照尽力带出，可后补
+     * 仅登记已绑定门户的业务系统；多车间系统不会自动登记空车间行（旧调用兼容保留）。
      */
     void registerFromMainUser(AdminUserDO mainUser, List<Long> subSystemIds);
+
+    /**
+     * 按「业务系统 + 车间叶子」登记花名册（纯本地，不调外部接口；upsert 语义）。
+     *
+     * @param explicit true=来自新页面显式选择：系统不存在/未绑门户/多车间未选叶子都直接报错；
+     *                 false=旧调用兼容：跳过而不是报错
+     */
+    void registerFromMainUser(AdminUserDO mainUser, List<UserSubSystemRosterReqVO> targets, boolean explicit);
+
+    /**
+     * 主系统改姓名时，只同步仍显示旧姓名的花名册行。人工改过的显示名不动，也不改登录名。
+     */
+    void syncDisplayNickname(Long mainUserId, String oldNickname, String newNickname);
 
 
 

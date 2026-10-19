@@ -11,7 +11,9 @@ export function getSubSystemUsersByMainUserId(mainUserId) {
 export function getMyExternalSystemList() {
   return request({
     url: '/system/sub-system-users/my-list',
-    method: 'get'
+    method: 'get',
+    // 全局请求：门户入口列表，路由切换不取消
+    isGlobal: true
   })
 }
 
@@ -19,7 +21,8 @@ export function getMyExternalSystemList() {
 export function getMyCamstarUsername() {
   return request({
     url: '/system/sub-system-users/my-camstar-username',
-    method: 'get'
+    method: 'get',
+    isGlobal: true
   })
 }
 
@@ -27,6 +30,7 @@ export function getMyPortalMenus(subSystemId, workshopCode) {
   return request({
     url: '/system/sub-system-users/my-menus',
     method: 'get',
+    isGlobal: true,
     params: {
       subSystemId,
       workshopCode: workshopCode || undefined
@@ -34,11 +38,15 @@ export function getMyPortalMenus(subSystemId, workshopCode) {
   })
 }
 
-/** 子系统 RBAC 版本（菜单/角色变更递增）；与本地缓存比对，有变化才重拉 my-menus */
+/** 子系统 RBAC 版本（菜单/角色变更递增）；与本地缓存比对，有变化才重拉 my-menus。
+ *  独立短超时：JUMP 后端与各子系统共机部署，子系统一慢此接口跟着慢，
+ *  它只服务"要不要刷新缓存"的判断，慢了就按本地缓存走，绝不能拖住打开菜单 */
 export function getMyPortalMenusVersion(subSystemId) {
   return request({
     url: '/system/sub-system-users/my-menus-version',
     method: 'get',
+    isGlobal: true,
+    timeout: 8000,
     params: { subSystemId }
   })
 }
@@ -188,15 +196,6 @@ export function getSubSystemUserByUsername(subSystemId, username, workshopId) {
       username,
       workshopId: workshopId || undefined
     }
-  })
-}
-
-/** 挂接主系统用户到子系统同名用户 */
-export function bindSubSystemMainUser(subSystemId, mainUserId) {
-  return request({
-    url: '/system/sub-system-users/bind-main-user',
-    method: 'post',
-    params: { subSystemId, mainUserId }
   })
 }
 

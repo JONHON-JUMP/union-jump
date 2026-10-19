@@ -164,11 +164,18 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         }
         Map<Long, SubSystemDO> subSystemMap = subSystemMapper.selectListByIds(apiSubSystemIds).stream()
                 .collect(Collectors.toMap(SubSystemDO::getId, s -> s, (a, b) -> a, LinkedHashMap::new));
+        Map<Long, String> apiTypeById = new LinkedHashMap<>();
+        for (SubSystemApiConfigDO config : configs) {
+            if (config.getSubSystemId() != null && StrUtil.isNotBlank(config.getApiType())) {
+                apiTypeById.putIfAbsent(config.getSubSystemId(), config.getApiType());
+            }
+        }
         return apiSubSystemIds.stream()
                 .filter(subSystemMap::containsKey)
                 .map(id -> new SubSystemRegisterableApiRespVO()
                         .setSubSystemId(id)
-                        .setSystemName(subSystemMap.get(id).getSystemName()))
+                        .setSystemName(subSystemMap.get(id).getSystemName())
+                        .setApiType(apiTypeById.get(id)))
                 .collect(Collectors.toList());
     }
 
@@ -233,7 +240,8 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
             try {
                 SubSystemEmployeeDTO dto = buildEmployeeDTO(roster, reqVO.getApiSubSystemId(), reqVO.getWorkshopCode(),
                         usernameWithWorkshop);
-                if (StrUtil.isBlank(dto.getWorkshopCode())) {
+                if (workshopCodeRequired(roster.getSubSystemId(), resolveApiType(reqVO.getApiSubSystemId()))
+                        && StrUtil.isBlank(dto.getWorkshopCode())) {
                     result.setSuccess(false).setMessage("请填写车间编号");
                     continue;
                 }
@@ -545,6 +553,22 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         subSystemUsersMapper.updateById(updateObj);
         // 注册状态/拼接方式/车间变了，门户权限包中的外部身份（车间_工号）一并失效
         subSystemPermissionContextService.evictBySubSystemUserId(rosterId);
+    }
+
+    /** Camstar，或该业务系统开了车间维度且有多片叶子时，同步注册才要求车间编号。 */
+    private boolean workshopCodeRequired(Long subSystemId, String apiType) {
+        if (StrUtil.containsIgnoreCase(apiType, "camstar")) {
+            return true;
+        }
+        if (subSystemId == null) {
+            return false;
+        }
+        SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
+        if (subSystem == null || !subSystem.workshopScopeOn()) {
+            return false;
+        }
+        List<SubSystemWorkshopDO> leaves = subSystemWorkshopMapper.selectEnabledBySubSystemId(subSystemId);
+        return leaves != null && leaves.size() > 1;
     }
 
     /** 所调「新增人员」接口的适配器类型（注册成功后记录在行上） */

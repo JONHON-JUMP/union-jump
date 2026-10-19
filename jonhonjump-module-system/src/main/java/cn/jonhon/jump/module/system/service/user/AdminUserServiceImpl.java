@@ -20,6 +20,7 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserImportExce
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserImportRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserPageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSaveReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSubSystemRosterReqVO;
 import cn.jonhon.jump.module.system.dal.dataobject.dept.DeptDO;
 import cn.jonhon.jump.module.system.dal.dataobject.dept.UserPostDO;
 import cn.jonhon.jump.module.system.dal.dataobject.permission.RoleDO;
@@ -132,7 +133,15 @@ public class AdminUserServiceImpl implements AdminUserService {
                     postId -> new UserPostDO().setUserId(user.getId()).setPostId(postId)));
         }
         // 2.3 登记子系统花名册（纯本地事务，不调外部接口；外部系统推送后续单独处理）
-        subSystemUsersService.registerFromMainUser(user, createReqVO.getSubSystemIds());
+        List<UserSubSystemRosterReqVO> rosterTargets = createReqVO.getSubSystemTargets();
+        if (CollUtil.isNotEmpty(rosterTargets)) {
+            // 新页面显式选到「业务系统 / 车间叶子」：多车间系统未选叶子直接报错，
+            // 避免登记出不会出现在门户的空车间行
+            subSystemUsersService.registerFromMainUser(user, rosterTargets, true);
+        } else {
+            // 兼容旧调用：只给系统编号，多车间系统会被跳过
+            subSystemUsersService.registerFromMainUser(user, createReqVO.getSubSystemIds());
+        }
         // 其它业务系统里已有同名花名册用户时，直接挂上，不用再手动关联
         subSystemUsersService.bindMatchingRosters(user.getId(), user.getUsername());
         // 2.4 分配默认角色，保证新建用户开箱即有基础权限
@@ -210,9 +219,15 @@ public class AdminUserServiceImpl implements AdminUserService {
         userMapper.updateById(updateObj);
         // 2.2 更新岗位
         updateUserPost(updateReqVO, updateObj);
-        // 用户名变更会影响权限包里的 username 字段
+        if (oldUser != null && updateReqVO.getNickname() != null
+                && !updateReqVO.getNickname().equals(StrUtil.trim(oldUser.getNickname()))) {
+            subSystemUsersService.syncDisplayNickname(updateReqVO.getId(), oldUser.getNickname(), updateReqVO.getNickname());
+        }
+        // 登录名变更只清权限包。花名册账号名保持不动，避免业务系统对不上号。
         if (oldUser != null && updateReqVO.getUsername() != null
                 && !updateReqVO.getUsername().equals(oldUser.getUsername())) {
+            log.warn("[updateUser] 主系统登录名由 {} 改为 {}，已挂接的业务系统账号名不跟随",
+                    oldUser.getUsername(), updateReqVO.getUsername());
             subSystemPermissionContextService.evictAllByMainUserId(updateReqVO.getId());
         }
 
@@ -246,13 +261,16 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     public void updateUserProfile(Long id, UserProfileUpdateReqVO reqVO) {
         // 校验正确性
-        validateUserExists(id);
+        AdminUserDO oldUser = validateUserExists(id);
         validateEmailUnique(id, reqVO.getEmail());
         validateMobileUnique(id, reqVO.getMobile());
         // 执行更新（仅更新个人中心允许修改的字段，避免空值覆盖邮箱/手机）
         AdminUserDO updateObj = new AdminUserDO().setId(id);
         if (reqVO.getNickname() != null) {
             updateObj.setNickname(reqVO.getNickname());
+            if (oldUser != null && !reqVO.getNickname().equals(StrUtil.trim(oldUser.getNickname()))) {
+                subSystemUsersService.syncDisplayNickname(id, oldUser.getNickname(), reqVO.getNickname());
+            }
         }
         if (reqVO.getSex() != null) {
             updateObj.setSex(reqVO.getSex());

@@ -269,6 +269,7 @@ import {
 } from '@/api/system/subSystemEmployee'
 import SubSystemUserEditDialog from '@/views/system/components/SubSystemUserEditDialog'
 import { formatErpNos } from '@/utils/userFieldDisplay'
+import { subSystemRoleOptionLabel, isSubSystemRoleOptionDisabled } from '@/utils/subSystemRoleOption'
 
 export default {
   name: 'SystemUserDetail',
@@ -291,7 +292,8 @@ export default {
         targetLabel: '',
         workshopId: undefined,
         roleIds: [],
-        syncToExternal: true,
+        // 默认不同步外部：避免角色未关联外部时默认报“同步失败”
+        syncToExternal: false,
         apiSubSystemId: undefined,
         rosterSubSystemId: undefined
       },
@@ -445,7 +447,8 @@ export default {
         targetLabel: this.displaySystemName(row) + (row.workshopId ? (' / ' + this.displayWorkshop(row)) : ''),
         workshopId: row.workshopId || '',
         roleIds: [],
-        syncToExternal: true,
+        // 默认不同步外部，需要时手动勾选
+        syncToExternal: false,
         apiSubSystemId: undefined,
         rosterSubSystemId: row.subSystemId
       }
@@ -465,26 +468,10 @@ export default {
       })
     },
     roleOptionLabel(item) {
-      if (!item) {
-        return ''
-      }
-      let label = item.name
-      if (item.workshopCode) {
-        label += '（车间 ' + item.workshopCode + '）'
-      }
-      if (this.roleForm.syncToExternal && !item.externalRoleId) {
-        label += '（未关联外部）'
-      }
-      return label
+      return subSystemRoleOptionLabel(item, { syncToExternal: this.roleForm.syncToExternal })
     },
     roleOptionDisabled(item) {
-      if (!this.roleForm.workshopId || !item) {
-        return false
-      }
-      if (!item.workshopCode) {
-        return false
-      }
-      return String(item.workshopCode) !== String(this.roleForm.workshopId)
+      return isSubSystemRoleOptionDisabled(item, this.roleForm.workshopId)
     },
     submitRole() {
       if (this.roleForm.workshopId) {

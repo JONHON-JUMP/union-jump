@@ -1,5 +1,12 @@
 <template>
-  <div class="inner-link-root" :class="{ 'is-front': active }">
+  <div
+    class="inner-link-root"
+    :class="{
+      'is-front': active,
+      'is-frame-hidden': !active && !releaseOnHide,
+      'is-parked-hidden': !active && releaseOnHide
+    }"
+  >
     <!-- Camstar 直链：简单 src + loading；切走不 reload；超时可重试 -->
     <div v-if="isDirectHttp" class="inner-link is-direct">
       <iframe
@@ -180,6 +187,11 @@ export default {
       if (!detail || detail.token === this._acquireToken || this.active) {
         return
       }
+      // 已经打开成功的页面留在内存里，切走再切回不重新加载。
+      // 只卸掉还在转圈的帧，避免慢请求占住同一主机的连接。
+      if (this.directLoaded) {
+        return
+      }
       const mine = frameOrigin(this._heldSrc || this.directSrc)
       if (!mine || mine !== detail.origin) {
         return
@@ -235,10 +247,13 @@ export default {
         if (n === this.frameSrc) {
           return
         }
-        this.frameSrc = n
         this.resetLoadState()
         if (this.active) {
+          this.frameSrc = n
           this.beginDocumentLoad()
+        } else {
+          // 不可见时不发起加载（加载中帧切走即停）；切回由兜底按 src 重挂
+          this.frameSrc = 'about:blank'
         }
       }
     },
@@ -265,7 +280,8 @@ export default {
           this.startNavSync()
         } else {
           this.stopNavSync()
-          if (this.releaseOnHide) {
+          // 保温帧、或加载中切走的帧：一律挂起取消请求。已加载完成的帧保持保活（切回不重载）
+          if (this.releaseOnHide || !this.directLoaded) {
             this.suspendDirectFrame()
           }
         }
@@ -289,6 +305,10 @@ export default {
         this.clearTimers()
         if (!this.hasLoaded && this.phase !== 'failed') {
           this.phase = 'idle'
+        }
+        // 加载中切走：停帧取消请求，切回按 src 重挂；已加载完成的帧保持保活
+        if (!this.hasLoaded && this.frameSrc && this.frameSrc !== 'about:blank') {
+          this.frameSrc = 'about:blank'
         }
       }
     }
@@ -331,9 +351,10 @@ export default {
         this.directPhase = 'idle'
         return
       }
-      // 保温隐藏帧一律不真实加载：入口直接挂起（about:blank 释放连接），
-      // 不依赖 watch 时序，杜绝关页签后 iframe 以 display:none 在后台继续 pending
-      if (!this.active && this.releaseOnHide) {
+      // 保温帧、或加载中且不可见的帧一律不真实加载：入口直接挂起（about:blank 释放
+      // 连接/CPU），不依赖 watch 时序。加载未完成的帧只有当前页签可见时才允许占资源——
+      // 切走/关闭即取消请求，杜绝坏页面、慢页面拖住同主机其它菜单
+      if (!this.active && (this.releaseOnHide || !this.directLoaded)) {
         this.suspendDirectFrame()
         return
       }
@@ -517,7 +538,8 @@ export default {
       this.phase = 'loading'
       this.frameSrc = 'about:blank'
       this.$nextTick(() => {
-        if (seq !== this._reloadSeq) {
+        // 重试后已切走：不再挂载，切回时由兜底重挂，避免不可见帧又发请求
+        if (seq !== this._reloadSeq || !this.active) {
           return
         }
         const sep = base.indexOf('?') >= 0 ? '&' : '?'
@@ -669,6 +691,18 @@ export default {
 }
 .inner-link-root.is-front {
   z-index: 1;
+}
+/* 已打开、但不在前台的帧：不切显隐，只压到下层，保留其滚动/焦点/布局现场。
+   显隐切换会让 Camstar 在重新可见时恢复焦点/滚动，造成“数据在但抖一下”。 */
+.inner-link-root.is-frame-hidden {
+  pointer-events: none;
+  z-index: 0;
+}
+/* 已关闭/保温帧透明隐藏，避免打开新页面时闪出旧页面残影 */
+.inner-link-root.is-parked-hidden {
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
 }
 .inner-link-root > .inner-link {
   height: 100%;

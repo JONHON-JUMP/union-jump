@@ -83,6 +83,13 @@ public interface SubSystemUsersMapper extends BaseMapperX<SubSystemUsersDO> {
         return list == null || list.isEmpty() ? null : list.get(0);
     }
 
+    default List<SubSystemUsersDO> selectListBySubSystemIdAndUsername(Long subSystemId, String username) {
+        return selectList(new LambdaQueryWrapperX<SubSystemUsersDO>()
+                .eq(SubSystemUsersDO::getSubSystemId, subSystemId)
+                .eq(SubSystemUsersDO::getUsername, username)
+                .orderByDesc(SubSystemUsersDO::getId));
+    }
+
     default List<SubSystemUsersDO> selectListByUsername(String username) {
         return selectList(new LambdaQueryWrapperX<SubSystemUsersDO>()
                 .eq(SubSystemUsersDO::getUsername, username));
@@ -132,18 +139,25 @@ public interface SubSystemUsersMapper extends BaseMapperX<SubSystemUsersDO> {
                 .inIfPresent(SubSystemUsersDO::getTeamId, teamCodes)
                 .betweenIfPresent(SubSystemUsersDO::getCreateTime, reqVO.getCreateTime())
                 .orderByDesc(SubSystemUsersDO::getId);
-        // 展示状态：unlinked=未关联（空或 <=0）；0=已挂真实 JUMP 用户且正常；1=已挂且禁用
+        // 展示状态：unlinked=未关联（空/<=0/主用户已删除）；0=已挂有效 JUMP 用户且正常；1=已挂且禁用
+        // 注意和列表展示保持一致：buildRespList 会把“主用户已删除”的行按未关联展示，
+        // 这里也必须把这类行算进 unlinked，并从 0/1 里排除，否则会出现“看到未关联但筛不出来”。
+        String activeUsers = "SELECT id FROM system_users WHERE deleted = 0";
         String status = reqVO.getStatus();
         if ("unlinked".equals(status) || "2".equals(status)) {
             wrapper.and(w -> w.isNull(SubSystemUsersDO::getMainUserId)
                     .or()
-                    .le(SubSystemUsersDO::getMainUserId, 0));
+                    .le(SubSystemUsersDO::getMainUserId, 0)
+                    .or()
+                    .notInSql(SubSystemUsersDO::getMainUserId, activeUsers));
         } else if ("0".equals(status)) {
-            wrapper.gt(SubSystemUsersDO::getMainUserId, 0);
-            wrapper.eq(SubSystemUsersDO::getStatus, "0");
+            wrapper.gt(SubSystemUsersDO::getMainUserId, 0)
+                    .inSql(SubSystemUsersDO::getMainUserId, activeUsers)
+                    .eq(SubSystemUsersDO::getStatus, "0");
         } else if ("1".equals(status)) {
-            wrapper.gt(SubSystemUsersDO::getMainUserId, 0);
-            wrapper.eq(SubSystemUsersDO::getStatus, "1");
+            wrapper.gt(SubSystemUsersDO::getMainUserId, 0)
+                    .inSql(SubSystemUsersDO::getMainUserId, activeUsers)
+                    .eq(SubSystemUsersDO::getStatus, "1");
         }
         return selectPage(reqVO, wrapper);
     }
