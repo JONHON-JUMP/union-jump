@@ -1023,6 +1023,11 @@ const actions = {
       || portalTabsMatch(tab, route)
       || portalPathAliasKey(tab.path) === portalPathAliasKey(route.path)
       || isPortalPathDescendant(route.path, tab.path)
+    // 关闭前保留其它页签的帧。同 path 别名（列表/详情）也要留，不能按别名整组排除。
+    const keepFramePaths = (rootState.tagsView.iframeViews || [])
+      .filter(frame => frame && !portalTabsMatch(frame, tab))
+      .map(frame => frame.path)
+    commit('tagsView/SET_PRESERVE_FRAME_PATHS', keepFramePaths, { root: true })
     const resumeSync = () => {
       commit('SET_IFRAME_SYNC_SUSPENDED', false)
       const vuexStore = router.app && router.app.$store
@@ -1035,40 +1040,67 @@ const actions = {
         if (stillOnClosed) {
           return
         }
+        // 下一页已经有帧：只切到前台，不再 sync。sync 会按当前路由再登记一帧，
+        // key 一对不上就把已打开的页面盖住重载（空表单 → 加载中 → 数据）。
+        const frames = []
+          .concat(vuexStore.state.tagsView.iframeViews || [])
+          .concat(vuexStore.state.tagsView.warmIframeViews || [])
+        const alive = frames.some(frame =>
+          frame && (
+            portalTabsMatch(frame, cur)
+            || portalPathAliasKey(frame.path) === portalPathAliasKey(cur.path)
+          )
+        )
+        if (alive) {
+          return
+        }
         syncPortalIframeView(vuexStore, cur)
       }
     }
-    return dispatch('tagsView/delView', tab, { root: true }).then(() => {
-      if (!closingCurrent) {
-        resumeSync()
-        return
+    const remaining = rootState.tagsView.visitedViews.filter(view => {
+      if (view.path === '/index' || view.path === '/') return false
+      if (!view.title || !view.name) return false
+      if (view.title === '外部系统' || view.title === '业务系统') return false
+      if (view.meta && view.meta.portalHome) return false
+      if (isPortalSubSystemHomePath(view.path)) return false
+      if (portalTabsMatch(view, tab)
+        || portalPathAliasKey(view.path) === portalPathAliasKey(tab.path)) {
+        return false
       }
-      const remaining = rootState.tagsView.visitedViews.filter(view => {
-        if (view.path === '/index' || view.path === '/') return false
-        if (!view.title || !view.name) return false
-        if (view.title === '外部系统' || view.title === '业务系统') return false
-        if (view.meta && view.meta.portalHome) return false
-        if (isPortalSubSystemHomePath(view.path)) return false
-        // 刚删的别名页不再当作“下一个”
-        if (portalTabsMatch(view, tab)
-          || portalPathAliasKey(view.path) === portalPathAliasKey(tab.path)) {
-          return false
-        }
-        return true
-      })
-      const parentRoot = parent && remaining.find(v =>
-        portalQueryBucket(v) === 'root'
-        && portalPathAliasKey(v.path) === portalPathAliasKey(parent.path)
-      )
-      const nextTab = parentRoot || (remaining.length > 0 ? remaining[remaining.length - 1] : null)
-      if (nextTab) {
-        if (parentRoot) {
-          commit('tagsView/RESTORE_PORTAL_IFRAME', parentRoot, { root: true })
-        }
-        return router.push(nextTab.fullPath || nextTab.path).catch(() => {}).finally(resumeSync)
+      return true
+    })
+    const parentRoot = parent && remaining.find(v =>
+      portalQueryBucket(v) === 'root'
+      && portalPathAliasKey(v.path) === portalPathAliasKey(parent.path)
+    )
+    const nextTab = closingCurrent
+      ? (parentRoot || (remaining.length > 0 ? remaining[remaining.length - 1] : null))
+      : null
+    const finish = () => {
+      commit('tagsView/SET_PRESERVE_FRAME_PATHS', [], { root: true })
+      resumeSync()
+    }
+    // 先按手动切页的方式落到下一个已打开页（用页签 fullPath，命中已有 iframe），
+    // 再删当前页。先删会把当前帧卸成空白，后一个页还没盖上来，看起来先花一下再整页重载。
+    const revealNext = () => {
+      if (!nextTab) {
+        return Promise.resolve()
       }
-      return dispatch('returnToPortalHome').finally(resumeSync)
-    }).catch(err => {
+      const nextPath = nextTab.fullPath || nextTab.path
+      return router.push(nextPath).catch(() => {})
+    }
+    const removeClosed = () => dispatch('tagsView/delView', tab, { root: true })
+    const afterClose = () => {
+      if (closingCurrent && !nextTab) {
+        return dispatch('returnToPortalHome')
+      }
+      return Promise.resolve()
+    }
+    const run = closingCurrent
+      ? revealNext().then(removeClosed).then(afterClose)
+      : removeClosed()
+    return run.then(finish).catch(err => {
+      commit('tagsView/SET_PRESERVE_FRAME_PATHS', [], { root: true })
       resumeSync()
       return Promise.reject(err)
     })

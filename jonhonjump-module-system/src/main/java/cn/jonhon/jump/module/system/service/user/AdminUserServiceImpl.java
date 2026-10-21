@@ -7,11 +7,13 @@ import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
 import cn.jonhon.jump.framework.common.enums.UserTypeEnum;
 import cn.jonhon.jump.framework.common.exception.ServiceException;
+import cn.jonhon.jump.framework.common.biz.system.permission.dto.DeptDataPermissionRespDTO;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.collection.CollectionUtils;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
 import cn.jonhon.jump.framework.common.util.validation.ValidationUtils;
 import cn.jonhon.jump.framework.datapermission.core.util.DataPermissionUtils;
+import cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils;
 import cn.jonhon.jump.module.infra.api.config.ConfigApi;
 import cn.jonhon.jump.module.system.controller.admin.auth.vo.AuthRegisterReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.profile.UserProfileUpdatePasswordReqVO;
@@ -121,6 +123,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         createReqVO.setUsername(StrUtil.trim(createReqVO.getUsername()));
         validateUserForCreateOrUpdate(null, createReqVO.getUsername(),
                 createReqVO.getMobile(), createReqVO.getEmail(), createReqVO.getDeptId(), createReqVO.getPostIds());
+        // 1.3 只能把用户建在自己数据权限范围内的部门
+        validateDeptDataScope(createReqVO.getDeptId(), null);
         // 2.1 插入用户（user_uid 由生成器保证全局唯一，禁止外部指定）
         AdminUserDO user = BeanUtils.toBean(createReqVO, AdminUserDO.class);
         user.setStatus(CommonStatusEnum.ENABLE.getStatus()); // 默认开启
@@ -212,6 +216,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         // 1. 校验正确性
         AdminUserDO oldUser = validateUserForCreateOrUpdate(updateReqVO.getId(), updateReqVO.getUsername(),
                 updateReqVO.getMobile(), updateReqVO.getEmail(), updateReqVO.getDeptId(), updateReqVO.getPostIds());
+        // 1.1 原用户 / 目标部门都必须在当前数据权限范围内
+        validateDeptDataScope(updateReqVO.getDeptId(), updateReqVO.getId());
 
         // 2.1 更新用户
         AdminUserDO updateObj = BeanUtils.toBean(updateReqVO, AdminUserDO.class);
@@ -506,6 +512,59 @@ public class AdminUserServiceImpl implements AdminUserService {
         });
     }
 
+    /**
+     * 校验当前登录用户是否有权把用户放到目标部门。
+     * 规则：目标部门必须在其角色数据权限的部门集合内；修改时原用户部门也必须在范围内。
+     * SELF 等没有部门范围的角色不能创建/调整部门用户。
+     */
+    private void validateDeptDataScope(Long deptId, Long userId) {
+        Long loginUserId = SecurityFrameworkUtils.getLoginUserId();
+        if (loginUserId == null) {
+            return; // 无登录上下文（如租户初始化）不按部门权限拦截
+        }
+        if (deptId == null) {
+            throw exception(USER_DEPT_OUT_OF_SCOPE);
+        }
+        // 超管/租户管理员不受部门数据权限限制
+        if (permissionService.hasAnyRoles(loginUserId,
+                RoleCodeEnum.SUPER_ADMIN.getCode(), RoleCodeEnum.TENANT_ADMIN.getCode())) {
+            return;
+        }
+        DeptDataPermissionRespDTO permission = permissionService.getDeptDataPermission(loginUserId);
+        if (Boolean.TRUE.equals(permission.getAll())) {
+            return;
+        }
+        Set<Long> deptIds = permission.getDeptIds();
+        if (CollUtil.isEmpty(deptIds)) {
+            // 角色数据范围未配置/为空时，至少允许把用户建在自己部门及以下，
+            // 避免部门树整棵变灰、完全无法创建用户。
+            AdminUserDO loginUser = DataPermissionUtils.executeIgnore(() -> userMapper.selectById(loginUserId));
+            if (loginUser != null && loginUser.getDeptId() != null) {
+                deptIds = new HashSet<>(Collections.singleton(loginUser.getDeptId()));
+            }
+        }
+        if (CollUtil.isEmpty(deptIds)) {
+            throw exception(USER_DEPT_OUT_OF_SCOPE);
+        }
+        // lambda 只能引用 effectively final 变量，这里固定一份
+        final Set<Long> scopeDeptIds = deptIds;
+        // “部门权限及以下部门”：把权限部门的子部门也纳入可创建范围
+        Set<Long> assignable = new HashSet<>(scopeDeptIds);
+        DataPermissionUtils.executeIgnore(() -> {
+            deptService.getChildDeptList(scopeDeptIds).forEach(dept -> assignable.add(dept.getId()));
+            return null;
+        });
+        if (!assignable.contains(deptId)) {
+            throw exception(USER_DEPT_OUT_OF_SCOPE);
+        }
+        if (userId != null) {
+            AdminUserDO existing = DataPermissionUtils.executeIgnore(() -> userMapper.selectById(userId));
+            if (existing != null && existing.getDeptId() != null && !assignable.contains(existing.getDeptId())) {
+                throw exception(USER_OUT_OF_DATA_SCOPE);
+            }
+        }
+    }
+
     @VisibleForTesting
     AdminUserDO validateUserExists(Long id) {
         if (id == null) {
@@ -623,6 +682,8 @@ public class AdminUserServiceImpl implements AdminUserService {
             try {
                 validateUserForCreateOrUpdate(null, null, importUser.getMobile(), importUser.getEmail(),
                         importUser.getDeptId(), null);
+                // 导入同样受部门数据权限约束，不能借 Excel 绕过
+                validateDeptDataScope(importUser.getDeptId(), null);
             } catch (ServiceException ex) {
                 respVO.getFailureUsernames().put(importUser.getUsername(), ex.getMessage());
                 return;
@@ -656,6 +717,13 @@ public class AdminUserServiceImpl implements AdminUserService {
             // 2.2.2 如果存在，判断是否允许更新
             if (!isUpdateSupport) {
                 respVO.getFailureUsernames().put(importUser.getUsername(), USER_USERNAME_EXISTS.getMsg());
+                return;
+            }
+            // 更新已有用户时，原用户部门也必须在当前数据权限内
+            try {
+                validateDeptDataScope(importUser.getDeptId(), existUser.getId());
+            } catch (ServiceException ex) {
+                respVO.getFailureUsernames().put(importUser.getUsername(), ex.getMessage());
                 return;
             }
             AdminUserDO updateUser = BeanUtils.toBean(importUser, AdminUserDO.class);

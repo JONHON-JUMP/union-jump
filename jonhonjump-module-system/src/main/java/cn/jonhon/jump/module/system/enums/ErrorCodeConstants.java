@@ -91,6 +91,8 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_MENU_PARENT_ERROR = new ErrorCode(1_002_003_024, "不能把上级菜单设成自己或自己的下级");
     ErrorCode SUB_SYSTEM_MENU_PARENT_TYPE_INVALID = new ErrorCode(1_002_003_091, "上级菜单只能是目录或菜单，不能选择按钮");
     ErrorCode SUB_SYSTEM_MENU_TYPE_BUTTON_HAS_CHILDREN = new ErrorCode(1_002_003_092, "该菜单下还有子菜单，不能把类型改成按钮");
+    ErrorCode USER_DEPT_OUT_OF_SCOPE = new ErrorCode(1_002_003_093, "无权将用户归属到该部门，只能选择当前数据权限范围内的部门");
+    ErrorCode USER_OUT_OF_DATA_SCOPE = new ErrorCode(1_002_003_094, "该用户不在当前数据权限范围内，无权修改");
     ErrorCode SUB_SYSTEM_POST_NOT_EXISTS = new ErrorCode(1_002_003_025, "业务系统岗位不存在");
     ErrorCode SUB_SYSTEM_POST_NAME_DUPLICATE = new ErrorCode(1_002_003_026, "已经存在名为【{}】的业务系统岗位");
     ErrorCode SUB_SYSTEM_POST_CODE_DUPLICATE = new ErrorCode(1_002_003_027, "已经存在编码为【{}】的业务系统岗位");

@@ -39,7 +39,8 @@ public class UserSaveReqVO {
     @DiffLogField(name = "备注")
     private String remark;
 
-    @Schema(description = "部门编号", example = "我是一个用户")
+    @Schema(description = "部门编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "我是一个用户")
+    @NotNull(message = "归属部门不能为空")
     @DiffLogField(name = "部门", function = DeptParseFunction.NAME)
     private Long deptId;
 

@@ -337,6 +337,20 @@ export default {
     }
     this.$root.$on('portal-open-all-apps', this._onPortalOpenAllApps)
     this.$root.$on('portal-quick-nav-changed', this._onPortalQuickNavChanged)
+    // 业务页按钮打开跨 host 新窗口时，业务页脚本会先通知门户给目标 host 种 Cookie
+    this._onSeedUrlMessage = (event) => {
+      const data = event && event.data
+      if (!data || data.type !== 'JUMP_PORTAL_SEED_URL' || !data.url) {
+        return
+      }
+      const url = String(data.url)
+      if (!/^https?:/i.test(url)) {
+        return
+      }
+      // 不传当前系统 id：新窗口可能是另一个系统的 host，按目标 URL 的 origin 匹配身份更准确
+      seedCamstarCookieForUrlInBackground(url)
+    }
+    window.addEventListener('message', this._onSeedUrlMessage)
     this._onPortalExplicitHome = () => {
       // 任意路径回门户首页：关掉「全部应用」，避免盖住快捷导航
       this.drawerVisible = false
@@ -378,6 +392,10 @@ export default {
     if (this._onPortalQuickNavChanged) {
       this.$root.$off('portal-quick-nav-changed', this._onPortalQuickNavChanged)
       this._onPortalQuickNavChanged = null
+    }
+    if (this._onSeedUrlMessage) {
+      window.removeEventListener('message', this._onSeedUrlMessage)
+      this._onSeedUrlMessage = null
     }
     if (this._onPortalExplicitHome) {
       this.$root.$off('portal-explicit-home', this._onPortalExplicitHome)

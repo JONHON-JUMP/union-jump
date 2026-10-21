@@ -47,7 +47,8 @@ import {
   unwrapDirectHttpIframeLink,
   portalTabKey,
   portalTabsMatch,
-  portalPathAliasKey
+  portalPathAliasKey,
+  portalQueryBucket
 } from '@/utils/portalRoute'
 import { syncPortalIframeView } from '@/utils/portalIframe'
 
@@ -74,17 +75,35 @@ export default {
     },
     allIframeFrames() {
       const map = {}
-      ;(this.$store.state.tagsView.warmIframeViews || []).forEach(item => {
-        if (item && item.path) {
-          map[portalTabKey(item) || item.path] = item
+      const put = (item) => {
+        if (!item || !item.path) {
+          return
         }
-      })
-      ;(this.iframeViews || []).forEach(item => {
-        if (item && item.path) {
-          map[portalTabKey(item) || item.path] = item
+        // 与 v-for 的 key 用同一套，保温/活跃来回搬时 key 不变
+        map[this.iframeKey(item)] = item
+      }
+      // 活跃覆盖保温里的同一帧，但下面的顺序不再把保温帧插到最前面
+      ;(this.$store.state.tagsView.warmIframeViews || []).forEach(put)
+      ;(this.iframeViews || []).forEach(put)
+      // Chrome 会在 iframe 节点被 insertBefore 挪位时丢掉文档并重新请求。
+      // 关页把该帧从活跃列挪进保温列后，若保温帧排在前面，还开着的那一页会被挪动，
+      // 表现就是：先闪空表单（正在等待业务主机），再出加载层，最后数据才回来。
+      // 手动切页不改这份顺序，所以不刷新。这里按第一次出现的顺序钉死，只追加新帧、去掉已销毁的帧。
+      const prev = this._stableFrameOrder || []
+      const order = []
+      for (let i = 0; i < prev.length; i++) {
+        if (map[prev[i]]) {
+          order.push(prev[i])
         }
-      })
-      return Object.keys(map).map(k => map[k])
+      }
+      const keys = Object.keys(map)
+      for (let i = 0; i < keys.length; i++) {
+        if (order.indexOf(keys[i]) < 0) {
+          order.push(keys[i])
+        }
+      }
+      this._stableFrameOrder = order
+      return order.map(key => map[key])
     },
     routeClientId() {
       return parsePortalClientId(this.$route.path)
@@ -328,7 +347,31 @@ export default {
       return nonce ? `${base}__${nonce}` : base
     },
     isIframeVisible(item) {
-      return portalTabsMatch(this.$route, item)
+      if (portalTabsMatch(this.$route, item)) {
+        return true
+      }
+      const frames = this.allIframeFrames || []
+      if (frames.some(frame => portalTabsMatch(this.$route, frame))) {
+        return false
+      }
+      // 关页后路由和已打开帧的 query/hash 可能对不齐。没有精确帧时，
+      // 用同一菜单下唯一的根帧顶上，避免再冷开一套（空表单 → 加载 → 重载）。
+      if (!item || portalQueryBucket(item) === 'child' || (item.meta && item.meta.portalChild)) {
+        return false
+      }
+      if (portalQueryBucket(this.$route) === 'child') {
+        return false
+      }
+      if (portalPathAliasKey(item.path) !== portalPathAliasKey(this.$route.path)) {
+        return false
+      }
+      const sameRoot = frames.filter(frame =>
+        frame
+        && portalQueryBucket(frame) !== 'child'
+        && !(frame.meta && frame.meta.portalChild)
+        && portalPathAliasKey(frame.path) === portalPathAliasKey(this.$route.path)
+      )
+      return sameRoot.length === 1 && sameRoot[0] === item
     },
     /** 已关页签、只在保温池里的帧。关掉后要释放业务会话，不能继续占着请求 */
     isParkedFrame(item) {

@@ -258,13 +258,24 @@ export default {
       }
     },
     releaseOnHide(parked) {
-      if (parked && !this.active && this.isDirectHttp) {
+      if (!parked || this.active) {
+        return
+      }
+      // 页签已经关掉：清掉这份文档。再打开要是新页面，不能留着上次输入。
+      // 只改这一帧的地址，不挪动其它已打开页面的 iframe 节点。
+      if (this.isDirectHttp) {
         this.suspendDirectFrame()
+        return
+      }
+      if (this.hasLoaded && this.frameSrc && this.frameSrc !== 'about:blank') {
+        this.hasLoaded = false
+        this.phase = 'idle'
+        this.frameSrc = 'about:blank'
       }
     },
     active(visible) {
       if (this.isDirectHttp) {
-        // 隐藏帧被停掉后，再打开按原地址重载。同一帧切走再切回且未停，仍不 reload
+        // 关掉的页面再打开：按原地址重新加载。还开着的页面切走再切回，不 reload
         if (visible && this._heldSrc && (this.directSrc === 'about:blank' || !this.directSrc)) {
           const held = this._heldSrc
           this._heldSrc = ''
@@ -280,7 +291,7 @@ export default {
           this.startNavSync()
         } else {
           this.stopNavSync()
-          // 保温帧、或加载中切走的帧：一律挂起取消请求。已加载完成的帧保持保活（切回不重载）
+          // 页签还在：已打开的页面保持。页签已关，或还在转圈：清掉，避免占住连接、也避免下次带着旧输入打开
           if (this.releaseOnHide || !this.directLoaded) {
             this.suspendDirectFrame()
           }
@@ -306,8 +317,11 @@ export default {
         if (!this.hasLoaded && this.phase !== 'failed') {
           this.phase = 'idle'
         }
-        // 加载中切走：停帧取消请求，切回按 src 重挂；已加载完成的帧保持保活
-        if (!this.hasLoaded && this.frameSrc && this.frameSrc !== 'about:blank') {
+        // 加载中切走，或页签已关掉：停帧。还开着的已加载页面保持，切回来不刷新
+        if ((this.releaseOnHide || !this.hasLoaded) && this.frameSrc && this.frameSrc !== 'about:blank') {
+          if (this.releaseOnHide) {
+            this.hasLoaded = false
+          }
           this.frameSrc = 'about:blank'
         }
       }
@@ -347,18 +361,26 @@ export default {
     bindDirectSrc(url) {
       const n = url || '/'
       if (!n || n === '/') {
-        this.directSrc = ''
-        this.directPhase = 'idle'
+        if (!this.directLoaded) {
+          this.directSrc = ''
+          this.directPhase = 'idle'
+        }
+        return
+      }
+      // 页签已关掉：即使这份页面曾经打开成功，也清掉。再打开不能带着上次输入。
+      // 页签还在、只是当前不可见：已打开成功且地址没变，则保持文档。
+      if (!this.active && this.releaseOnHide) {
+        this.suspendDirectFrame()
+        return
+      }
+      if (this.directLoaded && sameCamstarDocument(this.directSrc, n)) {
         return
       }
       // 保温帧、或加载中且不可见的帧一律不真实加载：入口直接挂起（about:blank 释放
       // 连接/CPU），不依赖 watch 时序。加载未完成的帧只有当前页签可见时才允许占资源——
       // 切走/关闭即取消请求，杜绝坏页面、慢页面拖住同主机其它菜单
-      if (!this.active && (this.releaseOnHide || !this.directLoaded)) {
+      if (!this.active && !this.directLoaded) {
         this.suspendDirectFrame()
-        return
-      }
-      if (this.directLoaded && sameCamstarDocument(this.directSrc, n)) {
         return
       }
       if (this.directSrc && sameCamstarDocument(this.directSrc, n) && this.directPhase === 'loading') {
@@ -394,9 +416,11 @@ export default {
         return
       }
       this._bindSeq += 1
-      // 打开成功过的帧保留地址，重开秒开；从未加载成功（连不通/一直在转圈）的不保留，
-      // 重开时按 src 全新加载——关掉的坏页面不得再把挂死状态带回来
-      this._heldSrc = this.directLoaded ? held : ''
+      // 打开成功过的帧记下地址，下次打开按这个地址重新加载（不保留表单输入）。
+      // 从未加载成功的不保留，避免把挂死请求带回来。重复挂起时不要把已记下的地址清掉。
+      if (this.directLoaded) {
+        this._heldSrc = held
+      }
       this.clearDirectTimers()
       this.directLoaded = false
       this.directPhase = 'idle'

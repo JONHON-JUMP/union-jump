@@ -28,7 +28,9 @@ const state = {
    * 再开同菜单时按 path 别名 revive，:key=原 path 不变 → 秒开。
    */
   warmIframeViews: [],
-  recentViewPaths: []
+  recentViewPaths: [],
+  /** 关闭页签自动切到下一个页签时，跨系统切换要保留的目标帧 path（避免重建） */
+  preserveFramePaths: []
 }
 
 function isCamstarIframeView(view) {
@@ -61,12 +63,19 @@ function parkOrRemoveIframe(state, viewOrPath) {
   if (!ref.path) {
     return
   }
+  const preserve = state.preserveFramePaths || []
   let idx = findViewIndexByPortalTab(state.iframeViews, ref)
   if (idx < 0) {
-    // 兜底：tab 与登记帧 query/hash 不一致时严格匹配会落空，帧滞留活跃列表
-    // → display:none 后台继续加载打不开的地址，且重开复用同一挂死请求。
-    // 按 path 别名再认一次，保证关闭时一定 park/销毁。
+    // 严格 key 对不上时，同 path 上只要还有别的页签，就绝不能按别名卸帧。
+    // 列表/详情、两个入口共用 path 别名时，按别名会把还开着的那一页删掉，
+    // 自动切过去会新建 iframe：先闪空表单，再加载，最后整页重载。
     const aliasKey = portalPathAliasKey(ref.path)
+    const aliasStillOpen = (state.visitedViews || []).some(v =>
+      v && portalPathAliasKey(v.path) === aliasKey && !portalTabsMatch(v, ref)
+    )
+    if (aliasStillOpen) {
+      return
+    }
     idx = (state.iframeViews || []).findIndex(v =>
       v && portalPathAliasKey(v.path) === aliasKey
     )
@@ -79,6 +88,19 @@ function parkOrRemoveIframe(state, viewOrPath) {
     return
   }
   const item = state.iframeViews[idx]
+  // 被关页签已经从 visited 移除。还能对上的，是别的页签正在用这个帧。
+  if ((state.visitedViews || []).some(v => v && portalTabsMatch(v, item))) {
+    return
+  }
+  if (preserve.some(path => {
+    if (portalPathAliasKey(path) !== portalPathAliasKey(item.path)) {
+      return false
+    }
+    // 同别名但是另一个页签的帧：保留。只有被关的这一帧才继续卸。
+    return portalTabKey(item) !== portalTabKey(ref)
+  })) {
+    return
+  }
   state.iframeViews.splice(idx, 1)
   if (!isCamstarIframeView(item)) {
     return
@@ -112,19 +134,18 @@ function reviveCamstarIframe(state, view) {
   return item
 }
 
-/** 同一业务地址（纯 http 直链）视为同一菜单：侧栏壳 path（只编码叶子）与快捷导航
- *  壳 path（后端拼上级目录段）编码不同，按 path 认会拆成两个帧、切换时重新加载 */
+/**
+ * 只有真正同一 shell path 才算同一菜单，不再按 meta.link 合并。
+ * 两个不同菜单可能指向同一个 Camstar 地址（如两个入口都进 WorkOrderIndex）；
+ * 按 link 合并会让它们共用一个 iframe，关闭其中一个时把另一个的 iframe 一起删掉，
+ * 自动切到另一个页面就会重建/刷新（表现为先花屏、再 loading、最后重载）。
+ * 按 path 区分后，每个页签有自己的帧，关 A 不影响 B。
+ */
 function sameRootMenuView(a, b) {
   if (!a || !b) {
     return false
   }
-  if (portalPathAliasKey(a.path) === portalPathAliasKey(b.path)) {
-    return true
-  }
-  const linkA = (a.meta && a.meta.link) || ''
-  const linkB = (b.meta && b.meta.link) || ''
-  return !!(linkA && linkB && linkA === linkB
-    && isCamstarIframeView(a) && isCamstarIframeView(b))
+  return portalPathAliasKey(a.path) === portalPathAliasKey(b.path)
 }
 
 const mutations = {
@@ -288,10 +309,25 @@ const mutations = {
   CLEAR_WARM_IFRAME_VIEWS: (state) => {
     state.warmIframeViews = []
   },
-  /** 切系统：活跃 + 保温 iframe 一并清空 */
+  /** 切系统：活跃 + 保温 iframe 一并清空，但保留本次关闭页签要切过去的目标帧 */
   CLEAR_ALL_IFRAME_FRAMES: (state) => {
-    state.iframeViews = []
+    const keep = state.preserveFramePaths || []
+    if (!keep.length) {
+      state.iframeViews = []
+      state.warmIframeViews = []
+      return
+    }
+    const kept = (state.iframeViews || []).filter(view =>
+      keep.some(path => view && (
+        portalPathAliasKey(view.path) === portalPathAliasKey(path)
+        || (view.meta && view.meta.link && view.meta.link === path)
+      ))
+    )
+    state.iframeViews = kept
     state.warmIframeViews = []
+  },
+  SET_PRESERVE_FRAME_PATHS: (state, paths) => {
+    state.preserveFramePaths = Array.isArray(paths) ? paths.filter(Boolean) : []
   },
   /** 子页从列表 iframe 点开后，把列表帧重新加载回原菜单地址 */
   BUMP_COVERING_PORTAL_IFRAME: (state, childLoc) => {
@@ -615,6 +651,9 @@ const actions = {
   clearDockBusinessTabs({ commit, state }) {
     const legacy = typeof document !== 'undefined'
       && document.documentElement.classList.contains('legacy-anim')
+    const preserve = state.preserveFramePaths || []
+    const isPreserved = view => !!view && preserve.some(path =>
+      portalPathAliasKey(view.path) === portalPathAliasKey(path))
 
     if (legacy) {
       // Chrome <90：PRUNE 会先 park Camstar→warm 再 CLEAR 全删，等于两次卸 DOM。
@@ -626,6 +665,9 @@ const actions = {
           return true
         }
         if (view.meta && view.meta.affix) {
+          return true
+        }
+        if (isPreserved(view)) {
           return true
         }
         removed.push(view)
@@ -652,7 +694,8 @@ const actions = {
       if (view.meta && view.meta.affix) {
         return true
       }
-      return false
+      // 关闭页签自动切到另一个系统的页签时，保留目标页签及其 iframe
+      return isPreserved(view)
     })
     // 切系统不得保留上一系统页签/保温壳，否则会出现在新系统 dock 下
     commit('CLEAR_ALL_IFRAME_FRAMES')

@@ -459,6 +459,9 @@ export default {
         password: [
           { required: true, message: "用户密码不能为空", trigger: "blur" }
         ],
+        deptId: [
+          { required: true, message: "归属部门不能为空", trigger: "change" }
+        ],
         mobile: [
           {
             pattern: /^(?:(?:\+|00)86)?1(?:3[\d]|4[5-79]|5[0-35-9]|6[5-7]|7[0-8]|8[\d]|9[189])\d{8}$/,
@@ -585,18 +588,36 @@ export default {
         }
       });
     },
-    /** 查询部门下拉树结构 + 岗位下拉 */
+    /** 查询部门下拉树结构 + 岗位下拉。只保留当前数据权限内的部门及其下级，上级部门不出现、也不能选。 */
     getTreeselect() {
       listSimpleDepts().then(response => {
-        // 处理 deptOptions 参数
-        this.deptOptions = [];
-        this.deptOptions.push(...this.handleTree(response.data, "id"));
+        this.deptOptions = this.buildAssignableDeptTree(response.data)
       });
       listSimplePosts().then(response => {
         // 处理 postOptions 参数
         this.postOptions = [];
         this.postOptions.push(...response.data);
       });
+    },
+    buildAssignableDeptTree(list) {
+      const selectable = (list || []).filter(item => !item.disabled)
+      const map = new Map()
+      selectable.forEach(item => {
+        map.set(item.id, { ...item, isDisabled: false })
+      })
+      const roots = []
+      map.forEach(node => {
+        const parent = map.get(node.parentId)
+        if (parent) {
+          if (!parent.children) {
+            parent.children = []
+          }
+          parent.children.push(node)
+        } else {
+          roots.push(node)
+        }
+      })
+      return roots
     },
     // 筛选节点
     filterNode(value, data) {
@@ -949,7 +970,9 @@ export default {
       return {
         id: node.id,
         label: node.name,
-        children: node.children
+        children: node.children,
+        // 数据权限之外的父级只用于展示层级，不能选择
+        isDisabled: !!node.disabled
       }
     },
     /** 批量删除操作 */
