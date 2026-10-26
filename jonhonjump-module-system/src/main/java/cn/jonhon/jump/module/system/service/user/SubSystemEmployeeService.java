@@ -5,6 +5,8 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemRegisterableApiRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserAccountSyncReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserAccountSyncRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterRespVO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemTeamComboDTO;
@@ -37,9 +39,34 @@ public interface SubSystemEmployeeService {
     List<SubSystemRegisterableApiRespVO> getRegisterableApis();
 
     /**
+     * 按工号全系统查询外部人员（关联外部用）。不按车间拉固定条数，避免新建用户被截断。
+     * workshopCode 只用来再查一次「车间编号_工号」，不作为列表过滤条件。
+     */
+    List<SubSystemEmployeeRespVO> listExternalEmployees(Long apiSubSystemId, String workshopCode, String userCode);
+
+    /**
      * 花名册人员手动调「新增人员」接口注册：逐项调所选接口目标的新增接口，
      * 成功后把花名册行的人员接口注册状态置为已注册；已注册项跳过；单项失败不影响其余
      */
     List<SubSystemUserRegisterRespVO> registerEmployees(SubSystemUserRegisterReqVO reqVO);
+
+    /**
+     * 把用户资料中的域账号、刷卡卡号同步到所选业务接口。
+     * 车间编号取自挂接记录，缺失则拒绝同步。
+     * 未传 ERP 账号时不同步 ERP，只同步域账号和刷卡卡号。
+     */
+    SubSystemUserAccountSyncRespVO syncUserAccount(SubSystemUserAccountSyncReqVO reqVO);
+
+    /**
+     * 把 JUMP 分配的业务角色同步到外部系统（查-合并-回写）：
+     * 角色按 external_role_id 主键映射上挂/解除，不依赖角色名匹配；
+     * 外部系统人工挂的角色不在 JUMP 管辖范围，不会被增删。
+     *
+     * @param apiSubSystemId   接口目标系统 ID
+     * @param rosterSubSystemId 花名册所属系统 ID（角色与管辖范围按它取）
+     * @param userCode         对方系统用户名（拼接车间的为 车间编号_工号）
+     * @param jumpRoleIds      本次分配生效的 JUMP 角色编号集合（须已关联外部角色）
+     */
+    void syncUserRoles(Long apiSubSystemId, Long rosterSubSystemId, String userCode, List<Long> jumpRoleIds);
 
 }

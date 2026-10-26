@@ -2,13 +2,13 @@ package cn.jonhon.jump.module.system.service.user;
 
 import cn.hutool.core.collection.CollUtil;
 import cn.hutool.core.util.ObjectUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemTeamPageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemTeamRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemTeamSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUsersSimpleRespVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopSimpleRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.dept.DeptDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
@@ -49,14 +49,19 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
     @Resource
     private DeptMapper deptMapper;
     @Resource
-    private SubSystemWorkshopService subSystemWorkshopService;
+    private SubSystemAccessService subSystemAccessService;
 
     @Override
     public PageResult<SubSystemTeamRespVO> getSubSystemTeamPage(SubSystemTeamPageReqVO pageReqVO) {
+        // 可管系统范围：受限时强制只查授权系统（null=不受限）
+        java.util.Set<Long> allowedSubSystemIds = subSystemAccessService.getAllowedSubSystemIds(
+                cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId());
         if (pageReqVO.getSubSystemId() != null) {
             validateSubSystemExists(pageReqVO.getSubSystemId());
+        } else if (allowedSubSystemIds != null && allowedSubSystemIds.isEmpty()) {
+            return new PageResult<>(java.util.Collections.emptyList(), 0L);
         }
-        PageResult<SubSystemTeamDO> pageResult = subSystemTeamMapper.selectPage(pageReqVO);
+        PageResult<SubSystemTeamDO> pageResult = subSystemTeamMapper.selectPage(pageReqVO, allowedSubSystemIds);
         return new PageResult<>(buildRespList(pageResult.getList()), pageResult.getTotal());
     }
 
@@ -69,7 +74,8 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
     @Override
     public Long createSubSystemTeam(SubSystemTeamSaveReqVO createReqVO) {
         validateSubSystemExists(createReqVO.getSubSystemId());
-        validateDeptWorkshopMapped(createReqVO.getSubSystemId(), createReqVO.getDeptId());
+        validateDeptIfPresent(createReqVO.getDeptId());
+        createReqVO.setWorkshopCode(StrUtil.trimToNull(createReqVO.getWorkshopCode()));
         validateTeamDuplicate(createReqVO.getSubSystemId(), createReqVO.getTeamName(),
                 createReqVO.getTeamCode(), null);
         fillTeamLeaderName(createReqVO);
@@ -83,13 +89,14 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
     public void updateSubSystemTeam(SubSystemTeamSaveReqVO updateReqVO) {
         SubSystemTeamDO team = validateSubSystemTeamExists(updateReqVO.getId());
         validateSubSystemExists(updateReqVO.getSubSystemId());
-        validateDeptWorkshopMapped(updateReqVO.getSubSystemId(), updateReqVO.getDeptId());
+        validateDeptIfPresent(updateReqVO.getDeptId());
+        updateReqVO.setWorkshopCode(StrUtil.trimToNull(updateReqVO.getWorkshopCode()));
         validateTeamDuplicate(updateReqVO.getSubSystemId(), updateReqVO.getTeamName(),
                 updateReqVO.getTeamCode(), updateReqVO.getId());
         fillTeamLeaderName(updateReqVO);
 
         SubSystemTeamDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemTeamDO.class);
-        // 系统归属不变；部门可随车间对照调整
+        // 系统归属不变；部门、车间编号写在班组自身
         updateObj.setSubSystemId(team.getSubSystemId());
         subSystemTeamMapper.updateById(updateObj);
     }
@@ -157,13 +164,8 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
             if (dept != null) {
                 vo.setDeptName(dept.getName());
             }
-            if (team.getDeptId() != null) {
-                SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService
-                        .getWorkshopByDept(team.getSubSystemId(), team.getDeptId());
-                if (workshop != null) {
-                    vo.setWorkshopCode(workshop.getWorkshopCode());
-                }
-            }
+            // 车间编号取班组自身字段，不再从车间对照兜底
+            vo.setWorkshopCode(team.getWorkshopCode());
             return vo;
         }).collect(Collectors.toList());
     }
@@ -186,13 +188,13 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
         reqVO.setTeamLeaderName(mainUser != null ? mainUser.getNickname() : null);
     }
 
-    private void validateDeptWorkshopMapped(Long subSystemId, Long deptId) {
+    /** 部门可选；有值时只校验部门存在，不再要求已做车间对照 */
+    private void validateDeptIfPresent(Long deptId) {
         if (deptId == null) {
-            throw exception(SUB_SYSTEM_TEAM_DEPT_NOT_MAPPED);
+            return;
         }
-        SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService.getWorkshopByDept(subSystemId, deptId);
-        if (workshop == null || workshop.getWorkshopCode() == null) {
-            throw exception(SUB_SYSTEM_TEAM_DEPT_NOT_MAPPED);
+        if (deptMapper.selectById(deptId) == null) {
+            throw exception(SUB_SYSTEM_WORKSHOP_DEPT_INVALID);
         }
     }
 
@@ -201,6 +203,8 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
         if (subSystem == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统
+        subSystemAccessService.checkAccessible(subSystemId);
         return subSystem;
     }
 
@@ -209,6 +213,8 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
         if (team == null) {
             throw exception(SUB_SYSTEM_TEAM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统的班组
+        subSystemAccessService.checkAccessible(team.getSubSystemId());
         return team;
     }
 

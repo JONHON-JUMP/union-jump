@@ -8,6 +8,7 @@ import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSyst
 import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSystemUserPermissionRespVO;
 import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.PortalPermContextRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSubSystemRosterReqVO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 
 
@@ -69,8 +70,10 @@ public interface SubSystemUsersService {
 
     /**
      * 获得当前登录用户在指定外部系统下的门户菜单（Iframe 嵌入）
+     *
+     * @param workshopCode 可选；多叶子时按挂接车间取对应花名册角色菜单
      */
-    List<SubSystemPortalMenuRespVO> getMyPortalMenus(Long userId, Long subSystemId);
+    List<SubSystemPortalMenuRespVO> getMyPortalMenus(Long userId, Long subSystemId, String workshopCode);
 
     /**
      * 获得用户在指定外部子系统下可选的快捷导航菜单编号（叶子菜单）
@@ -80,7 +83,8 @@ public interface SubSystemUsersService {
     /**
      * 仅校验候选菜单是否可作为快捷导航（冷路径用，避免每次拉该子系统全量菜单）
      */
-    Set<Long> retainAllowedQuickNavMenuIds(Long userId, Long subSystemId, Collection<Long> candidateIds);
+    Set<Long> retainAllowedQuickNavMenuIds(Long userId, Long subSystemId, Collection<Long> candidateIds,
+                                           String workshopCode);
 
     /**
 
@@ -124,19 +128,39 @@ public interface SubSystemUsersService {
     /**
      * 按用户名查询外部系统用户
      */
-    SubSystemUsersRespVO getBySubSystemIdAndUsername(Long subSystemId, String username);
+    SubSystemUsersRespVO getBySubSystemIdAndUsername(Long subSystemId, String username, String workshopId);
 
     /**
-     * 将主系统用户挂接到外部系统同名用户（main_user_id 可选关联）
+     * 新建 JUMP 用户时：花名册用户名完全相同、且该行还没挂到仍存在的 JUMP 用户（空、0、已删除）则写入 mainUserId。
+     * 同一业务系统里该主用户已挂过别的行则跳过。打开列表或详情不会调用。
      */
-    Long bindMainUser(Long subSystemId, Long mainUserId);
+    void bindMatchingRosters(Long mainUserId, String username);
+
+    /**
+     * 把花名册行关联到已存在的外部人员。userCode 为空表示解除关联。
+     * 外部用户名必须是本地用户名，或 车间编号_本地用户名。
+     */
+    void bindExternalEmployee(Long id, String userCode, String workshopCode, Long apiSubSystemId);
 
     /**
      * 从主系统用户登记子系统花名册（纯本地，不调外部接口；upsert 语义）
      *
-     * 仅登记已绑定 OAuth 的门户业务系统；车间按部门对照尽力带出，可后补
+     * 仅登记已绑定门户的业务系统；多车间系统不会自动登记空车间行（旧调用兼容保留）。
      */
     void registerFromMainUser(AdminUserDO mainUser, List<Long> subSystemIds);
+
+    /**
+     * 按「业务系统 + 车间叶子」登记花名册（纯本地，不调外部接口；upsert 语义）。
+     *
+     * @param explicit true=来自新页面显式选择：系统不存在/未绑门户/多车间未选叶子都直接报错；
+     *                 false=旧调用兼容：跳过而不是报错
+     */
+    void registerFromMainUser(AdminUserDO mainUser, List<UserSubSystemRosterReqVO> targets, boolean explicit);
+
+    /**
+     * 主系统改姓名时，只同步仍显示旧姓名的花名册行。人工改过的显示名不动，也不改登录名。
+     */
+    void syncDisplayNickname(Long mainUserId, String oldNickname, String newNickname);
 
 
 
@@ -204,7 +228,11 @@ public interface SubSystemUsersService {
 
     List<SubSystemMenuTreeRespVO> getUserHomeMenuTree(Long subSystemId, List<Long> roleIds);
 
-    void assignSubSystemUserRole(@Valid SubSystemUsersAssignRoleReqVO reqVO);
+    /**
+     * 分配外部系统用户角色（角色入库唯一入口）。
+     * 勾选同步时调对方接口上挂/解除：外部失败不回滚本地分配，结果经 RespVO 明示
+     */
+    SubSystemUsersAssignRoleRespVO assignSubSystemUserRole(@Valid SubSystemUsersAssignRoleReqVO reqVO);
 
 
 

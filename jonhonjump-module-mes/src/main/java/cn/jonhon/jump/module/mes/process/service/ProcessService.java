@@ -20,4 +20,6 @@ public interface ProcessService {
      * 获取 MPM 工艺文件地址
      */
     ProcessFileUrlRespVO queryFileUrl(@Valid ProcessFileUrlReqVO reqVO);
+
+    byte[] queryDocumentPdf(String accno);
 }

@@ -46,13 +46,37 @@ function clearExternalUsernameMaps() {
   })
 }
 
+function replaceMapContents(target, source) {
+  Object.keys(target).forEach(k => {
+    delete target[k]
+  })
+  Object.keys(source || {}).forEach(k => {
+    target[k] = source[k]
+  })
+}
+
+/** 本域强制重写 Cookie（先删再写，避免旧属性残留） */
+function writeLocalCamstarCookie(key) {
+  if (!key) {
+    return ''
+  }
+  Cookies.remove(CAMSTAR_COOKIE, { path: '/' })
+  Cookies.set(CAMSTAR_COOKIE, String(key), { path: '/' })
+  sessionStorage.setItem(COOKIEKEY_STORE, String(key))
+  return String(key)
+}
+
 /**
  * 注册子系统对接用户名（portal store 的 loadSystemList 成功后调用）。
  * systems 为 my-list 返回项：{ subSystemId, clientId, systemUrl, externalUsername, ... }。
- * clientId/subSystemId 为精确主键（打开/切换系统时用）；origin/host 仅作无系统上下文时的 URL 兜底。
+ * clientId/subSystemId 为精确主键（打开/切换系统时用）；origin/host 仅作单系统上下文时的 URL 兜底。
+ * 先建新表再整体替换，避免 clear→fill 空窗期把 Cookie 种成裸工号。
  */
 export function registerExternalUsernames(systems) {
-  clearExternalUsernameMaps()
+  const byClient = {}
+  const bySubsystem = {}
+  const byOrigin = {}
+  const byHost = {}
   ;(systems || []).forEach(item => {
     if (!item) {
       return
@@ -63,10 +87,22 @@ export function registerExternalUsernames(systems) {
     }
     // 无 systemUrl 也要登记：切换系统种 Cookie 只依赖 clientId，不能因缺 URL 丢身份
     if (item.clientId) {
-      EXTERNAL_USERNAME_BY_CLIENT[String(item.clientId)] = name
+      byClient[String(item.clientId)] = name
     }
-    if (item.subSystemId) {
-      EXTERNAL_USERNAME_BY_SUBSYSTEM[String(item.subSystemId)] = name
+    const mesClientId = item.mesClientId || item.mes_client_id
+    const workshopId = String(item.workshopId || '').trim()
+    if (mesClientId && workshopId) {
+      byClient[String(mesClientId) + '_' + workshopId] = name
+    }
+    // 同 subSystemId 多叶子身份不同：不能互盖，置空迫使走 clientId
+    if (item.subSystemId != null && item.subSystemId !== '') {
+      const ssKey = String(item.subSystemId)
+      const existSs = bySubsystem[ssKey]
+      if (existSs === undefined) {
+        bySubsystem[ssKey] = name
+      } else if (existSs !== name) {
+        bySubsystem[ssKey] = ''
+      }
     }
     if (!item.systemUrl) {
       return
@@ -75,16 +111,27 @@ export function registerExternalUsernames(systems) {
     if (!parsed) {
       return
     }
-    EXTERNAL_USERNAME_BY_ORIGIN[parsed.origin.toLowerCase()] = name
+    const origin = parsed.origin.toLowerCase()
+    const existOrigin = byOrigin[origin]
+    // 同址多车间（4200/5500 共 :8888）：origin 歧义置空，必须靠 clientId 切换写 Cookie
+    if (existOrigin === undefined) {
+      byOrigin[origin] = name
+    } else if (existOrigin !== name) {
+      byOrigin[origin] = ''
+    }
     const host = parsed.hostname.toLowerCase()
-    const exist = EXTERNAL_USERNAME_BY_HOST[host]
+    const exist = byHost[host]
     // 同 hostname 多个系统（不同端口共享 Cookie 域）且身份不同 → hostname 兜底歧义，置空
     if (exist === undefined) {
-      EXTERNAL_USERNAME_BY_HOST[host] = name
+      byHost[host] = name
     } else if (exist !== name) {
-      EXTERNAL_USERNAME_BY_HOST[host] = ''
+      byHost[host] = ''
     }
   })
+  replaceMapContents(EXTERNAL_USERNAME_BY_CLIENT, byClient)
+  replaceMapContents(EXTERNAL_USERNAME_BY_SUBSYSTEM, bySubsystem)
+  replaceMapContents(EXTERNAL_USERNAME_BY_ORIGIN, byOrigin)
+  replaceMapContents(EXTERNAL_USERNAME_BY_HOST, byHost)
 }
 
 /** 按系统标识取该系统的对接用户名（clientId 优先，subSystemId 兜底） */
@@ -114,8 +161,7 @@ export function saveCamstarCookieKey(key) {
   if (!key) {
     return
   }
-  sessionStorage.setItem(COOKIEKEY_STORE, String(key))
-  Cookies.set(CAMSTAR_COOKIE, String(key), { path: '/' })
+  writeLocalCamstarCookie(String(key))
 }
 
 /** 缓存 Camstar 侧登录用户名（车间_工号 与工号不同名时） */
@@ -134,7 +180,8 @@ export function getCamstarUsername() {
  * 解析 Camstar Cookie 值。可选传入系统标识与目标 URL，优先级：
  * 1. clientId/subSystemId 精确命中（打开/切换系统时的权威方式）
  * 2. URL origin 精确匹配 > hostname 唯一兜底
- * 3. 若已指定 systemId 仍未命中：只用主登录工号（禁止用全局「车间_工号」兜底，避免切到不拼接系统仍带旧身份）
+ * 3. 若已指定 systemId 仍未命中：保留当前已种身份（刚 refresh 的车间_工号 / 已有 Cookie），
+ *    绝不用裸登录工号覆盖——Camstar 会拒掉并打出 JsonRequestBehavior 黄页
  * 4. 未指定 systemId：预取的 Camstar 用户名 > 主登录工号 > 旧缓存
  */
 export function resolveCamstarCookieKey(url, systemId) {
@@ -146,18 +193,22 @@ export function resolveCamstarCookieKey(url, systemId) {
   if (forUrl) {
     return toBase64Utf8(forUrl)
   }
-  const username = getUsername()
-  const fromUser = username ? toBase64Utf8(username) : ''
-  // 指定了目标系统却没命中注册表：绝不能回落到其它系统的「车间_工号」
+  // 已点名目标系统却未登记：保留现有身份，禁止裸工号盖掉车间_工号
   if (systemId) {
-    return fromUser || ''
+    const camstarUsername = getCamstarUsername()
+    if (camstarUsername) {
+      return toBase64Utf8(camstarUsername)
+    }
+    const saved = sessionStorage.getItem(COOKIEKEY_STORE)
+    if (saved) {
+      return saved
+    }
+    const existing = Cookies.get(CAMSTAR_COOKIE)
+    return existing || ''
   }
   const camstarUsername = getCamstarUsername()
   if (camstarUsername) {
     return toBase64Utf8(camstarUsername)
-  }
-  if (fromUser) {
-    return fromUser
   }
   const saved = sessionStorage.getItem(COOKIEKEY_STORE)
   if (saved) {
@@ -167,7 +218,8 @@ export function resolveCamstarCookieKey(url, systemId) {
   if (existing) {
     return existing
   }
-  return ''
+  const username = getUsername()
+  return username ? toBase64Utf8(username) : ''
 }
 
 /** 退出登录时清残留：同一浏览器换号后不得再带上一账号的 Camstar 会话 */
@@ -175,20 +227,28 @@ export function clearCamstarCookie() {
   sessionStorage.removeItem(COOKIEKEY_STORE)
   sessionStorage.removeItem(CAMSTAR_USERNAME_STORE)
   clearExternalUsernameMaps()
+  Object.keys(seedBridgeLastAtByOrigin).forEach(k => {
+    delete seedBridgeLastAtByOrigin[k]
+  })
   Cookies.remove(CAMSTAR_COOKIE, { path: '/' })
 }
 
 /**
- * 按花名册字段算对接用户名：关联车间编号=是 → 车间_工号，否则 → 工号。
- * 有 usernameWithWorkshop 时本地重算，不盲信可能过期的 externalUsername。
+ * 按花名册字段算对接用户名（只认表字段，不猜）：
+ * - 优先用 my-list 已算好的 externalUsername（后端按叶子车间拼好）
+ * - 否则 usernameWithWorkshop=1 且车间编号非空 → 车间编号_工号
+ * - 车间编号为空，或标识为否 → 工号
  */
 export function resolveExternalUsernameFromRoster(system) {
   if (!system) {
     return ''
   }
+  const fromApi = String(system.externalUsername || '').trim()
+  if (fromApi) {
+    return fromApi
+  }
   const flag = system.usernameWithWorkshop
   const withWorkshop = flag === '1' || flag === 1 || flag === true
-  const explicitlyNo = flag === '0' || flag === 0 || flag === false
   const workshopId = String(system.workshopId || '').trim()
   const bare = String(system.username || system.userName || getUsername() || '').trim()
   if (withWorkshop && workshopId && bare) {
@@ -197,11 +257,7 @@ export function resolveExternalUsernameFromRoster(system) {
     }
     return workshopId + '_' + bare
   }
-  if (explicitlyNo && bare) {
-    return bare
-  }
-  const fromApi = String(system.externalUsername || '').trim()
-  return fromApi || bare
+  return bare
 }
 
 /**
@@ -222,23 +278,39 @@ export function refreshCamstarCookieForSystem(system) {
   if (clientId) {
     EXTERNAL_USERNAME_BY_CLIENT[String(clientId)] = name
   }
-  if (subSystemId != null && subSystemId !== '') {
-    EXTERNAL_USERNAME_BY_SUBSYSTEM[String(subSystemId)] = name
-  }
   const url = system.systemUrl || system.url || ''
+  // 同 MES 多叶子（mesClientId ≠ clientId）：只写 clientId，禁止用当前叶子盖掉 SUBSYSTEM/ORIGIN
+  const mesClientId = system.mesClientId || system.mes_client_id
+  const workshopId = String(system.workshopId || '').trim()
+  const isLeafSplit = !!(mesClientId && clientId && String(mesClientId) !== String(clientId))
+    || !!(mesClientId && workshopId && clientId && String(clientId).indexOf('_') >= 0)
+  // 叶子别名：mesClientId_车间 与 portal clientId 不一致时也能命中
+  if (mesClientId && workshopId) {
+    EXTERNAL_USERNAME_BY_CLIENT[String(mesClientId) + '_' + workshopId] = name
+  }
+  if (!isLeafSplit && subSystemId != null && subSystemId !== '') {
+    EXTERNAL_USERNAME_BY_SUBSYSTEM[String(subSystemId)] = name
+  } else if (isLeafSplit && subSystemId != null && subSystemId !== '') {
+    // 歧义：清空迫使后续解析走 clientId
+    EXTERNAL_USERNAME_BY_SUBSYSTEM[String(subSystemId)] = ''
+  }
   if (url) {
     const parsed = parseUrl(url)
     if (parsed) {
-      EXTERNAL_USERNAME_BY_ORIGIN[parsed.origin.toLowerCase()] = name
+      if (isLeafSplit) {
+        EXTERNAL_USERNAME_BY_ORIGIN[parsed.origin.toLowerCase()] = ''
+        EXTERNAL_USERNAME_BY_HOST[parsed.hostname.toLowerCase()] = ''
+      } else {
+        EXTERNAL_USERNAME_BY_ORIGIN[parsed.origin.toLowerCase()] = name
+      }
     }
   }
-  sessionStorage.removeItem(COOKIEKEY_STORE)
+  // 切换叶子时全局预取身份也改成当前叶子，避免后续无 systemId 的 ensure 又写回上一车间
   saveCamstarUsername(name)
-  const key = toBase64Utf8(name)
-  Cookies.set(CAMSTAR_COOKIE, key, { path: '/' })
-  sessionStorage.setItem(COOKIEKEY_STORE, key)
+  const key = writeLocalCamstarCookie(toBase64Utf8(name))
   if (url) {
-    seedCamstarCookieForUrlInBackground(url, clientId || subSystemId)
+    seedCamstarCookieForUrlInBackground(url, clientId || (mesClientId && workshopId
+      ? (String(mesClientId) + '_' + workshopId) : subSystemId))
   }
   return key
 }
@@ -254,22 +326,26 @@ export function resetCamstarCookieToLoginUser() {
     Cookies.remove(CAMSTAR_COOKIE, { path: '/' })
     return ''
   }
-  const key = toBase64Utf8(username)
-  Cookies.set(CAMSTAR_COOKIE, key, { path: '/' })
-  sessionStorage.setItem(COOKIEKEY_STORE, key)
-  return key
+  return writeLocalCamstarCookie(toBase64Utf8(username))
 }
 
 /** 对齐 4200 setCookie：在当前页 host 写入 Cookie（打开系统前调用；systemId/url 可选，按目标系统身份写） */
 export function ensureLocalCamstarCookie(url, systemId) {
   const key = resolveCamstarCookieKey(url, systemId)
   if (!key) {
+    // 解析不到正确身份时不要动现有 Cookie（避免切系统瞬间被裸工号污染）
     return ''
   }
-  Cookies.set(CAMSTAR_COOKIE, key, { path: '/' })
-  sessionStorage.setItem(COOKIEKEY_STORE, key)
-  return key
+  return writeLocalCamstarCookie(key)
 }
+
+/**
+ * 同一 origin 的 cookie-bridge 隐藏 iframe 冷却：目标主机不通时隐藏请求会长期占住
+ * 该 host 的连接配额（同 host 并发连接上限 6），反复打开/关闭打不开的菜单会连环塞请求，
+ * 把同一 nginx/主机下的新菜单 iframe 挤进队列，表现为新页面一直转圈。60s 内同 origin 只 seed 一次。
+ */
+const SEED_BRIDGE_COOLDOWN_MS = 60000
+const seedBridgeLastAtByOrigin = {}
 
 /**
  * 可选：后台尝试给其它 host 种 Cookie（需目标机已部署 camstar-cookie-bridge.html）。
@@ -296,6 +372,15 @@ export function seedCamstarCookieForUrlInBackground(httpUrl, systemId) {
   if (parsed.hostname === window.location.hostname) {
     return
   }
+  const originKey = parsed.origin.toLowerCase()
+  // 冷却维度必须是 origin+身份：同址多车间（4200/5500 共 :8888）切叶子换身份时
+  // 必须立刻重种，不得被冷却挡住；同一身份反复打开/关闭菜单才会被限流
+  const cooldownKey = originKey + '|' + key
+  const lastAt = seedBridgeLastAtByOrigin[cooldownKey] || 0
+  if (Date.now() - lastAt < SEED_BRIDGE_COOLDOWN_MS) {
+    return
+  }
+  seedBridgeLastAtByOrigin[cooldownKey] = Date.now()
   const bridges = []
   if (/camstarportal/i.test(parsed.pathname || '')) {
     bridges.push(`${parsed.origin}/CamstarPortal/camstar-cookie-bridge.html`)

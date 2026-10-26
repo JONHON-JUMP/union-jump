@@ -5,9 +5,11 @@ import cn.hutool.core.util.URLUtil;
 import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
+import cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils;
 import cn.jonhon.jump.framework.tenant.core.context.TenantContextHolder;
 import cn.jonhon.jump.framework.tenant.core.util.TenantUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSubSystemRosterReqVO;
 import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSystemCardLoginRespVO;
 import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.SubSystemUserPermissionRespVO;
 import cn.jonhon.jump.module.system.controller.admin.oauth2.vo.subsystem.PortalPermContextRespVO;
@@ -18,11 +20,18 @@ import cn.jonhon.jump.module.system.dal.mysql.user.*;
 import cn.jonhon.jump.module.system.service.oauth2.OAuth2ClientService;
 import cn.jonhon.jump.module.system.util.MenuStyleHelper;
 import lombok.extern.slf4j.Slf4j;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.validation.annotation.Validated;
 import javax.annotation.Resource;
 import java.util.*;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeConstants.BAD_REQUEST;
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
@@ -66,15 +75,27 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     @Resource
     private SubSystemPermissionContextService subSystemPermissionContextService;
     @Resource
-    private SubSystemWorkshopService subSystemWorkshopService;
-    @Resource
     private cn.jonhon.jump.module.system.dal.redis.user.PortalMyMenusRedisDAO portalMyMenusRedisDAO;
+    @Resource
+    private SubSystemAccessService subSystemAccessService;
+    @Resource
+    private SubSystemEmployeeService subSystemEmployeeService;
+    @Resource
+    private PlatformTransactionManager transactionManager;
+    @Resource
+    private SubSystemApiConfigMapper subSystemApiConfigMapper;
+    @Resource
+    private SubSystemWorkshopMapper subSystemWorkshopMapper;
+    @Resource
+    private LeafApiBindingService leafApiBindingService;
+
     @Override
     public List<SubSystemUsersRespVO> getListByMainUserId(Long mainUserId) {
         List<SubSystemUsersDO> list = subSystemUsersMapper.selectListByMainUserId(mainUserId);
         if (CollUtil.isEmpty(list)) {
             return Collections.emptyList();
         }
+        list = filterByAllowedSubSystems(list, SubSystemUsersDO::getSubSystemId);
         return buildRespList(list);
     }
     @Override
@@ -82,7 +103,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(mainUserIds)) {
             return Collections.emptyMap();
         }
-        List<SubSystemUsersDO> list = subSystemUsersMapper.selectListByMainUserIds(mainUserIds);
+        List<SubSystemUsersDO> list = filterByAllowedSubSystems(
+                subSystemUsersMapper.selectListByMainUserIds(mainUserIds), SubSystemUsersDO::getSubSystemId);
         return list.stream().collect(Collectors.groupingBy(SubSystemUsersDO::getMainUserId, Collectors.counting()));
     }
     @Override
@@ -91,13 +113,31 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(list)) {
             return Collections.emptyList();
         }
-        // 对接用户名兜底用主用户工号（行上未存用户名时）
         AdminUserDO mainUser = adminUserMapper.selectById(userId);
-        return list.stream()
-                .filter(item -> !"1".equals(item.getStatus()))
-                .map(item -> convertExternal(item, mainUser))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
+        Map<Long, SubSystemDO> subSystemMap = loadSubSystemMap(list);
+        Map<String, String> workshopNameDict = loadWorkshopNameDict();
+        Map<Long, Set<String>> workshopLeavesBySubSystem = loadWorkshopLeavesBySubSystemId();
+        List<UserExternalSystemRespVO> result = new ArrayList<>();
+        for (SubSystemUsersDO item : list) {
+            if ("1".equals(item.getStatus())) {
+                continue;
+            }
+            List<Long> roleIds = listRoleIds(item.getId());
+            if (CollUtil.isEmpty(roleIds)) {
+                continue;
+            }
+            UserExternalSystemRespVO base = convertExternal(item, mainUser);
+            if (base == null) {
+                continue;
+            }
+            SubSystemDO subSystem = subSystemMap.get(item.getSubSystemId());
+            UserExternalSystemRespVO entry = toPortalEntryByHungLeaf(
+                    base, item, subSystem, workshopNameDict, workshopLeavesBySubSystem, roleIds);
+            if (entry != null) {
+                result.add(entry);
+            }
+        }
+        return result;
     }
     @Override
     public List<SubSystemClientSimpleRespVO> getClientSimpleList(Boolean portalOnly) {
@@ -105,9 +145,11 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(subSystems)) {
             return Collections.emptyList();
         }
+        // 可管系统范围过滤：左侧业务系统列表只显示授权系统
+        subSystems = filterByAllowedSubSystems(subSystems, SubSystemDO::getId);
         boolean onlyPortal = Boolean.TRUE.equals(portalOnly);
         return subSystems.stream()
-                .filter(subSystem -> !onlyPortal || subSystem.isPortalBound())
+                .filter(subSystem -> !onlyPortal || subSystem.portalBound())
                 .map(subSystem -> {
                     SubSystemClientSimpleRespVO vo = new SubSystemClientSimpleRespVO();
                     vo.setId(subSystem.getId());
@@ -115,7 +157,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                     vo.setClientId(subSystem.resolvePortalClientId(
                             oauth2Client != null ? oauth2Client.getClientId() : null));
                     vo.setName(subSystem.getSystemName());
-                    vo.setPortalBound(subSystem.isPortalBound());
+                    vo.setPortalBound(subSystem.portalBound());
                     if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
                         vo.setLogo(subSystem.getSystemIcon());
                     } else if (oauth2Client != null) {
@@ -126,13 +168,19 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                     vo.setMenuCount(subSystemMenuMapper.selectCountBySubSystemId(subSystem.getId()));
                     vo.setPostCount(subSystemPostMapper.selectCountBySubSystemId(subSystem.getId()));
                     vo.setTeamCount(subSystemTeamMapper.selectCountBySubSystemId(subSystem.getId()));
+                    vo.setWorkshopScopeEnabled(subSystem.workshopScopeOn());
                     return vo;
                 }).collect(Collectors.toList());
     }
     @Override
     public PageResult<SubSystemUsersRespVO> getSubSystemUserPage(SubSystemUsersPageReqVO pageReqVO) {
+        // 可管系统范围：受限时强制只查授权系统（null=不受限）
+        Set<Long> allowedSubSystemIds = subSystemAccessService.getAllowedSubSystemIds(
+                SecurityFrameworkUtils.getLoginUserId());
         if (pageReqVO.getSubSystemId() != null) {
             validateSubSystemExists(pageReqVO.getSubSystemId());
+        } else if (allowedSubSystemIds != null && allowedSubSystemIds.isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), 0L);
         }
         Collection<String> teamCodes = null;
         if (StrUtil.isNotBlank(pageReqVO.getTeamName())) {
@@ -145,7 +193,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 return new PageResult<>(Collections.emptyList(), 0L);
             }
         }
-        PageResult<SubSystemUsersDO> pageResult = subSystemUsersMapper.selectPage(pageReqVO, teamCodes);
+        PageResult<SubSystemUsersDO> pageResult = subSystemUsersMapper.selectPage(pageReqVO, teamCodes, allowedSubSystemIds);
         return new PageResult<>(buildRespList(pageResult.getList()), pageResult.getTotal());
     }
     @Override
@@ -160,12 +208,17 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     @Transactional(rollbackFor = Exception.class)
     public Long createSubSystemUser(SubSystemUsersSaveReqVO createReqVO) {
         validateSubSystemExists(createReqVO.getSubSystemId());
-        validateUsernameUnique(createReqVO.getSubSystemId(), createReqVO.getUsername(), null);
+        createReqVO.setUsername(StrUtil.trim(createReqVO.getUsername()));
+        createReqVO.setWorkshopId(StrUtil.trim(createReqVO.getWorkshopId()));
+        validateHangLeaf(createReqVO.getSubSystemId(), createReqVO.getWorkshopId());
+        validateUsernameUnique(createReqVO.getSubSystemId(), createReqVO.getUsername(), null,
+                createReqVO.getWorkshopId());
         if (createReqVO.getMainUserId() != null) {
             validateMainUserExists(createReqVO.getMainUserId());
-            validateSubSystemUserNotExists(createReqVO.getSubSystemId(), createReqVO.getMainUserId());
+            validateSubSystemUserNotExists(createReqVO.getSubSystemId(), createReqVO.getMainUserId(),
+                    createReqVO.getWorkshopId());
         }
-        validateHomeMenu(createReqVO.getSubSystemId(), createReqVO.getHomeMenuId(), createReqVO.getRoleIds());
+        // 角色分配唯一入口是「分配角色」（assignSubSystemUserRole），新增/修改不再写角色
         SubSystemUsersDO user = BeanUtils.toBean(createReqVO, SubSystemUsersDO.class);
         if (StrUtil.isEmpty(user.getStatus())) {
             user.setStatus("0");
@@ -173,20 +226,59 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (StrUtil.isEmpty(user.getEmployeeRegistered())) {
             user.setEmployeeRegistered("0");
         }
-        subSystemUsersMapper.insert(user);
-        assignUserRoles(user.getId(), createReqVO.getSubSystemId(), createReqVO.getRoleIds());
+        // 关联车间编号：1=对接用车间_工号，其它一律 0
+        user.setUsernameWithWorkshop("1".equals(StrUtil.trim(createReqVO.getUsernameWithWorkshop())) ? "1" : "0");
+        try {
+            subSystemUsersMapper.insert(user);
+        } catch (DuplicateKeyException ex) {
+            // 同叶子重名，或库仍是旧「系统+用户名」唯一（需执行 sql/postgresql/upgrade_20261016_sub_system_review_fix.sql）
+            String detail = ex.getMostSpecificCause() != null
+                    ? StrUtil.nullToEmpty(ex.getMostSpecificCause().getMessage()) : "";
+            log.warn("[createSubSystemUser] duplicate key subSystemId={}, username={}, workshopId={}, cause={}",
+                    createReqVO.getSubSystemId(), createReqVO.getUsername(), createReqVO.getWorkshopId(), detail);
+            if (detail.contains("main_user") || detail.contains("leaf_main_user")) {
+                throw exception(SUB_SYSTEM_USER_WORKSHOP_EXISTS);
+            }
+            throw exception(SUB_SYSTEM_USER_USERNAME_EXISTS);
+        } catch (DataIntegrityViolationException ex) {
+            log.warn("[createSubSystemUser] integrity fail subSystemId={}, username={}, workshopId={}, cause={}",
+                    createReqVO.getSubSystemId(), createReqVO.getUsername(), createReqVO.getWorkshopId(),
+                    ex.getMostSpecificCause() != null ? ex.getMostSpecificCause().getMessage() : ex.toString());
+            throw exception(SUB_SYSTEM_USER_USERNAME_EXISTS);
+        } catch (BadSqlGrammarException ex) {
+            // username_with_workshop / registered_api_type 等新列未升级时缺列，提示执行升级脚本
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         assignUserPosts(user.getId(), createReqVO.getSubSystemId(), createReqVO.getPostIds());
-        subSystemPermissionContextService.evictBySubSystemUserId(user.getId());
+        tryAutoBindMainUser(user);
+        try {
+            subSystemPermissionContextService.evictBySubSystemUserId(user.getId());
+        } catch (Exception ex) {
+            log.warn("[createSubSystemUser] evict cache skip id={}, cause={}", user.getId(), ex.toString());
+        }
         return user.getId();
     }
 
     @Override
-    public SubSystemUsersRespVO getBySubSystemIdAndUsername(Long subSystemId, String username) {
+    public SubSystemUsersRespVO getBySubSystemIdAndUsername(Long subSystemId, String username, String workshopId) {
         validateSubSystemExists(subSystemId);
         if (StrUtil.isBlank(username)) {
             return null;
         }
-        SubSystemUsersDO user = selectByUsernameCompat(subSystemId, username.trim());
+        String workshop = StrUtil.trim(workshopId);
+        SubSystemUsersDO user;
+        if (StrUtil.isNotBlank(workshop)) {
+            user = subSystemUsersMapper.selectBySubSystemIdAndUsernameAndWorkshopId(
+                    subSystemId, username.trim(), workshop);
+            if (user == null) {
+                user = selectByUsernameCompat(subSystemId, username.trim());
+                if (user != null && !workshop.equals(StrUtil.trim(user.getWorkshopId()))) {
+                    user = null;
+                }
+            }
+        } else {
+            user = selectByUsernameCompat(subSystemId, username.trim());
+        }
         if (user == null) {
             return null;
         }
@@ -199,23 +291,10 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (mainUser == null) {
             return null;
         }
-        // 未标记拼接车间的用户，Camstar 侧身份即主登录工号；
-        // 只认花名册 usernameWithWorkshop=1 + 有车间编号的行（与门户 Cookie 规则一致）
-        List<SubSystemUsersDO> rosters = subSystemUsersMapper.selectListByMainUserId(userId).stream()
-                .filter(item -> "1".equals(item.getUsernameWithWorkshop()))
-                .filter(item -> StrUtil.isNotBlank(item.getWorkshopId()))
-                .collect(Collectors.toList());
-        if (CollUtil.isEmpty(rosters)) {
-            return mainUser.getUsername();
-        }
-        // 全局预取仅兜底：多车间时取最新一条；真正打开/切换系统以该系统 externalUsername 为准
-        SubSystemUsersDO roster = rosters.get(0);
-        String bare = StrUtil.isNotBlank(roster.getUsername()) ? roster.getUsername().trim() : mainUser.getUsername();
-        String workshopCode = roster.getWorkshopId().trim();
-        if (bare != null && bare.startsWith(workshopCode + "_")) {
-            return bare;
-        }
-        return workshopCode + "_" + bare;
+        // 全局预取只回主登录工号。同 MES 多叶子（5500/5501）身份不同，
+        // 若这里拼「最新一条」车间_工号，前端迟到预取会把已切到 5501 的 Cookie 盖回 5500。
+        // 真正打开/切换系统以 my-list 的 externalUsername + refreshCamstarCookieForSystem 为准。
+        return mainUser.getUsername();
     }
 
     /**
@@ -234,35 +313,173 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         }
         String workshopCode = username.substring(0, split);
         String bareUsername = username.substring(split + 1);
-        user = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, bareUsername);
+        // 按叶子精确查，避免同工号多车间时命中错行
+        user = subSystemUsersMapper.selectBySubSystemIdAndUsernameAndWorkshopId(
+                subSystemId, bareUsername, workshopCode);
         if (user == null || !"1".equals(user.getUsernameWithWorkshop())) {
             return null;
         }
-        return workshopCode.equals(StrUtil.nullToEmpty(user.getWorkshopId()).trim()) ? user : null;
+        return user;
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public Long bindMainUser(Long subSystemId, Long mainUserId) {
-        validateSubSystemExists(subSystemId);
-        AdminUserDO mainUser = validateMainUserExists(mainUserId);
-        SubSystemUsersDO existByMain = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, mainUserId);
-        if (existByMain != null) {
-            return existByMain.getId();
+    public void bindMatchingRosters(Long mainUserId, String username) {
+        if (mainUserId == null || StrUtil.isBlank(username)) {
+            return;
         }
-        SubSystemUsersDO roster = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, mainUser.getUsername());
-        if (roster == null) {
-            throw exception(SUB_SYSTEM_USER_USERNAME_NOT_FOUND);
+        List<SubSystemUsersDO> rows = subSystemUsersMapper.selectListByUsername(username.trim());
+        if (CollUtil.isEmpty(rows)) {
+            return;
         }
-        if (roster.getMainUserId() != null && !Objects.equals(roster.getMainUserId(), mainUserId)) {
-            throw exception(SUB_SYSTEM_USER_MAIN_BOUND);
+        Set<Long> blankWorkshopSystems = new HashSet<>();
+        List<SubSystemUsersDO> alreadyHung = subSystemUsersMapper.selectListByMainUserId(mainUserId);
+        if (CollUtil.isNotEmpty(alreadyHung)) {
+            for (SubSystemUsersDO hung : alreadyHung) {
+                if (hung.getSubSystemId() != null && StrUtil.isBlank(hung.getWorkshopId())) {
+                    blankWorkshopSystems.add(hung.getSubSystemId());
+                }
+            }
         }
-        SubSystemUsersDO updateObj = new SubSystemUsersDO();
-        updateObj.setId(roster.getId());
-        updateObj.setMainUserId(mainUserId);
-        subSystemUsersMapper.updateById(updateObj);
-        subSystemPermissionContextService.evictBySubSystemUserId(roster.getId());
-        return roster.getId();
+        for (SubSystemUsersDO row : rows) {
+            // 空、0、指向已删除用户都算还没挂。已挂在别的仍存在的 JUMP 用户上则不动
+            if (!canAutoBind(row.getMainUserId())) {
+                continue;
+            }
+            // 该系统已有一条空车间挂接时，不再把同名叶子行也绑上，避免同一系统两条入口
+            if (blankWorkshopSystems.contains(row.getSubSystemId()) && StrUtil.isNotBlank(row.getWorkshopId())) {
+                continue;
+            }
+            // 同系统多叶子：按车间区分占用，避免 5500 已挂挡住 4200
+            SubSystemUsersDO occupied = subSystemUsersMapper.selectBySubSystemIdAndMainUserIdAndWorkshopId(
+                    row.getSubSystemId(), mainUserId, StrUtil.trim(row.getWorkshopId()));
+            if (occupied != null) {
+                continue;
+            }
+            SubSystemUsersDO updateObj = new SubSystemUsersDO();
+            updateObj.setId(row.getId());
+            updateObj.setMainUserId(mainUserId);
+            subSystemUsersMapper.updateById(updateObj);
+            subSystemPermissionContextService.evictBySubSystemUserId(row.getId());
+        }
+    }
+
+    @Override
+    public void bindExternalEmployee(Long id, String userCode, String workshopCode, Long apiSubSystemId) {
+        SubSystemUsersDO roster = validateSubSystemUserExists(id);
+        String code = StrUtil.trimToNull(userCode);
+        LambdaUpdateWrapper<SubSystemUsersDO> wrapper = new LambdaUpdateWrapper<SubSystemUsersDO>()
+                .eq(SubSystemUsersDO::getId, id);
+        if (code == null) {
+            wrapper.set(SubSystemUsersDO::getEmployeeRegistered, "0")
+                    .set(SubSystemUsersDO::getUsernameWithWorkshop, "0")
+                    .set(SubSystemUsersDO::getRegisteredApiType, null);
+            subSystemUsersMapper.update(null, wrapper);
+            subSystemPermissionContextService.evictBySubSystemUserId(id);
+            return;
+        }
+        String bare = StrUtil.trim(roster.getUsername());
+        String workshop = StrUtil.trim(workshopCode);
+        boolean withWorkshop = false;
+        if (StrUtil.isNotBlank(workshop) && code.equals(workshop + "_" + bare)) {
+            withWorkshop = true;
+        } else if (code.equals(bare)) {
+            withWorkshop = false;
+        } else if (bare.endsWith("_" + code) || code.endsWith("_" + bare)) {
+            String prefix = code.endsWith("_" + bare)
+                    ? code.substring(0, code.length() - bare.length() - 1) : "";
+            if (StrUtil.isNotBlank(prefix) && (StrUtil.isBlank(workshop) || prefix.equals(workshop))) {
+                workshop = prefix;
+                withWorkshop = true;
+            } else {
+                throw externalUserMismatch(code, bare);
+            }
+        } else {
+            throw externalUserMismatch(code, bare);
+        }
+        String apiType = null;
+        if (apiSubSystemId != null) {
+            SubSystemApiConfigDO config = subSystemApiConfigMapper.selectBySubSystemId(apiSubSystemId);
+            apiType = config != null ? config.getApiType() : null;
+        }
+        wrapper.set(SubSystemUsersDO::getEmployeeRegistered, "1")
+                .set(SubSystemUsersDO::getUsernameWithWorkshop, withWorkshop ? "1" : "0")
+                .set(SubSystemUsersDO::getRegisteredApiType, apiType);
+        if (StrUtil.isNotBlank(workshop)) {
+            wrapper.set(SubSystemUsersDO::getWorkshopId, workshop);
+        }
+        subSystemUsersMapper.update(null, wrapper);
+        subSystemPermissionContextService.evictBySubSystemUserId(id);
+    }
+
+    private static cn.jonhon.jump.framework.common.exception.ServiceException externalUserMismatch(String code, String bare) {
+        return exception0(BAD_REQUEST.getCode(),
+                "所选外部用户【" + code + "】与本地用户名【" + bare + "】不一致。请选择工号相同的人员，或先把本地用户名改成一致后再关联");
+    }
+
+    /**
+     * 还没挂到一个仍然存在的 JUMP 用户上。
+     * main_user_id 为空、0，或指向已删除用户时，新建同名用户可以挂上。
+     */
+    private boolean canAutoBind(Long currentMainUserId) {
+        if (currentMainUserId == null || currentMainUserId <= 0) {
+            return true;
+        }
+        return adminUserMapper.selectById(currentMainUserId) == null;
+    }
+
+    /** 花名册用户名与主系统用户名相同则挂上；已挂过或该主用户在本系统已有别的行则不动 */
+    private void tryAutoBindMainUser(SubSystemUsersDO roster) {
+        if (roster == null || roster.getId() == null || !canAutoBind(roster.getMainUserId())
+                || StrUtil.isBlank(roster.getUsername())) {
+            return;
+        }
+        try {
+            AdminUserDO main = adminUserMapper.selectByUsername(roster.getUsername().trim());
+            if (main == null) {
+                return;
+            }
+            // 同系统多叶子：按车间区分是否已被该 JUMP 人占用，避免 5500 行挡住 4200 自动绑定
+            SubSystemUsersDO occupied = subSystemUsersMapper.selectBySubSystemIdAndMainUserIdAndWorkshopId(
+                    roster.getSubSystemId(), main.getId(), StrUtil.trim(roster.getWorkshopId()));
+            if (occupied != null && !Objects.equals(occupied.getId(), roster.getId())) {
+                return;
+            }
+            SubSystemUsersDO updateObj = new SubSystemUsersDO();
+            updateObj.setId(roster.getId());
+            updateObj.setMainUserId(main.getId());
+            subSystemUsersMapper.updateById(updateObj);
+            roster.setMainUserId(main.getId());
+        } catch (Exception ex) {
+            // 自动挂接失败不阻断新建花名册（例如库仍有「系统+主用户」唯一约束）
+            log.warn("[tryAutoBindMainUser] skip rosterId={}, username={}, cause={}",
+                    roster.getId(), roster.getUsername(), ex.toString());
+        }
+    }
+
+    @Override
+    public void syncDisplayNickname(Long mainUserId, String oldNickname, String newNickname) {
+        if (mainUserId == null || StrUtil.isBlank(newNickname)) {
+            return;
+        }
+        String name = newNickname.trim();
+        String previous = StrUtil.nullToEmpty(oldNickname);
+        String previousTrim = previous.trim();
+        if (name.equals(previousTrim)) {
+            return;
+        }
+        LambdaUpdateWrapper<SubSystemUsersDO> wrapper = new LambdaUpdateWrapper<SubSystemUsersDO>()
+                .eq(SubSystemUsersDO::getMainUserId, mainUserId)
+                .set(SubSystemUsersDO::getNickname, name);
+        if (StrUtil.isBlank(previousTrim)) {
+            wrapper.and(w -> w.isNull(SubSystemUsersDO::getNickname)
+                    .or().eq(SubSystemUsersDO::getNickname, ""));
+        } else if (previous.equals(previousTrim)) {
+            wrapper.eq(SubSystemUsersDO::getNickname, previousTrim);
+        } else {
+            wrapper.and(w -> w.eq(SubSystemUsersDO::getNickname, previous)
+                    .or().eq(SubSystemUsersDO::getNickname, previousTrim));
+        }
+        subSystemUsersMapper.update(null, wrapper);
     }
 
     @Override
@@ -270,43 +487,106 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (mainUser == null || CollUtil.isEmpty(subSystemIds)) {
             return;
         }
-        // 去重后加载，仅登记已绑定门户的业务系统
-        List<SubSystemDO> subSystems = subSystemMapper.selectListByIds(new LinkedHashSet<>(subSystemIds));
-        for (SubSystemDO subSystem : subSystems) {
-            if (subSystem.getOauth2ClientId() == null) {
+        // 兼容旧调用：只给系统 id，多车间系统仍跳过空车间登记
+        List<UserSubSystemRosterReqVO> targets = subSystemIds.stream()
+                .filter(Objects::nonNull)
+                .distinct()
+                .map(subSystemId -> {
+                    UserSubSystemRosterReqVO target = new UserSubSystemRosterReqVO();
+                    target.setSubSystemId(subSystemId);
+                    return target;
+                })
+                .collect(Collectors.toList());
+        registerFromMainUser(mainUser, targets, false);
+    }
+
+    @Override
+    public void registerFromMainUser(AdminUserDO mainUser, List<UserSubSystemRosterReqVO> targets,
+                                     boolean explicit) {
+        if (mainUser == null || CollUtil.isEmpty(targets)) {
+            return;
+        }
+        // 同一 (系统, 车间) 只登记一次
+        Map<String, UserSubSystemRosterReqVO> uniqueTargets = new LinkedHashMap<>();
+        for (UserSubSystemRosterReqVO target : targets) {
+            if (target == null || target.getSubSystemId() == null) {
+                continue;
+            }
+            String workshop = StrUtil.trim(target.getWorkshopId());
+            uniqueTargets.putIfAbsent(target.getSubSystemId() + "|" + StrUtil.nullToEmpty(workshop), target);
+        }
+        if (uniqueTargets.isEmpty()) {
+            if (explicit) {
+                throw exception0(BAD_REQUEST.getCode(), "登记业务系统的目标不能为空");
+            }
+            return;
+        }
+        Map<Long, SubSystemDO> subSystemMap = convertMap(
+                subSystemMapper.selectListByIds(convertSet(uniqueTargets.values(),
+                        UserSubSystemRosterReqVO::getSubSystemId)),
+                SubSystemDO::getId);
+        for (UserSubSystemRosterReqVO target : uniqueTargets.values()) {
+            SubSystemDO subSystem = subSystemMap.get(target.getSubSystemId());
+            if (subSystem == null) {
+                if (explicit) {
+                    throw exception(SUB_SYSTEM_NOT_EXISTS);
+                }
+                log.warn("[registerFromMainUser] subSystemId={} 不存在，跳过花名册登记", target.getSubSystemId());
+                continue;
+            }
+            // 无登录上下文（内部调用）不受限；受限角色不能把主用户登记到未授权系统
+            subSystemAccessService.checkAccessible(subSystem.getId());
+            if (!subSystem.portalBound()) {
+                if (explicit) {
+                    throw exception0(BAD_REQUEST.getCode(),
+                            "业务系统【" + subSystem.getSystemName() + "】未绑定门户，不能登记业务系统用户");
+                }
                 // 仅接口目标（如 Camstar人员管理）不属于外部用户管理，跳过花名册登记
                 log.warn("[registerFromMainUser] subSystemId={}({}) 未绑定门户，跳过花名册登记",
                         subSystem.getId(), subSystem.getSystemName());
                 continue;
             }
-            String workshopCode = resolveWorkshopCode(subSystem.getId(), mainUser.getDeptId());
-            upsertRosterFromMainUser(mainUser, subSystem.getId(), workshopCode);
+            String workshop = StrUtil.trim(target.getWorkshopId());
+            if (StrUtil.isBlank(workshop)) {
+                if (isMultiLeaf(subSystem)) {
+                    if (explicit) {
+                        throw exception0(BAD_REQUEST.getCode(),
+                                "业务系统【" + subSystem.getSystemName()
+                                        + "】按车间管理，请选择具体车间叶子后再登记");
+                    }
+                    // 旧调用兼容：多叶子系统的空车间挂接不会出现在门户，跳过而不是落脏数据
+                    log.info("[registerFromMainUser] subSystemId={}({}) 多车间且未指定叶子，跳过登记",
+                            subSystem.getId(), subSystem.getSystemName());
+                    continue;
+                }
+                // 一对一/无车间系统：车间可空
+                upsertRosterFromMainUser(mainUser, subSystem.getId(), null);
+                continue;
+            }
+            validateRosterWorkshop(subSystem.getId(), workshop);
+            upsertRosterFromMainUser(mainUser, subSystem.getId(), workshop);
         }
     }
 
-    /** 部门 → 车间对照（本地表查询，尽力带出）；查不到返回 null，后续可在子系统用户管理中补 */
-    private String resolveWorkshopCode(Long subSystemId, Long deptId) {
-        if (deptId == null) {
-            return null;
+    /** 登记目标里的车间必须是该系统已启用的叶子，避免前端传任意字符串落库 */
+    private void validateRosterWorkshop(Long subSystemId, String workshopCode) {
+        if (!enabledLeafCodes(subSystemId).contains(workshopCode)) {
+            throw exception(SUB_SYSTEM_USER_WORKSHOP_LEAF_INVALID);
         }
-        SubSystemWorkshopSimpleRespVO workshop = subSystemWorkshopService.getWorkshopByDept(subSystemId, deptId);
-        return workshop != null ? workshop.getWorkshopCode() : null;
     }
 
     private void upsertRosterFromMainUser(AdminUserDO mainUser, Long subSystemId, String workshopCode) {
-        SubSystemUsersDO roster = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, mainUser.getUsername());
+        String username = StrUtil.trim(mainUser.getUsername());
+        SubSystemUsersDO roster = subSystemUsersMapper.selectBySubSystemIdAndUsernameAndWorkshopId(
+                subSystemId, username, StrUtil.trim(workshopCode));
         if (roster != null) {
-            // 已绑其他主用户 → 同 bindMainUser 语义，报错并回滚整个建用户事务
-            if (roster.getMainUserId() != null && !Objects.equals(roster.getMainUserId(), mainUser.getId())) {
+            // 已绑其他主用户则报错，回滚整个建用户事务
+            if (!canAutoBind(roster.getMainUserId()) && !Objects.equals(roster.getMainUserId(), mainUser.getId())) {
                 throw exception(SUB_SYSTEM_USER_MAIN_BOUND);
             }
             SubSystemUsersDO updateObj = new SubSystemUsersDO();
             updateObj.setId(roster.getId());
             updateObj.setMainUserId(mainUser.getId());
-            updateObj.setNickname(mainUser.getNickname());
-            updateObj.setWorkshopId(workshopCode);
-            updateObj.setStatus("0");
-            updateObj.setRemark("用户创建登记");
             subSystemUsersMapper.updateById(updateObj);
             subSystemPermissionContextService.evictBySubSystemUserId(roster.getId());
             return;
@@ -314,7 +594,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         SubSystemUsersDO subUser = new SubSystemUsersDO();
         subUser.setSubSystemId(subSystemId);
         subUser.setMainUserId(mainUser.getId());
-        subUser.setUsername(mainUser.getUsername());
+        subUser.setUsername(username);
         subUser.setNickname(mainUser.getNickname());
         subUser.setWorkshopId(workshopCode);
         subUser.setStatus("0");
@@ -328,19 +608,74 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     @Transactional(rollbackFor = Exception.class)
     public void updateSubSystemUser(SubSystemUsersSaveReqVO updateReqVO) {
         SubSystemUsersDO existUser = validateSubSystemUserExists(updateReqVO.getId());
-        validateSubSystemExists(updateReqVO.getSubSystemId());
-        validateUsernameUnique(updateReqVO.getSubSystemId(), updateReqVO.getUsername(), updateReqVO.getId());
+        // 归属系统不可改。请求里的 subSystemId 若被换成别的系统，后面的角色会在新系统被当成 admin。
+        updateReqVO.setSubSystemId(existUser.getSubSystemId());
+        // 已绑其他 JUMP 用户的行禁止静默改绑
         if (updateReqVO.getMainUserId() != null
-                && (!Objects.equals(existUser.getSubSystemId(), updateReqVO.getSubSystemId())
-                || !Objects.equals(existUser.getMainUserId(), updateReqVO.getMainUserId()))) {
-            validateMainUserExists(updateReqVO.getMainUserId());
-            validateSubSystemUserNotExists(updateReqVO.getSubSystemId(), updateReqVO.getMainUserId());
+                && !canAutoBind(existUser.getMainUserId())
+                && !Objects.equals(existUser.getMainUserId(), updateReqVO.getMainUserId())) {
+            throw exception(SUB_SYSTEM_USER_MAIN_BOUND);
         }
-        validateHomeMenu(updateReqVO.getSubSystemId(), updateReqVO.getHomeMenuId(), updateReqVO.getRoleIds());
+        validateSubSystemExists(updateReqVO.getSubSystemId());
+        updateReqVO.setUsername(StrUtil.trim(updateReqVO.getUsername()));
+        updateReqVO.setWorkshopId(StrUtil.trim(updateReqVO.getWorkshopId()));
+        validateHangLeaf(updateReqVO.getSubSystemId(), updateReqVO.getWorkshopId());
+        String existingWorkshop = StrUtil.trim(existUser.getWorkshopId());
+        String targetWorkshop = StrUtil.trim(updateReqVO.getWorkshopId());
+        // 已分配角色与车间绑定：改车间后旧角色仍会随子系统登录下发菜单，但门户入口会消失。
+        // 直接拦下，要求先调整角色，避免“改完车间入口没了/权限串到别的车间”。
+        if (!Objects.equals(existingWorkshop, targetWorkshop)) {
+            List<Long> currentRoleIds = listRoleIds(updateReqVO.getId());
+            if (CollUtil.isNotEmpty(currentRoleIds)) {
+                boolean mismatch = subSystemRoleMapper.selectListByIds(currentRoleIds).stream()
+                        .filter(Objects::nonNull)
+                        .map(SubSystemRoleDO::getWorkshopCode)
+                        .map(StrUtil::trim)
+                        .filter(StrUtil::isNotBlank)
+                        .anyMatch(code -> !code.equals(targetWorkshop));
+                if (mismatch) {
+                    throw exception0(BAD_REQUEST.getCode(),
+                            "该用户已分配其它车间的角色，请先在【分配角色】中调整，再修改车间");
+                }
+            }
+        }
+        validateUsernameUnique(updateReqVO.getSubSystemId(), updateReqVO.getUsername(), updateReqVO.getId(),
+                updateReqVO.getWorkshopId());
+        if (updateReqVO.getMainUserId() != null
+                && (!Objects.equals(existUser.getMainUserId(), updateReqVO.getMainUserId())
+                || !Objects.equals(StrUtil.trim(existUser.getWorkshopId()), updateReqVO.getWorkshopId()))) {
+            validateMainUserExists(updateReqVO.getMainUserId());
+            validateSubSystemUserNotExists(updateReqVO.getSubSystemId(), updateReqVO.getMainUserId(),
+                    updateReqVO.getWorkshopId());
+        }
+        // 主页面按该用户「已分配角色」校验（新增/修改弹窗已无角色行）
+        validateHomeMenu(updateReqVO.getSubSystemId(), updateReqVO.getHomeMenuId(),
+                getSubSystemUserRoleIds(updateReqVO.getId()));
         SubSystemUsersDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemUsersDO.class);
-        subSystemUsersMapper.updateById(updateObj);
-        if (updateReqVO.getRoleIds() != null) {
-            assignUserRoles(updateReqVO.getId(), updateReqVO.getSubSystemId(), updateReqVO.getRoleIds());
+        // 关联车间编号（usernameWithWorkshop）由页面单独维护：1=对接用车间_工号，0=工号
+        updateObj.setUsernameWithWorkshop(
+                "1".equals(StrUtil.trim(updateReqVO.getUsernameWithWorkshop())) ? "1" : "0");
+        // 外部账号是按“旧用户名/旧车间/旧拼接方式”建的；身份字段一变，本地再显示“已注册”
+        // 会导致注册入口跳过推送、门户身份也对不上。置回未注册，提示管理员重新注册/关联。
+        String oldWithWorkshop = "1".equals(StrUtil.trim(existUser.getUsernameWithWorkshop())) ? "1" : "0";
+        boolean identityChanged = !Objects.equals(StrUtil.trim(existUser.getUsername()), updateReqVO.getUsername())
+                || !Objects.equals(existingWorkshop, targetWorkshop)
+                || !Objects.equals(oldWithWorkshop, updateObj.getUsernameWithWorkshop());
+        if (identityChanged && "1".equals(existUser.getEmployeeRegistered())) {
+            updateObj.setEmployeeRegistered("0");
+            updateObj.setRegisteredApiType("");
+            log.info("[updateSubSystemUser] rosterId={} 身份字段变更，外部注册状态置回未注册",
+                    updateReqVO.getId());
+        }
+        try {
+            subSystemUsersMapper.updateById(updateObj);
+        } catch (DuplicateKeyException ex) {
+            // 库仍是旧「系统+用户名」唯一（需执行 sql/postgresql/upgrade_20261016_sub_system_review_fix.sql）时，改车间会撞索引
+            log.warn("[updateSubSystemUser] duplicate key id={}, username={}, workshopId={}",
+                    updateReqVO.getId(), updateReqVO.getUsername(), updateReqVO.getWorkshopId());
+            throw exception(SUB_SYSTEM_USER_USERNAME_EXISTS);
+        } catch (BadSqlGrammarException ex) {
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
         }
         if (updateReqVO.getPostIds() != null) {
             assignUserPosts(updateReqVO.getId(), updateReqVO.getSubSystemId(), updateReqVO.getPostIds());
@@ -381,6 +716,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         updateObj.setId(id);
         updateObj.setEmployeeRegistered("1".equals(employeeRegistered) ? "1" : "0");
         subSystemUsersMapper.updateById(updateObj);
+        subSystemPermissionContextService.evictBySubSystemUserId(id);
     }
     @Override
     public List<SubSystemRoleSimpleRespVO> getRoleSimpleList(Long subSystemId) {
@@ -408,9 +744,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(roleIds)) {
             return Collections.emptyList();
         }
-        validateRolesBelongToSubSystem(subSystemId, roleIds);
-        Set<Long> roleMenuIds = convertSet(subSystemRoleMenuMapper.selectListByRoleIds(roleIds),
-                SubSystemRoleMenuDO::getMenuId);
+        Set<Long> roleMenuIds = getRoleMenuIds(subSystemId, roleIds);
         if (CollUtil.isEmpty(roleMenuIds)) {
             return Collections.emptyList();
         }
@@ -428,16 +762,76 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         return buildMenuTree(displayMenus, 0L);
     }
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void assignSubSystemUserRole(SubSystemUsersAssignRoleReqVO reqVO) {
-        SubSystemUsersDO user = validateSubSystemUserExists(reqVO.getId());
-        assignUserRoles(reqVO.getId(), user.getSubSystemId(), reqVO.getRoleIds());
-        subSystemPermissionContextService.evictBySubSystemUserId(reqVO.getId());
+    public SubSystemUsersAssignRoleRespVO assignSubSystemUserRole(SubSystemUsersAssignRoleReqVO reqVO) {
+        // 本地角色先提交并释放连接，再调外部接口。避免 Camstar 慢或不可达时占着数据库连接。
+        SubSystemUsersDO user = new TransactionTemplate(transactionManager).execute(status -> {
+            SubSystemUsersDO existing = validateSubSystemUserExists(reqVO.getId());
+            assignUserRoles(reqVO.getId(), existing.getSubSystemId(), reqVO.getRoleIds());
+            subSystemPermissionContextService.evictBySubSystemUserId(reqVO.getId());
+            return existing;
+        });
+        SubSystemUsersAssignRoleRespVO respVO = new SubSystemUsersAssignRoleRespVO();
+        respVO.setExternalSynced(false);
+        if (!Boolean.TRUE.equals(reqVO.getSyncToExternal())) {
+            return respVO;
+        }
+        // 外部同步失败不回滚本地分配（同步只调外部接口，不写本地库）；
+        // 结果明示，重新分配一次即重试
+        respVO.setExternalSynced(true);
+        respVO.setExternalSuccess(true);
+        try {
+            syncExternalUserRoles(user, reqVO);
+        } catch (Exception e) {
+            log.warn("[assignSubSystemUserRole] rosterId={} apiSubSystemId={} 外部角色同步失败",
+                    reqVO.getId(), reqVO.getApiSubSystemId(), e);
+            respVO.setExternalSuccess(false);
+            respVO.setExternalMessage(e.getMessage());
+        }
+        return respVO;
+    }
+
+    /** 勾选同步时：按 external_role_id 映射调对方接口上挂/解除（查-合并-回写，不动对方手工挂的角色） */
+    private void syncExternalUserRoles(SubSystemUsersDO user, SubSystemUsersAssignRoleReqVO reqVO) {
+        if (reqVO.getApiSubSystemId() == null) {
+            reqVO.setApiSubSystemId(leafApiBindingService.requireApiSubSystemId(
+                    user.getSubSystemId(), user.getWorkshopId(),
+                    cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum.ROLE_ASSIGN));
+        }
+        if (!"1".equals(user.getEmployeeRegistered())) {
+            throw exception0(BAD_REQUEST.getCode(), "该用户尚未关联外部人员，请先在列表中【关联外部】");
+        }
+        String workshop = StrUtil.trim(user.getWorkshopId());
+        String bare = StrUtil.blankToDefault(user.getUsername(), "").trim();
+        String userCode = bare;
+        if ("1".equals(user.getUsernameWithWorkshop()) && StrUtil.isNotBlank(workshop)
+                && !bare.startsWith(workshop + "_")) {
+            userCode = workshop + "_" + bare;
+        }
+        subSystemEmployeeService.syncUserRoles(reqVO.getApiSubSystemId(), user.getSubSystemId(),
+                userCode, reqVO.getRoleIds());
     }
     @Override
     public List<Long> getSubSystemUserRoleIds(Long id) {
         validateSubSystemUserExists(id);
-        return convertList(subSystemUserRoleMapper.selectListByUserId(id), SubSystemUserRoleDO::getRoleId);
+        return listRoleIds(id);
+    }
+
+    /** 自助门户读自己的角色。不走可管系统范围，那是管理员接口的鉴权。 */
+    private List<Long> listRoleIds(Long subSystemUserId) {
+        if (subSystemUserId == null) {
+            return Collections.emptyList();
+        }
+        return convertList(subSystemUserRoleMapper.selectListByUserId(subSystemUserId), SubSystemUserRoleDO::getRoleId);
+    }
+
+    private List<SubSystemRoleDO> enabledRolesInSystem(Collection<Long> roleIds, Long subSystemId) {
+        if (CollUtil.isEmpty(roleIds) || subSystemId == null) {
+            return Collections.emptyList();
+        }
+        return subSystemRoleMapper.selectBatchIds(roleIds).stream()
+                .filter(role -> Objects.equals(subSystemId, role.getSubSystemId()))
+                .filter(role -> role.getStatus() == null || Objects.equals(role.getStatus(), 0))
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -464,14 +858,10 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
 
         List<Long> roleIds = convertList(
                 subSystemUserRoleMapper.selectListByUserId(user.getId()), SubSystemUserRoleDO::getRoleId);
-        List<String> roleCodes = Collections.emptyList();
-        if (CollUtil.isNotEmpty(roleIds)) {
-            roleCodes = subSystemRoleMapper.selectBatchIds(roleIds).stream()
-                    .filter(role -> role.getStatus() == null || Objects.equals(role.getStatus(), 0))
-                    .map(SubSystemRoleDO::getCode)
-                    .filter(StrUtil::isNotBlank)
-                    .collect(Collectors.toList());
-        }
+        List<String> roleCodes = enabledRolesInSystem(roleIds, subSystem.getId()).stream()
+                .map(SubSystemRoleDO::getCode)
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toList());
 
         SubSystemCardLoginRespVO resp = new SubSystemCardLoginRespVO();
         resp.setSubSystemId(subSystem.getId());
@@ -510,12 +900,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
 
         List<Long> roleIds = convertList(
                 subSystemUserRoleMapper.selectListByUserId(user.getId()), SubSystemUserRoleDO::getRoleId);
-        List<SubSystemRoleDO> roleList = Collections.emptyList();
-        if (CollUtil.isNotEmpty(roleIds)) {
-            roleList = subSystemRoleMapper.selectBatchIds(roleIds).stream()
-                    .filter(role -> role.getStatus() == null || Objects.equals(role.getStatus(), 0))
-                    .collect(Collectors.toList());
-        }
+        List<SubSystemRoleDO> roleList = enabledRolesInSystem(roleIds, subSystem.getId());
 
         // 主系统下发角色 + 页面菜单 + 按钮 permissions；数据范围不下发（子系统本地管）
         List<PortalPermContextRespVO.Role> roles = new ArrayList<>();
@@ -663,17 +1048,42 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
             subSystemIds.forEach(subSystemId -> subSystemMenuMapCache.put(subSystemId,
                     convertMap(subSystemMenuMapper.selectListBySubSystemId(subSystemId), SubSystemMenuDO::getId)));
         }
+        Set<String> teamCodes = list.stream().map(SubSystemUsersDO::getTeamId)
+                .filter(StrUtil::isNotEmpty).collect(Collectors.toSet());
+        Map<String, String> teamNameMap = new HashMap<>();
+        if (CollUtil.isNotEmpty(teamCodes)) {
+            for (SubSystemTeamDO team : subSystemTeamMapper.selectListBySubSystemIdsAndTeamCodes(subSystemIds, teamCodes)) {
+                teamNameMap.putIfAbsent(team.getSubSystemId() + ":" + team.getTeamCode(), team.getTeamName());
+            }
+        }
+        Set<Long> oauthClientIds = subSystemMap.values().stream()
+                .map(SubSystemDO::getOauth2ClientId).filter(Objects::nonNull).collect(Collectors.toSet());
+        Map<Long, OAuth2ClientDO> oauthClientMap = CollUtil.isEmpty(oauthClientIds) ? Collections.emptyMap()
+                : convertMap(oauth2ClientMapper.selectBatchIds(oauthClientIds), OAuth2ClientDO::getId);
+        // 接口配置类型（camstar/http）：前端按它筛选可同步域账号/卡号的挂接行
+        Map<Long, String> apiTypeMap = new HashMap<>();
+        for (SubSystemApiConfigDO config : subSystemApiConfigMapper.selectListBySubSystemIds(subSystemIds)) {
+            if (config.getSubSystemId() != null && StrUtil.isNotBlank(config.getApiType())) {
+                apiTypeMap.putIfAbsent(config.getSubSystemId(), config.getApiType());
+            }
+        }
         return list.stream().map(item -> {
             SubSystemUsersRespVO vo = BeanUtils.toBean(item, SubSystemUsersRespVO.class);
             SubSystemDO subSystem = subSystemMap.get(item.getSubSystemId());
             if (subSystem != null) {
-                OAuth2ClientDO oauth2Client = getOAuth2Client(subSystem);
+                OAuth2ClientDO oauth2Client = subSystem.getOauth2ClientId() == null
+                        ? null : oauthClientMap.get(subSystem.getOauth2ClientId());
                 vo.setClientId(subSystem.resolvePortalClientId(
                         oauth2Client != null ? oauth2Client.getClientId() : null));
                 vo.setClientName(subSystem.getSystemName());
+                vo.setApiType(apiTypeMap.get(item.getSubSystemId()));
             }
             // 身份字段以子系统用户表为准；仅在本地字段为空时用主用户兜底用户名/姓名
             AdminUserDO mainUser = item.getMainUserId() == null ? null : mainUserMap.get(item.getMainUserId());
+            // 0 或已删除用户不是「有 JUMP 用户」，列表按未关联展示，避免详情里查不到
+            if (mainUser == null) {
+                vo.setMainUserId(null);
+            }
             if (mainUser != null) {
                 if (StrUtil.isBlank(vo.getUsername())) {
                     vo.setUsername(mainUser.getUsername());
@@ -683,10 +1093,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 }
             }
             if (StrUtil.isNotEmpty(item.getTeamId())) {
-                SubSystemTeamDO team = subSystemTeamMapper.selectBySubSystemIdAndTeamCode(item.getSubSystemId(), item.getTeamId());
-                if (team != null) {
-                    vo.setTeamName(team.getTeamName());
-                }
+                vo.setTeamName(teamNameMap.get(item.getSubSystemId() + ":" + item.getTeamId()));
             }
             List<SubSystemUserRoleDO> userRoles = userRoleMap.getOrDefault(item.getId(), Collections.emptyList());
             vo.setRoleIds(convertList(userRoles, SubSystemUserRoleDO::getRoleId));
@@ -716,10 +1123,28 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(roleIds)) {
             return;
         }
+        // 车间叶子下只能挂「该车间」或未打车间（如超管）的角色，防止 4200 角色进 5500 会话
+        SubSystemUsersDO roster = subSystemUsersMapper.selectById(userId);
+        String rosterWorkshop = roster == null ? null : StrUtil.trim(roster.getWorkshopId());
         List<SubSystemRoleDO> roles = subSystemRoleMapper.selectListByIds(roleIds);
+        Set<Long> requestedRoleIds = roleIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        if (roles.size() != requestedRoleIds.size()) {
+            throw exception(ROLE_NOT_EXISTS);
+        }
         for (SubSystemRoleDO role : roles) {
             if (!Objects.equals(subSystemId, role.getSubSystemId())) {
                 throw exception(ROLE_NOT_EXISTS);
+            }
+            // 停用角色仍能分配、但登录后不生效，属于“分配了却没权限”的坑，直接拦
+            if (CommonStatusEnum.isDisable(role.getStatus())) {
+                throw exception0(BAD_REQUEST.getCode(),
+                        "角色【" + role.getName() + "】已停用，请先启用或改选其它角色");
+            }
+            if (StrUtil.isNotBlank(rosterWorkshop)) {
+                String roleWorkshop = StrUtil.trim(role.getWorkshopCode());
+                if (StrUtil.isNotBlank(roleWorkshop) && !rosterWorkshop.equals(roleWorkshop)) {
+                    throw exception(SUB_SYSTEM_USER_ROLE_WORKSHOP_MISMATCH, role.getName(), rosterWorkshop);
+                }
             }
             SubSystemUserRoleDO userRole = new SubSystemUserRoleDO();
             userRole.setUserId(userId);
@@ -748,28 +1173,92 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (user == null) {
             throw exception(SUB_SYSTEM_USER_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统的花名册
+        subSystemAccessService.checkAccessible(user.getSubSystemId());
         return user;
     }
     private void validateSubSystemUserNotExists(Long subSystemId, Long mainUserId) {
+        validateSubSystemUserNotExists(subSystemId, mainUserId, null);
+    }
+
+    private void validateSubSystemUserNotExists(Long subSystemId, Long mainUserId, String workshopId) {
         if (mainUserId == null) {
             return;
         }
-        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, mainUserId);
+        SubSystemUsersDO user = subSystemUsersMapper.selectBySubSystemIdAndMainUserIdAndWorkshopId(
+                subSystemId, mainUserId, workshopId);
         if (user != null) {
-            throw exception(SUB_SYSTEM_USER_EXISTS);
+            throw exception(StrUtil.isNotBlank(workshopId) ? SUB_SYSTEM_USER_WORKSHOP_EXISTS : SUB_SYSTEM_USER_EXISTS);
         }
     }
 
     private void validateUsernameUnique(Long subSystemId, String username, Long id) {
+        validateUsernameUnique(subSystemId, username, id, null);
+    }
+
+    private void validateUsernameUnique(Long subSystemId, String username, Long id, String workshopId) {
         if (StrUtil.isBlank(username)) {
             return;
         }
-        SubSystemUsersDO exist = subSystemUsersMapper.selectBySubSystemIdAndUsername(subSystemId, username.trim());
-        if (exist == null) {
+        String name = username.trim();
+        String workshop = StrUtil.trim(workshopId);
+        // 唯一范围 = 业务系统 + 叶子(workshop) + 用户名；不同车间允许同一工号
+        SubSystemUsersDO exist = subSystemUsersMapper.selectBySubSystemIdAndUsernameAndWorkshopId(
+                subSystemId, name, workshop);
+        if (exist != null && (id == null || !Objects.equals(exist.getId(), id))) {
+            throw exception(SUB_SYSTEM_USER_USERNAME_EXISTS);
+        }
+    }
+
+    /**
+     * 多车间系统才强制挂叶子；一对一/未开车间维度（Camstar、接口平台等）车间可空。
+     * 有填写时仍校验必须落在子表叶子上。
+     */
+    private boolean isMultiLeaf(Long subSystemId) {
+        if (subSystemId == null) {
+            return false;
+        }
+        return isMultiLeaf(subSystemMapper.selectById(subSystemId));
+    }
+
+    private boolean isMultiLeaf(SubSystemDO subSystem) {
+        if (subSystem == null || !subSystem.workshopScopeOn()) {
+            return false;
+        }
+        return enabledLeafCodes(subSystem.getId()).size() > 1;
+    }
+
+    /** 与 {@link #validateHangLeaf} 同一份启用叶子，含 client_id 回落到系统的行。 */
+    private Set<String> enabledLeafCodes(Long subSystemId) {
+        if (subSystemId == null) {
+            return Collections.emptySet();
+        }
+        return loadWorkshopLeavesBySubSystemId().getOrDefault(subSystemId, Collections.emptySet());
+    }
+
+    private void validateHangLeaf(Long subSystemId, String workshopId) {
+        SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
+        if (subSystem == null) {
             return;
         }
-        if (id == null || !Objects.equals(exist.getId(), id)) {
-            throw exception(SUB_SYSTEM_USER_USERNAME_EXISTS);
+        Set<String> leaves = enabledLeafCodes(subSystemId);
+        String workshop = StrUtil.trim(workshopId);
+        // 真正多叶子才强制；仅开了开关但子表只有 0/1 条时不拦（兼容旧数据与一对一）
+        boolean multiLeafRequired = subSystem.workshopScopeOn() && leaves.size() > 1;
+        if (!multiLeafRequired) {
+            if (StrUtil.isNotBlank(workshop) && !leaves.isEmpty() && !leaves.contains(workshop)) {
+                throw exception(SUB_SYSTEM_USER_WORKSHOP_LEAF_INVALID);
+            }
+            return;
+        }
+        if (leaves.isEmpty()) {
+            throw exception(SUB_SYSTEM_USER_WORKSHOP_LEAF_MISSING);
+        }
+        if (StrUtil.isBlank(workshop)) {
+            throw exception(SUB_SYSTEM_USER_WORKSHOP_LEAF_REQUIRED);
+        }
+        if (!leaves.contains(workshop)) {
+            throw exception(SUB_SYSTEM_USER_WORKSHOP_LEAF_INVALID);
         }
     }
     private void validateHomeMenu(Long subSystemId, Long homeMenuId, List<Long> roleIds) {
@@ -879,7 +1368,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     private String buildMenuPath(Long menuId, Map<Long, SubSystemMenuDO> menuMap) {
         List<String> names = new ArrayList<>();
         Long current = menuId;
-        while (current != null && current != 0L) {
+        Set<Long> seen = new HashSet<>();
+        while (current != null && current != 0L && seen.add(current)) {
             SubSystemMenuDO menu = menuMap.get(current);
             if (menu == null) {
                 break;
@@ -894,7 +1384,19 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (subSystem == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统
+        subSystemAccessService.checkAccessible(subSystemId);
         return subSystem;
+    }
+    /** 可管系统范围过滤：受限时仅保留授权系统的记录（不受限原样返回） */
+    private <T> List<T> filterByAllowedSubSystems(List<T> list, Function<T, Long> subSystemIdGetter) {
+        Set<Long> allowed = subSystemAccessService.getAllowedSubSystemIds(SecurityFrameworkUtils.getLoginUserId());
+        if (allowed == null) {
+            return list;
+        }
+        return list.stream()
+                .filter(item -> allowed.contains(subSystemIdGetter.apply(item)))
+                .collect(Collectors.toList());
     }
     private AdminUserDO validateMainUserExists(Long mainUserId) {
         AdminUserDO mainUser = adminUserMapper.selectById(mainUserId);
@@ -905,7 +1407,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     }
     private UserExternalSystemRespVO convertExternal(SubSystemUsersDO item, AdminUserDO mainUser) {
         SubSystemDO subSystem = subSystemMapper.selectById(item.getSubSystemId());
-        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus()) || !subSystem.isPortalBound()) {
+        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus()) || !subSystem.portalBound()) {
             return null;
         }
         OAuth2ClientDO client = getOAuth2Client(subSystem);
@@ -921,6 +1423,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         vo.setSubSystemId(subSystem.getId());
         vo.setSystemUrl(subSystem.getSystemUrl());
         vo.setClientId(clientId);
+        vo.setMesClientId(clientId);
         vo.setClientName(subSystem.getSystemName());
         if (StrUtil.isNotBlank(subSystem.getSystemIcon())) {
             vo.setLogo(subSystem.getSystemIcon());
@@ -955,22 +1458,205 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         vo.setSsoUrl(client != null ? buildSsoUrl(client) : null);
         return vo;
     }
+
+    private UserExternalSystemRespVO toPortalEntryByHungLeaf(
+            UserExternalSystemRespVO base, SubSystemUsersDO item, SubSystemDO subSystem,
+            Map<String, String> workshopNameDict, Map<Long, Set<String>> workshopLeavesBySubSystem,
+            List<Long> roleIds) {
+        String mesClientId = StrUtil.blankToDefault(base.getMesClientId(), base.getClientId());
+        Set<String> leaves = subSystem == null ? Collections.emptySet()
+                : workshopLeavesBySubSystem.getOrDefault(subSystem.getId(), Collections.emptySet());
+        boolean workshopScope = subSystem != null && subSystem.workshopScopeOn();
+        String hungWorkshop = StrUtil.trim(item.getWorkshopId());
+
+        // 未开车间维度、或尚未配置车间叶子：按业务系统本身进切换列表
+        if (!workshopScope || leaves.isEmpty()) {
+            UserExternalSystemRespVO vo = copyExternalSystem(base);
+            vo.setMesClientId(mesClientId);
+            vo.setClientId(mesClientId);
+            vo.setClientName(StrUtil.blankToDefault(base.getClientName(), mesClientId));
+            if (StrUtil.isNotBlank(hungWorkshop)) {
+                vo.setWorkshopId(hungWorkshop);
+                vo.setExternalUsername(buildExternalUsername(
+                        base.getUsername(), base.getUsernameWithWorkshop(), hungWorkshop));
+            }
+            return vo;
+        }
+
+        // 一对一开了车间维度但未填车间：与 validateHangLeaf 可空一致，按唯一叶子进门户
+        if (StrUtil.isBlank(hungWorkshop) && leaves.size() == 1) {
+            hungWorkshop = leaves.iterator().next();
+        }
+        if (StrUtil.isBlank(hungWorkshop) || !leaves.contains(hungWorkshop)) {
+            return null;
+        }
+        if (!rolesAllowWorkshop(roleIds, hungWorkshop)) {
+            return null;
+        }
+        UserExternalSystemRespVO vo = copyExternalSystem(base);
+        vo.setMesClientId(mesClientId);
+        vo.setWorkshopId(hungWorkshop);
+        String leafName = StrUtil.blankToDefault(workshopNameDict.get(hungWorkshop), hungWorkshop);
+        if (leaves.size() == 1) {
+            vo.setClientId(mesClientId);
+            vo.setClientName(StrUtil.blankToDefault(base.getClientName(), leafName));
+        } else {
+            vo.setClientId(mesClientId + "_" + hungWorkshop);
+            vo.setClientName(leafName);
+        }
+        // 只认花名册 username_with_workshop：1 且车间非空 → 车间_工号，否则工号
+        vo.setUsernameWithWorkshop(StrUtil.blankToDefault(base.getUsernameWithWorkshop(), "0"));
+        vo.setExternalUsername(buildExternalUsername(
+                base.getUsername(), vo.getUsernameWithWorkshop(), hungWorkshop));
+        return vo;
+    }
+
+    private boolean rolesAllowWorkshop(List<Long> roleIds, String workshopCode) {
+        if (CollUtil.isEmpty(roleIds) || StrUtil.isBlank(workshopCode)) {
+            return false;
+        }
+        List<SubSystemRoleDO> roles = subSystemRoleMapper.selectListByIds(roleIds);
+        boolean anyWorkshopTagged = false;
+        boolean hasUntagged = false;
+        boolean hasUsable = false;
+        for (SubSystemRoleDO role : roles) {
+            if (role == null || (role.getStatus() != null && role.getStatus() != 0)) {
+                continue;
+            }
+            hasUsable = true;
+            String code = StrUtil.trim(role.getWorkshopCode());
+            if (StrUtil.isBlank(code)) {
+                // 未打车间的角色（如超级管理员）可进任意叶子
+                hasUntagged = true;
+                continue;
+            }
+            anyWorkshopTagged = true;
+            if (workshopCode.equals(code)) {
+                return true;
+            }
+        }
+        // 角色全部停用/已删：视同无可用角色，不进叶子（与「未分配角色不显示入口」一致）
+        if (!hasUsable) {
+            return false;
+        }
+        return hasUntagged || !anyWorkshopTagged;
+    }
+
+    private Map<Long, SubSystemDO> loadSubSystemMap(List<SubSystemUsersDO> list) {
+        Set<Long> ids = list.stream().map(SubSystemUsersDO::getSubSystemId).filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (CollUtil.isEmpty(ids)) {
+            return Collections.emptyMap();
+        }
+        return convertMap(subSystemMapper.selectListByIds(ids), SubSystemDO::getId);
+    }
+
+    private Map<String, String> loadWorkshopNameDict() {
+        Map<String, String> dict = new LinkedHashMap<>();
+        try {
+            for (SubSystemWorkshopDO row : CollUtil.emptyIfNull(subSystemWorkshopMapper.selectEnabledList())) {
+                if (StrUtil.isBlank(row.getWorkshopCode())) {
+                    continue;
+                }
+                dict.putIfAbsent(row.getWorkshopCode().trim(),
+                        StrUtil.blankToDefault(row.getWorkshopName(), row.getWorkshopCode().trim()));
+            }
+        } catch (Exception ex) {
+            log.debug("[loadWorkshopNameDict] skip: {}", ex.toString());
+        }
+        return dict;
+    }
+
+    private Map<Long, Set<String>> loadWorkshopLeavesBySubSystemId() {
+        Map<Long, Set<String>> map = new HashMap<>();
+        try {
+            List<SubSystemWorkshopDO> rows = subSystemWorkshopMapper.selectEnabledList();
+            if (CollUtil.isEmpty(rows)) {
+                return map;
+            }
+            Map<Long, SubSystemDO> byId = convertMap(
+                    subSystemMapper.selectListOrderByOauth2ClientId(), SubSystemDO::getId);
+            Map<String, Long> clientToId = new HashMap<>();
+            for (SubSystemDO ss : byId.values()) {
+                String cid = StrUtil.blankToDefault(ss.getClientId(), "");
+                if (StrUtil.isBlank(cid) && ss.getOauth2ClientId() != null) {
+                    OAuth2ClientDO oc = getOAuth2Client(ss);
+                    cid = oc != null ? StrUtil.nullToEmpty(oc.getClientId()) : "";
+                }
+                if (StrUtil.isNotBlank(cid)) {
+                    clientToId.put(cid.trim().toLowerCase(Locale.ROOT), ss.getId());
+                }
+            }
+            for (SubSystemWorkshopDO row : rows) {
+                if (StrUtil.isBlank(row.getWorkshopCode())) {
+                    continue;
+                }
+                Long ssId = row.getSubSystemId();
+                if (ssId == null && StrUtil.isNotBlank(row.getClientId())) {
+                    ssId = clientToId.get(row.getClientId().trim().toLowerCase(Locale.ROOT));
+                }
+                if (ssId == null) {
+                    continue;
+                }
+                map.computeIfAbsent(ssId, k -> new LinkedHashSet<>()).add(row.getWorkshopCode().trim());
+            }
+        } catch (Exception ex) {
+            log.debug("[loadWorkshopLeavesBySubSystemId] skip: {}", ex.toString());
+        }
+        return map;
+    }
+
+    private static String buildExternalUsername(String bareUsername, String usernameWithWorkshop, String workshopId) {
+        if (StrUtil.isBlank(bareUsername)) {
+            return bareUsername;
+        }
+        if ("1".equals(usernameWithWorkshop) && StrUtil.isNotBlank(workshopId)) {
+            String workshopCode = workshopId.trim();
+            if (bareUsername.startsWith(workshopCode + "_")) {
+                return bareUsername;
+            }
+            return workshopCode + "_" + bareUsername;
+        }
+        return bareUsername;
+    }
+
+    private UserExternalSystemRespVO copyExternalSystem(UserExternalSystemRespVO src) {
+        UserExternalSystemRespVO vo = new UserExternalSystemRespVO();
+        vo.setId(src.getId());
+        vo.setSubSystemId(src.getSubSystemId());
+        vo.setSystemUrl(src.getSystemUrl());
+        vo.setClientId(src.getClientId());
+        vo.setMesClientId(src.getMesClientId());
+        vo.setClientName(src.getClientName());
+        vo.setLogo(src.getLogo());
+        vo.setWorkshopId(src.getWorkshopId());
+        vo.setTeamId(src.getTeamId());
+        vo.setUsername(src.getUsername());
+        vo.setUsernameWithWorkshop(src.getUsernameWithWorkshop());
+        vo.setExternalUsername(src.getExternalUsername());
+        vo.setHomeMenuId(src.getHomeMenuId());
+        vo.setHomePageName(src.getHomePageName());
+        vo.setHomePageUrl(src.getHomePageUrl());
+        vo.setSsoUrl(src.getSsoUrl());
+        return vo;
+    }
     @Override
-    public List<SubSystemPortalMenuRespVO> getMyPortalMenus(Long userId, Long subSystemId) {
-        List<SubSystemPortalMenuRespVO> cached = portalMyMenusRedisDAO.get(userId, subSystemId);
+    public List<SubSystemPortalMenuRespVO> getMyPortalMenus(Long userId, Long subSystemId, String workshopCode) {
+        String workshop = StrUtil.trim(workshopCode);
+        List<SubSystemPortalMenuRespVO> cached = portalMyMenusRedisDAO.get(userId, subSystemId, workshop);
         if (cached != null) {
             warmPortalPermContext(userId, subSystemId);
             return cached;
         }
-        SubSystemUsersDO subSystemUser = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, userId);
+        SubSystemUsersDO subSystemUser = resolveHungRoster(userId, subSystemId, workshop);
         if (subSystemUser == null || "1".equals(subSystemUser.getStatus())) {
             throw exception(SUB_SYSTEM_USER_NOT_EXISTS);
         }
-        SubSystemDO subSystem = validateSubSystemExists(subSystemId);
-        if (CommonStatusEnum.isDisable(subSystem.getStatus())) {
+        SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
+        if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus())) {
             return Collections.emptyList();
         }
-        List<Long> roleIds = getSubSystemUserRoleIds(subSystemUser.getId());
+        List<Long> roleIds = listRoleIds(subSystemUser.getId());
         if (CollUtil.isEmpty(roleIds)) {
             return Collections.emptyList();
         }
@@ -1000,8 +1686,45 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 menuColorService.getMenuColorMap(styleIds);
         warmPortalPermContext(userId, subSystemId);
         List<SubSystemPortalMenuRespVO> tree = buildPortalMenuTree(displayMenus, 0L, subSystem, menuMap, colorMap, null);
-        portalMyMenusRedisDAO.set(userId, subSystemId, tree);
+        portalMyMenusRedisDAO.set(userId, subSystemId, workshop, tree);
         return tree;
+    }
+
+    /**
+     * 解析当前 JUMP 人在该业务系统下的挂接行：有车间则按叶子，否则系统级/兼容单行。
+     */
+    private SubSystemUsersDO resolveHungRoster(Long userId, Long subSystemId, String workshopCode) {
+        if (StrUtil.isNotBlank(workshopCode)) {
+            SubSystemUsersDO byLeaf = subSystemUsersMapper.selectBySubSystemIdAndMainUserIdAndWorkshopId(
+                    subSystemId, userId, workshopCode.trim());
+            if (byLeaf != null) {
+                return byLeaf;
+            }
+            // 仅回退车间为空的系统级挂接
+            SubSystemUsersDO systemLevel = subSystemUsersMapper
+                    .selectBySubSystemIdAndMainUserIdAndWorkshopId(subSystemId, userId, "");
+            if (systemLevel != null && StrUtil.isBlank(systemLevel.getWorkshopId())) {
+                return systemLevel;
+            }
+            return null;
+        }
+        return subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, userId);
+    }
+
+    /** 合并该 JUMP 人在某业务系统下所有有效挂接行上的角色 ID */
+    private LinkedHashSet<Long> collectHungRoleIds(Long userId, Long subSystemId) {
+        LinkedHashSet<Long> roleIds = new LinkedHashSet<>();
+        List<SubSystemUsersDO> rows = subSystemUsersMapper.selectListByMainUserId(userId);
+        if (CollUtil.isEmpty(rows)) {
+            return roleIds;
+        }
+        for (SubSystemUsersDO row : rows) {
+            if (!Objects.equals(subSystemId, row.getSubSystemId()) || "1".equals(row.getStatus())) {
+                continue;
+            }
+            roleIds.addAll(listRoleIds(row.getId()));
+        }
+        return roleIds;
     }
     /**
      * 进入子系统时预热权限包：仅 miss 时从 DB 重建。
@@ -1025,15 +1748,11 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     }
     @Override
     public Set<Long> getAllowedQuickNavMenuIds(Long userId, Long subSystemId) {
-        SubSystemUsersDO subSystemUser = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, userId);
-        if (subSystemUser == null || "1".equals(subSystemUser.getStatus())) {
-            return Collections.emptySet();
-        }
         SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
         if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus())) {
             return Collections.emptySet();
         }
-        List<Long> roleIds = getSubSystemUserRoleIds(subSystemUser.getId());
+        List<Long> roleIds = new ArrayList<>(collectHungRoleIds(userId, subSystemId));
         if (CollUtil.isEmpty(roleIds)) {
             return Collections.emptySet();
         }
@@ -1058,19 +1777,26 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     }
 
     @Override
-    public Set<Long> retainAllowedQuickNavMenuIds(Long userId, Long subSystemId, Collection<Long> candidateIds) {
+    public Set<Long> retainAllowedQuickNavMenuIds(Long userId, Long subSystemId, Collection<Long> candidateIds,
+                                                  String workshopCode) {
         if (CollUtil.isEmpty(candidateIds)) {
-            return Collections.emptySet();
-        }
-        SubSystemUsersDO subSystemUser = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, userId);
-        if (subSystemUser == null || "1".equals(subSystemUser.getStatus())) {
             return Collections.emptySet();
         }
         SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
         if (subSystem == null || CommonStatusEnum.isDisable(subSystem.getStatus())) {
             return Collections.emptySet();
         }
-        List<Long> roleIds = getSubSystemUserRoleIds(subSystemUser.getId());
+        List<Long> roleIds;
+        if (StrUtil.isNotBlank(workshopCode)) {
+            SubSystemUsersDO subSystemUser = resolveHungRoster(userId, subSystemId, workshopCode.trim());
+            if (subSystemUser == null || "1".equals(subSystemUser.getStatus())) {
+                return Collections.emptySet();
+            }
+            roleIds = listRoleIds(subSystemUser.getId());
+        } else {
+            // 无车间：合并该人在该系统下所有挂接行角色（供 Redis 超集缓存，再按叶子裁剪）
+            roleIds = new ArrayList<>(collectHungRoleIds(userId, subSystemId));
+        }
         if (CollUtil.isEmpty(roleIds)) {
             return Collections.emptySet();
         }

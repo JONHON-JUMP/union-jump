@@ -84,6 +84,16 @@ public class SubSystemEmployeeController {
         return success(subSystemEmployeeService.getDeleteTip(subSystemId));
     }
 
+    @GetMapping("/external-list")
+    @Operation(summary = "按工号全系统查询外部人员（关联外部用）；不按车间截断列表")
+    @PreAuthorize("@ss.hasAnyPermissions('sub-system:user:update', 'sub-system:employee:list')")
+    public CommonResult<List<SubSystemEmployeeRespVO>> listExternalEmployees(
+            @RequestParam("apiSubSystemId") Long apiSubSystemId,
+            @RequestParam(value = "workshopCode", required = false) String workshopCode,
+            @RequestParam(value = "userCode", required = false) String userCode) {
+        return success(subSystemEmployeeService.listExternalEmployees(apiSubSystemId, workshopCode, userCode));
+    }
+
     @GetMapping("/registerable-apis")
     @Operation(summary = "可选「新增人员」接口目标列表（接口管理中 create 已启用；与花名册系统解耦）")
     @PreAuthorize("@ss.hasAnyPermissions('sub-system:user:list', 'sub-system:employee:list')")

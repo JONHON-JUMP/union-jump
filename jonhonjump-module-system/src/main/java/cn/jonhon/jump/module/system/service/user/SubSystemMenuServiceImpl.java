@@ -14,7 +14,10 @@ import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMenuMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemRoleMenuMapper;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
+import cn.jonhon.jump.module.system.util.MenuStyleHelper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -29,7 +32,9 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeConstants.BAD_REQUEST;
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception0;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertMap;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertSet;
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.*;
@@ -58,13 +63,20 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     private cn.jonhon.jump.module.system.service.permission.MenuColorService menuColorService;
     @Resource
     private SubSystemPermissionContextService subSystemPermissionContextService;
+    @Resource
+    private SubSystemAccessService subSystemAccessService;
 
     @Override
     public List<SubSystemMenuRespVO> getSubSystemMenuList(SubSystemMenuListReqVO reqVO) {
+        // 可管系统范围：受限时强制只查授权系统（null=不受限）
+        java.util.Set<Long> allowedSubSystemIds = subSystemAccessService.getAllowedSubSystemIds(
+                cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId());
         if (reqVO.getSubSystemId() != null) {
             validateSubSystemExists(reqVO.getSubSystemId());
+        } else if (allowedSubSystemIds != null && allowedSubSystemIds.isEmpty()) {
+            return Collections.emptyList();
         }
-        List<SubSystemMenuDO> list = subSystemMenuMapper.selectList(reqVO);
+        List<SubSystemMenuDO> list = subSystemMenuMapper.selectList(reqVO, allowedSubSystemIds);
         return buildRespList(list);
     }
 
@@ -80,10 +92,16 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         validateSubSystemExists(createReqVO.getSubSystemId());
         validateParentMenu(createReqVO.getSubSystemId(), createReqVO.getParentId(), null);
         validateMenuName(createReqVO.getSubSystemId(), createReqVO.getParentId(), createReqVO.getName(), null);
+        validateMenuPath(createReqVO);
         normalizeMenuStyle(createReqVO);
 
         SubSystemMenuDO menu = convertToDO(createReqVO);
-        subSystemMenuMapper.insert(menu);
+        try {
+            subSystemMenuMapper.insert(menu);
+        } catch (BadSqlGrammarException ex) {
+            // 通用菜单副本等新列未升级时报「表结构未升级」，比兜底的「系统异常」可排查
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         // 与角色菜单变更一致：清该系统门户 my-menus / 权限包并 bump 版本，在线用户切系统或打开全部应用时重拉
         subSystemPermissionContextService.evictBySubSystemId(menu.getSubSystemId());
         return menu.getId();
@@ -91,14 +109,33 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
 
     @Override
     public void updateSubSystemMenu(SubSystemMenuSaveReqVO updateReqVO) {
-        validateSubSystemMenuExists(updateReqVO.getId());
+        SubSystemMenuDO existMenu = validateSubSystemMenuExists(updateReqVO.getId());
+        // 有子菜单时不能改成按钮，否则子菜单会挂在按钮下、门户树整段消失
+        if (MenuTypeEnum.BUTTON.getType().equals(updateReqVO.getType())
+                && subSystemMenuMapper.selectCountByParentId(updateReqVO.getId()) > 0) {
+            throw exception(SUB_SYSTEM_MENU_TYPE_BUTTON_HAS_CHILDREN);
+        }
+        updateReqVO.setSubSystemId(existMenu.getSubSystemId());
         validateSubSystemExists(updateReqVO.getSubSystemId());
         validateParentMenu(updateReqVO.getSubSystemId(), updateReqVO.getParentId(), updateReqVO.getId());
         validateMenuName(updateReqVO.getSubSystemId(), updateReqVO.getParentId(), updateReqVO.getName(), updateReqVO.getId());
+        validateMenuPath(updateReqVO);
         normalizeMenuStyle(updateReqVO);
 
         SubSystemMenuDO updateObj = convertToDO(updateReqVO);
-        subSystemMenuMapper.updateById(updateObj);
+        try {
+            subSystemMenuMapper.updateById(updateObj);
+            // 从一级移到子级时 styleId 需显式清空：updateById 会跳过 null，
+            // 否则旧颜色会留在库里（子菜单本应继承父级）
+            if (updateReqVO.getParentId() != null
+                    && !MenuStyleHelper.isFirstLevelMenu(updateReqVO.getParentId())) {
+                subSystemMenuMapper.update(null, new LambdaUpdateWrapper<SubSystemMenuDO>()
+                        .eq(SubSystemMenuDO::getId, updateReqVO.getId())
+                        .set(SubSystemMenuDO::getStyleId, null));
+            }
+        } catch (BadSqlGrammarException ex) {
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         subSystemPermissionContextService.evictByMenuId(updateReqVO.getId());
         subSystemUserQuickNavService.evictCacheByMenuIds(collectQuickNavAffectedMenuIds(updateReqVO.getId()));
     }
@@ -106,16 +143,16 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteSubSystemMenu(Long id) {
+        validateSubSystemMenuExists(id);
         if (subSystemMenuMapper.selectCountByParentId(id) > 0) {
             throw exception(SUB_SYSTEM_MENU_EXISTS_CHILDREN);
         }
-        validateSubSystemMenuExists(id);
-        // 角色授权 / 快捷导航：不拦截；先清 Redis（含角色默认用户），再级联删库
+        // 先按角色-菜单反查受影响用户并清权限包，再删关联。顺序反了 evict 会查到空集。
+        subSystemPermissionContextService.evictByMenuId(id);
         subSystemUserQuickNavService.evictCacheByMenuIds(Collections.singletonList(id));
         subSystemUserQuickNavService.deleteByMenuId(id);
         subSystemRoleQuickNavService.deleteByMenuId(id);
         subSystemRoleMenuMapper.deleteListByMenuId(id);
-        subSystemPermissionContextService.evictByMenuId(id);
         subSystemMenuMapper.deleteById(id);
     }
 
@@ -123,16 +160,16 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     @Transactional(rollbackFor = Exception.class)
     public void deleteSubSystemMenuList(List<Long> ids) {
         ids.forEach(id -> {
+            validateSubSystemMenuExists(id);
             if (subSystemMenuMapper.selectCountByParentId(id) > 0) {
                 throw exception(SUB_SYSTEM_MENU_EXISTS_CHILDREN);
             }
-            validateSubSystemMenuExists(id);
         });
+        ids.forEach(subSystemPermissionContextService::evictByMenuId);
         subSystemUserQuickNavService.evictCacheByMenuIds(ids);
         subSystemUserQuickNavService.deleteByMenuIds(ids);
         subSystemRoleQuickNavService.deleteByMenuIds(ids);
         subSystemRoleMenuMapper.deleteListByMenuIds(ids);
-        ids.forEach(subSystemPermissionContextService::evictByMenuId);
         subSystemMenuMapper.deleteByIds(ids);
     }
 
@@ -241,6 +278,10 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         if (subSystem == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统（通用菜单模板保留区 0 不走此校验）
+        if (!COMMON_TEMPLATE_SUB_SYSTEM_ID.equals(subSystemId)) {
+            subSystemAccessService.checkAccessible(subSystemId);
+        }
         return subSystem;
     }
 
@@ -249,6 +290,10 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         if (menu == null) {
             throw exception(SUB_SYSTEM_MENU_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统的菜单（通用菜单模板保留区 0 除外）
+        if (!COMMON_TEMPLATE_SUB_SYSTEM_ID.equals(menu.getSubSystemId())) {
+            subSystemAccessService.checkAccessible(menu.getSubSystemId());
+        }
         return menu;
     }
 
@@ -256,12 +301,34 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         if (ObjectUtil.equal(ID_ROOT, parentId)) {
             return;
         }
-        if (ObjectUtil.equal(parentId, selfId)) {
+        if (selfId != null && ObjectUtil.equal(parentId, selfId)) {
             throw exception(SUB_SYSTEM_MENU_PARENT_ERROR);
         }
-        SubSystemMenuDO parentMenu = subSystemMenuMapper.selectById(parentId);
-        if (parentMenu == null || !ObjectUtil.equal(parentMenu.getSubSystemId(), subSystemId)) {
-            throw exception(SUB_SYSTEM_MENU_PARENT_NOT_EXISTS);
+        Set<Long> seen = new HashSet<>();
+        Long current = parentId;
+        while (current != null && !ObjectUtil.equal(ID_ROOT, current)) {
+            if (!seen.add(current) || (selfId != null && ObjectUtil.equal(current, selfId))) {
+                throw exception(SUB_SYSTEM_MENU_PARENT_ERROR);
+            }
+            SubSystemMenuDO node = subSystemMenuMapper.selectById(current);
+            if (node == null || !ObjectUtil.equal(node.getSubSystemId(), subSystemId)) {
+                throw exception(SUB_SYSTEM_MENU_PARENT_NOT_EXISTS);
+            }
+            // 按钮不能有下级：否则门户树会把挂在其下的菜单整段过滤掉
+            if (!"M".equals(node.getType()) && !"C".equals(node.getType())) {
+                throw exception(SUB_SYSTEM_MENU_PARENT_TYPE_INVALID);
+            }
+            current = node.getParentId();
+        }
+    }
+
+    /** 只有菜单必须填路由地址；目录和按钮可空 */
+    private void validateMenuPath(SubSystemMenuSaveReqVO reqVO) {
+        if (!MenuTypeEnum.MENU.getType().equals(reqVO.getType())) {
+            return;
+        }
+        if (StrUtil.isBlank(reqVO.getPath())) {
+            throw exception0(BAD_REQUEST.getCode(), "路由地址不能为空");
         }
     }
 
@@ -290,8 +357,20 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
         Map<Long, SubSystemDO> subSystemMap = convertMap(
                 subSystemMapper.selectListByIds(convertSet(copies, SubSystemMenuDO::getSubSystemId)),
                 SubSystemDO::getId);
+        // 可管系统范围：受限时列表只展示授权系统上的挂载；仅挂在不可见系统上的模板对当前人隐藏
+        Set<Long> allowedSubSystemIds = currentAllowedSubSystemIds();
         List<SubSystemCommonMenuRespVO> result = new ArrayList<>();
         for (SubSystemMenuDO template : templates) {
+            List<SubSystemMenuDO> mounts = copiesBySource.getOrDefault(template.getId(), Collections.emptyList());
+            if (allowedSubSystemIds != null) {
+                List<SubSystemMenuDO> visibleMounts = mounts.stream()
+                        .filter(copy -> allowedSubSystemIds.contains(copy.getSubSystemId()))
+                        .collect(Collectors.toList());
+                if (visibleMounts.isEmpty() && !mounts.isEmpty()) {
+                    continue;
+                }
+                mounts = visibleMounts;
+            }
             SubSystemCommonMenuRespVO vo = new SubSystemCommonMenuRespVO();
             vo.setId(template.getId());
             vo.setName(template.getMenuName());
@@ -303,7 +382,6 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
             vo.setStatus(template.getStatus());
             vo.setManualUrl(template.getManualUrl());
             vo.setCreateTime(template.getCreateTime());
-            List<SubSystemMenuDO> mounts = copiesBySource.getOrDefault(template.getId(), Collections.emptyList());
             vo.setSubSystemIds(mounts.stream().map(SubSystemMenuDO::getSubSystemId).collect(Collectors.toList()));
             vo.setSubSystemNames(mounts.stream()
                     .map(copy -> {
@@ -320,12 +398,21 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     @Transactional(rollbackFor = Exception.class)
     public Long createCommonMenu(SubSystemCommonMenuSaveReqVO createReqVO) {
         SubSystemMenuDO template = buildCommonTemplateFromReqVO(createReqVO, null);
-        subSystemMenuMapper.insert(template);
+        try {
+            subSystemMenuMapper.insert(template);
+        } catch (BadSqlGrammarException ex) {
+            // 副本标记列 shared_source_id 未升级时缺列，提示执行升级脚本
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         // 向选中的子系统复制副本
         Set<Long> subSystemIds = normalizeMountIds(createReqVO.getSubSystemIds());
         for (Long subSystemId : subSystemIds) {
             validateSubSystemExists(subSystemId);
-            subSystemMenuMapper.insert(buildCommonCopy(template, subSystemId));
+            try {
+                subSystemMenuMapper.insert(buildCommonCopy(template, subSystemId));
+            } catch (BadSqlGrammarException ex) {
+                throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+            }
             subSystemPermissionContextService.evictBySubSystemId(subSystemId);
         }
         return template.getId();
@@ -335,30 +422,59 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     @Transactional(rollbackFor = Exception.class)
     public void updateCommonMenu(SubSystemCommonMenuSaveReqVO updateReqVO) {
         SubSystemMenuDO template = validateCommonTemplateExists(updateReqVO.getId());
-        // 1. 更新模板
-        SubSystemMenuDO updateObj = buildCommonTemplateFromReqVO(updateReqVO, template.getId());
-        subSystemMenuMapper.updateById(updateObj);
-        // 2. 同步所有副本内容字段（不动 parentId / orderNum，位置由各子系统自行调整）
+        // 本次提交的挂载目标须都在可管范围内（不受限时直接通过）
+        Set<Long> requestedIds = normalizeMountIds(updateReqVO.getSubSystemIds());
+        for (Long subSystemId : requestedIds) {
+            validateSubSystemExists(subSystemId);
+        }
         List<SubSystemMenuDO> copies = subSystemMenuMapper.selectListBySharedSourceId(template.getId());
         Set<Long> mountedIds = copies.stream().map(SubSystemMenuDO::getSubSystemId).collect(Collectors.toSet());
+        // 受限角色看不到其他系统的挂载，保存时保留这些副本，避免误卸
+        Set<Long> allowedSubSystemIds = currentAllowedSubSystemIds();
+        Set<Long> targetIds = new HashSet<>(requestedIds);
+        if (allowedSubSystemIds != null) {
+            for (Long mountedId : mountedIds) {
+                if (!allowedSubSystemIds.contains(mountedId)) {
+                    targetIds.add(mountedId);
+                }
+            }
+        }
+        // 1. 更新模板
+        SubSystemMenuDO updateObj = buildCommonTemplateFromReqVO(updateReqVO, template.getId());
+        try {
+            subSystemMenuMapper.updateById(updateObj);
+        } catch (BadSqlGrammarException ex) {
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
+        // 2. 同步仍保留的、且在可管范围内的副本（不可见系统的副本内容不动）
         for (SubSystemMenuDO copy : copies) {
+            if (!targetIds.contains(copy.getSubSystemId()) || !canAccessSubSystem(allowedSubSystemIds, copy.getSubSystemId())) {
+                continue;
+            }
             SubSystemMenuDO copyUpdate = buildCommonCopy(updateObj, copy.getSubSystemId());
             copyUpdate.setId(copy.getId());
             copyUpdate.setParentId(copy.getParentId());
             copyUpdate.setOrderNum(copy.getOrderNum());
             // 显示/停用归各子系统自主管理：模板同步不得覆盖子系统单独设置的开关
             copyUpdate.setStatus(copy.getStatus());
-            subSystemMenuMapper.updateById(copyUpdate);
+            try {
+                subSystemMenuMapper.updateById(copyUpdate);
+            } catch (BadSqlGrammarException ex) {
+                throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+            }
             subSystemPermissionContextService.evictBySubSystemId(copy.getSubSystemId());
         }
-        // 3. 对齐挂载：新增的子系统补副本；取消的删副本
-        Set<Long> targetIds = normalizeMountIds(updateReqVO.getSubSystemIds());
+        // 3. 对齐挂载：新增的子系统补副本；取消的删副本（不可见系统的挂载已并入 targetIds，不会被删）
         for (Long subSystemId : targetIds) {
             if (mountedIds.contains(subSystemId)) {
                 continue;
             }
             validateSubSystemExists(subSystemId);
-            subSystemMenuMapper.insert(buildCommonCopy(updateObj, subSystemId));
+            try {
+                subSystemMenuMapper.insert(buildCommonCopy(updateObj, subSystemId));
+            } catch (BadSqlGrammarException ex) {
+                throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+            }
             subSystemPermissionContextService.evictBySubSystemId(subSystemId);
         }
         for (SubSystemMenuDO copy : copies) {
@@ -380,15 +496,39 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
     @Transactional(rollbackFor = Exception.class)
     public void deleteCommonMenu(Long id) {
         SubSystemMenuDO template = validateCommonTemplateExists(id);
-        // 副本被角色/快捷导航引用、或有子菜单挂在其下时阻断，提示先到对应子系统处理
-        for (SubSystemMenuDO copy : subSystemMenuMapper.selectListBySharedSourceId(id)) {
+        List<SubSystemMenuDO> copies = subSystemMenuMapper.selectListBySharedSourceId(id);
+        Set<Long> allowedSubSystemIds = currentAllowedSubSystemIds();
+        // 受限角色只卸自己可管系统上的副本；其他系统仍挂着时保留模板
+        List<SubSystemMenuDO> toDelete = new ArrayList<>();
+        boolean keepTemplate = false;
+        for (SubSystemMenuDO copy : copies) {
+            if (canAccessSubSystem(allowedSubSystemIds, copy.getSubSystemId())) {
+                toDelete.add(copy);
+            } else {
+                keepTemplate = true;
+            }
+        }
+        for (SubSystemMenuDO copy : toDelete) {
             validateCommonCopyDeletable(copy);
         }
-        for (SubSystemMenuDO copy : subSystemMenuMapper.selectListBySharedSourceId(id)) {
+        for (SubSystemMenuDO copy : toDelete) {
             deleteCommonCopyQuietly(copy);
             subSystemPermissionContextService.evictBySubSystemId(copy.getSubSystemId());
         }
-        subSystemMenuMapper.deleteById(template.getId());
+        if (!keepTemplate) {
+            subSystemMenuMapper.deleteById(template.getId());
+        }
+    }
+
+    /** 当前登录人可管的业务系统；null = 不受限（内部调用或任一启用角色未配置） */
+    private Set<Long> currentAllowedSubSystemIds() {
+        return subSystemAccessService.getAllowedSubSystemIds(
+                cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId());
+    }
+
+    /** allowed 为 null 表示不受限，任意系统都可操作 */
+    private boolean canAccessSubSystem(Set<Long> allowedSubSystemIds, Long subSystemId) {
+        return allowedSubSystemIds == null || allowedSubSystemIds.contains(subSystemId);
     }
 
     /** 副本删除：有子菜单仍阻断；角色/快捷导航级联清理不拦截 */
@@ -497,7 +637,9 @@ public class SubSystemMenuServiceImpl implements SubSystemMenuService {
             if (child == null || child.getId() == null) {
                 continue;
             }
-            collector.add(child.getId());
+            if (!collector.add(child.getId())) {
+                continue;
+            }
             if ("M".equals(child.getType())) {
                 collectDescendantMenuIds(child.getId(), collector);
             }

@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 @Schema(description = "管理后台 - 子系统人员接口配置 Response VO")
 @Data
@@ -30,32 +31,8 @@ public class SubSystemApiConfigRespVO {
     @Schema(description = "鉴权配置 JSON")
     private String authConfig;
 
-    @Schema(description = "查询接口 JSON")
-    private String apiQuery;
-
-    @Schema(description = "新增接口 JSON")
-    private String apiCreate;
-
-    @Schema(description = "修改接口 JSON")
-    private String apiUpdate;
-
-    @Schema(description = "删除接口 JSON")
-    private String apiDelete;
-
-    @Schema(description = "班组下拉接口 JSON")
-    private String apiTeamCombo;
-
-    @Schema(description = "角色查询接口 JSON")
-    private String apiRoleQuery;
-
-    @Schema(description = "角色新增接口 JSON")
-    private String apiRoleCreate;
-
-    @Schema(description = "角色删除接口 JSON")
-    private String apiRoleDelete;
-
-    @Schema(description = "接口目录树 JSON")
-    private String apiCatalog;
+    @Schema(description = "接口列表（一行一接口）")
+    private List<SubSystemApiEndpointVO> endpoints;
 
     @Schema(description = "参数映射 JSON")
     private String paramMapping;

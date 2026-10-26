@@ -41,7 +41,11 @@ public class PortalMyMenusRedisDAO {
     private StringRedisTemplate stringRedisTemplate;
 
     public List<SubSystemPortalMenuRespVO> get(Long userId, Long subSystemId) {
-        String json = stringRedisTemplate.opsForValue().get(formatKey(userId, subSystemId));
+        return get(userId, subSystemId, null);
+    }
+
+    public List<SubSystemPortalMenuRespVO> get(Long userId, Long subSystemId, String workshopCode) {
+        String json = stringRedisTemplate.opsForValue().get(formatKey(userId, subSystemId, workshopCode));
         if (json == null) {
             return null;
         }
@@ -49,12 +53,22 @@ public class PortalMyMenusRedisDAO {
     }
 
     public void set(Long userId, Long subSystemId, List<SubSystemPortalMenuRespVO> menus) {
-        stringRedisTemplate.opsForValue().set(formatKey(userId, subSystemId),
+        set(userId, subSystemId, null, menus);
+    }
+
+    public void set(Long userId, Long subSystemId, String workshopCode, List<SubSystemPortalMenuRespVO> menus) {
+        stringRedisTemplate.opsForValue().set(formatKey(userId, subSystemId, workshopCode),
                 JsonUtils.toJsonString(menus), TTL_MINUTES, TimeUnit.MINUTES);
     }
 
     public void delete(Long userId, Long subSystemId) {
-        stringRedisTemplate.delete(formatKey(userId, subSystemId));
+        delete(userId, subSystemId, null);
+        // 顺带清该用户该系统下各车间叶子缓存
+        scanAndDelete(formatUserSubSystemWorkshopPattern(userId, subSystemId));
+    }
+
+    public void delete(Long userId, Long subSystemId, String workshopCode) {
+        stringRedisTemplate.delete(formatKey(userId, subSystemId, workshopCode));
     }
 
     public void deleteList(Collection<String> keys) {
@@ -87,8 +101,9 @@ public class PortalMyMenusRedisDAO {
                 deleted += n == null ? 0 : n.intValue();
             }
         }
-        // SCAN 兜底（不用 KEYS：生产常禁用或阻塞）
+        // SCAN 兜底（不用 KEYS：生产常禁用或阻塞）；含 workshop 后缀 key
         deleted += scanAndDelete(formatSubSystemPattern(subSystemId));
+        deleted += scanAndDelete(formatSubSystemWorkshopPattern(subSystemId));
         if (deleted == 0) {
             log.debug("[portal-my-menus] deleteBySubSystemId subSystemId={} deleted=0 (no keys or already empty)",
                     subSystemId);
@@ -147,12 +162,31 @@ public class PortalMyMenusRedisDAO {
     }
 
     public static String formatKey(Long userId, Long subSystemId) {
-        return String.format(PORTAL_MY_MENUS, userId, subSystemId);
+        return formatKey(userId, subSystemId, null);
     }
 
-    /** portal_my_menus:*:{subSystemId} —— 匹配该子系统下所有用户 */
+    /** 无车间：portal_my_menus:{userId}:{subSystemId}；有车间：…:{subSystemId}:{workshop} */
+    public static String formatKey(Long userId, Long subSystemId, String workshopCode) {
+        String base = String.format(PORTAL_MY_MENUS, userId, subSystemId);
+        if (workshopCode == null || workshopCode.trim().isEmpty()) {
+            return base;
+        }
+        return base + ":" + workshopCode.trim();
+    }
+
+    /** portal_my_menus:*:{subSystemId} —— 匹配该子系统下无车间后缀的 key */
     public static String formatSubSystemPattern(Long subSystemId) {
         return "portal_my_menus:*:" + subSystemId;
+    }
+
+    /** portal_my_menus:*:{subSystemId}:* —— 匹配该子系统下带车间叶子的 key */
+    public static String formatSubSystemWorkshopPattern(Long subSystemId) {
+        return "portal_my_menus:*:" + subSystemId + ":*";
+    }
+
+    /** portal_my_menus:{userId}:{subSystemId}:* —— 某用户某系统下各车间缓存 */
+    public static String formatUserSubSystemWorkshopPattern(Long userId, Long subSystemId) {
+        return "portal_my_menus:" + userId + ":" + subSystemId + ":*";
     }
 
     /** portal_my_menus:{userId}:* —— 匹配该用户在所有子系统下的缓存 */

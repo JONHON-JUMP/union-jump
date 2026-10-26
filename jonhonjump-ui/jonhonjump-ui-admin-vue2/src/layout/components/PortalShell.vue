@@ -1,6 +1,6 @@
 <template>
   <div
-    :class="{ 'dock-expanded': dockExpanded, 'in-business': isPortalBusinessRoute }"
+    :class="{ 'dock-expanded': dockExpanded, 'in-business': isPortalBusinessRoute, 'no-anim': shellAnimSuppressed, 'dock-animating': dockAnimating }"
     class="jump-portal-shell"
     @click="handleShellClick"
   >
@@ -98,9 +98,10 @@
 
     <portal-dock
       :expanded="dockExpanded"
+      :animate="dockAnimating"
       collapsible
       @expand="expandDock"
-      @collapse="dockExpanded = false"
+      @collapse="collapseDock(false)"
       @all-apps="openAllAppsFromDock"
     />
 
@@ -114,6 +115,7 @@
       :quick-nav-locked-menu-ids="quickNavLockedMenuIds"
       :quick-nav-configured="quickNavConfigured"
       :sub-system-id="currentSubSystemId"
+      :workshop-code="currentWorkshopCode"
       :menus-loading="allAppsMenusLoading"
       @open="openAppFromDrawer"
       @quick-nav-change="handleQuickNavChangeFromDrawer"
@@ -125,7 +127,7 @@
 import { mapGetters } from 'vuex'
 import { confirmSwitchUser, confirmLogout } from '@/utils/switchUser'
 import { isExternal } from '@/utils/validate'
-import { parsePortalClientId, resolvePortalFrameRoute, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath, httpUrlToPortalLocation } from '@/utils/portalRoute'
+import { parsePortalClientId, alignPortalPathToCurrentLeaf, resolvePortalFrameRoute, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath, httpUrlToPortalLocation } from '@/utils/portalRoute'
 import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
 import AllAppsDrawer from '@/views/components/AllAppsDrawer.vue'
 import PortalDock from './PortalDock.vue'
@@ -165,7 +167,10 @@ export default {
       searchFocused: false,
       drawerVisible: false,
       dockExpanded: false,
+      dockAnimating: false,
       headerCollapsed: false,
+      /** 路由驱动的收起瞬时完成，勿做 padding 过渡（否则进业务页页面闪一下） */
+      shellAnimSuppressed: false,
       quickNavMenuIds: [],
       quickNavLockedMenuIds: [],
       quickNavConfigured: false,
@@ -187,6 +192,13 @@ export default {
       }
       return Number(sys.subSystemId) || null
     },
+    currentWorkshopCode() {
+      if (this.currentSystem === 'main') {
+        return ''
+      }
+      const sys = (this.portalSystemList || []).find(item => item.clientId === this.currentSystem)
+      return sys && sys.workshopId ? String(sys.workshopId).trim() : ''
+    },
     quickNavScopeKey() {
       if (this.currentSystem === 'main') {
         return 'main'
@@ -195,7 +207,7 @@ export default {
       if (id == null || id <= 0) {
         return `pending:${this.currentSystem}`
       }
-      return buildQuickNavScopeKey(this.currentSystem, id)
+      return buildQuickNavScopeKey(this.currentSystem, id, this.currentWorkshopCode)
     },
     displayName() {
       return this.nickname || this.name || '制造同仁'
@@ -216,7 +228,14 @@ export default {
     },
     isPortalIframeRoute() {
       const route = resolvePortalFrameRoute(this.$route, this.$store.state.portal.pathLinkMap, this.$store.state.portal.systemList)
-      return Boolean(route.meta && route.meta.link)
+      if (route.meta && route.meta.link) {
+        return true
+      }
+      // 和 AppMain 一样做兜底：切页瞬间 link 可能还没解析出来，
+      // 这里若短暂变 false，.portal-workspace 会从 overflow:hidden 切回 auto，
+      // 父级滚动条一出现/消失会改 iframe 宽度，Camstar 跟着重排（滚动条长度变化、页面上下抖）。
+      const clientId = parsePortalClientId(this.$route.path)
+      return !!(clientId && (this.$route.name === 'PortalFrame' || this.$route.name === 'PortalFrameLegacy'))
     },
     /**
      * 顶栏折叠条件：离开门户首页进入任何业务菜单页（主系统组件页 + 子系统 iframe 页）都收起，
@@ -248,6 +267,15 @@ export default {
         this.loadQuickNav()
       }
     },
+    // 车间号晚到时 scope 会从「整系统」变成「某一车间」。不重拉的话，界面仍画着系统级列表，
+    // 下一次加星却写进空的车间分区，回写结果就只剩新加的那一条。
+    currentWorkshopCode(newCode, oldCode) {
+      if (this.currentSystem === 'main' || newCode === oldCode) {
+        return
+      }
+      this.restoreQuickNavFromCache()
+      this.loadQuickNav()
+    },
     drawerVisible(visible) {
       if (visible) {
         this.restoreQuickNavFromCache()
@@ -256,7 +284,12 @@ export default {
       }
     },
     '$route.path'(newPath) {
-      this.dockExpanded = false
+      // 不再在每次切页时切换 .no-anim（transition:none !important）：
+      // 这个类会让整个 shell 强制重算样式，iframe 多时就是切页抖一下的放大器。
+      // dock 收起本身走 collapseDock(false)，且业务页 --dock-space 恒定，不需要抑制过渡。
+      this.clearDockSpaceInline()
+      this.collapseDock(false)
+      this.resetWorkspaceScroll()
       this.loadTodoCount()
     },
     // 进入业务菜单（主系统或子系统）自动收起顶栏给页面让空间，回门户首页自动展开；
@@ -267,6 +300,7 @@ export default {
       handler(inBusiness) {
         this.headerCollapsed = inBusiness
         if (inBusiness) {
+          this.suppressShellTransition()
           this.scheduleInitialIframeNudge()
         }
       }
@@ -276,10 +310,11 @@ export default {
     // 变化后对可见 iframe 做 1px 宽度抖动，强制其触发内部 resize 重算。
     headerCollapsed() {
       this.$nextTick(() => this.nudgeVisibleIframes())
+      // 顶栏折叠/展开会改变 iframe 可用高度，通知 iframe 层重新量一次并重新锁定
+      this.notifyLayoutChanged()
     }
-    // dockExpanded 不再立即抖 iframe：dock 尺寸变化必然触发 setupDockSpaceSync 的
-    // ResizeObserver（--dock-space 写回 + 320ms 防抖补抖）。此前 watch + 防抖各抖一次，
-    // 折叠/展开连做两次全页 iframe 重排（Camstar 类重页面单次数百毫秒，82 上是折叠展开卡顿主因）
+    // dockExpanded 不在这里抖 iframe：手动展开/收起在 expandDock/collapseDock 里补一次，
+    // 路由驱动的收起是瞬时布局变化，浏览器本身会触发子页 resize，不再额外抖动
   },
   mounted() {
     this._onPortalOpenAllApps = (keyword) => {
@@ -302,6 +337,20 @@ export default {
     }
     this.$root.$on('portal-open-all-apps', this._onPortalOpenAllApps)
     this.$root.$on('portal-quick-nav-changed', this._onPortalQuickNavChanged)
+    // 业务页按钮打开跨 host 新窗口时，业务页脚本会先通知门户给目标 host 种 Cookie
+    this._onSeedUrlMessage = (event) => {
+      const data = event && event.data
+      if (!data || data.type !== 'JUMP_PORTAL_SEED_URL' || !data.url) {
+        return
+      }
+      const url = String(data.url)
+      if (!/^https?:/i.test(url)) {
+        return
+      }
+      // 不传当前系统 id：新窗口可能是另一个系统的 host，按目标 URL 的 origin 匹配身份更准确
+      seedCamstarCookieForUrlInBackground(url)
+    }
+    window.addEventListener('message', this._onSeedUrlMessage)
     this._onPortalExplicitHome = () => {
       // 任意路径回门户首页：关掉「全部应用」，避免盖住快捷导航
       this.drawerVisible = false
@@ -311,19 +360,31 @@ export default {
     this.loadQuickNav()
     // 在线变更探测已移除（quickNavWatch/permWatch）：后端 cache-aside（改数据删 Redis），
     // 刷新页面/重新登录自然从库重建；在线探测的版本比对请求是低配机上的无谓负担
-    this.loadTodoCount()
-    // 待办不再定时轮询（无实时性要求）：切回标签页时刷新，路由切换由 $route watch 刷新，
+    this.loadTodoCount(true)
+    // 待办不再定时轮询（无实时性要求）：切回标签页时刷新，路由切换由 $route watch 刷新（带 30s 缓存），
     // 其余场景靠用户手动刷新页面——低配 Chrome 82 上定时器是纯负担
     this._onTodoVisibility = () => {
       if (!document.hidden) {
-        this.loadTodoCount()
+        this.loadTodoCount(true)
       }
     }
     document.addEventListener('visibilitychange', this._onTodoVisibility)
-    this.setupDockSpaceSync()
+    // 不再用 ResizeObserver 把实测值写回 --dock-space：内联变量会盖住 CSS 的
+    // 展开/收起值，切页时 CSS 先变、内联值后变，内容会二次跳动（闪一下再伸展）。
+    // dock 尺寸与 --dock-space 已按同一公式对齐，交给 CSS 即可；
+    // 这里再清一次历史内联变量，避免热更新/旧代码残留覆盖 CSS。
+    this.clearDockSpaceInline()
   },
   beforeDestroy() {
-    this.teardownDockSpaceSync()
+    if (this._dockAnimTimer) {
+      clearTimeout(this._dockAnimTimer)
+      this._dockAnimTimer = null
+    }
+    // dock 占位改由 CSS 维护，清理补抖定时器即可
+    if (this._dockSpaceNudgeTimer) {
+      clearTimeout(this._dockSpaceNudgeTimer)
+      this._dockSpaceNudgeTimer = null
+    }
     if (this._onPortalOpenAllApps) {
       this.$root.$off('portal-open-all-apps', this._onPortalOpenAllApps)
       this._onPortalOpenAllApps = null
@@ -331,6 +392,10 @@ export default {
     if (this._onPortalQuickNavChanged) {
       this.$root.$off('portal-quick-nav-changed', this._onPortalQuickNavChanged)
       this._onPortalQuickNavChanged = null
+    }
+    if (this._onSeedUrlMessage) {
+      window.removeEventListener('message', this._onSeedUrlMessage)
+      this._onSeedUrlMessage = null
     }
     if (this._onPortalExplicitHome) {
       this.$root.$off('portal-explicit-home', this._onPortalExplicitHome)
@@ -342,12 +407,39 @@ export default {
     }
   },
   methods: {
+    /** 路由切换引起的 dock/占位收起瞬时到位：过渡动画只服务用户手动展开/收起，否则页面闪一下 */
+    suppressShellTransition() {
+      this.shellAnimSuppressed = true
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          this.shellAnimSuppressed = false
+        })
+      })
+    },
+    /** 新页面从顶部开始：避免沿用上一页的滚动位置，看起来像“页面一打开就往下窜” */
+    resetWorkspaceScroll() {
+      // iframe 业务页的滚动在子页内部，父级容器 overflow:hidden，不需要动，
+      // 避免每次切业务页都去碰 DOM/触发父级布局。
+      if (this.isPortalIframeRoute) {
+        return
+      }
+      const body = this.$el && this.$el.querySelector('.app-main__body')
+      if (body) {
+        body.scrollTop = 0
+        body.scrollLeft = 0
+      }
+      const workspace = this.$el && this.$el.querySelector('.workspace-content')
+      if (workspace) {
+        workspace.scrollTop = 0
+        workspace.scrollLeft = 0
+      }
+    },
     iconStyle(app) {
       return buildIconStyle(app)
     },
     handleShellClick() {
       this.searchFocused = false
-      if (this.dockExpanded) this.dockExpanded = false
+      if (this.dockExpanded) this.collapseDock(false)
     },
     handleQuickNavChange(payload) {
       this.quickNavMenuIds = (payload && payload.menuIds) || []
@@ -391,9 +483,8 @@ export default {
         rememberQuickNavSignature(scopeKey, menuIds, lockedMenuIds, apps)
       }).catch(() => {
         if (scopeKey === this.quickNavScopeKey) {
-          this.quickNavMenuIds = []
-          this.quickNavLockedMenuIds = []
-          this.quickNavConfigured = false
+          // GET 失败保留上次/缓存内容，避免界面看起来被清空
+          this.restoreQuickNavFromCache()
         }
       })
     },
@@ -415,12 +506,54 @@ export default {
         source: 'shell'
       })
     },
+    /** 只有用户亲手展开/收起底栏才播放伸缩。切页引起的收起必须瞬时到位 */
+    playDockAnim() {
+      this.dockAnimating = true
+      if (this._dockAnimTimer) {
+        clearTimeout(this._dockAnimTimer)
+      }
+      this._dockAnimTimer = window.setTimeout(() => {
+        this._dockAnimTimer = null
+        this.dockAnimating = false
+      }, 280)
+    },
+    /** 清掉历史版本 ResizeObserver 可能留下的内联 --dock-space（会盖住 CSS） */
+    clearDockSpaceInline() {
+      if (this.$el && this.$el.style && this.$el.style.getPropertyValue('--dock-space')) {
+        this.$el.style.removeProperty('--dock-space')
+      }
+    },
+    /** 明确发生布局变化时通知 iframe 层重新量高度；路由切换不会触发 */
+    notifyLayoutChanged() {
+      this.$nextTick(() => {
+        window.setTimeout(() => this.$root.$emit('portal-layout-changed'), 60)
+      })
+    },
     expandDock() {
+      this.clearDockSpaceInline()
+      this.playDockAnim()
       this.dockExpanded = true
+      this.notifyLayoutChanged()
+    },
+    collapseDock(animate) {
+      if (!this.dockExpanded) {
+        return
+      }
+      this.clearDockSpaceInline()
+      if (animate) {
+        this.playDockAnim()
+      } else {
+        this.dockAnimating = false
+      }
+      this.dockExpanded = false
+      if (animate) {
+        // 路由驱动的收起不改高度，不要触发 iframe 重新量高
+        this.notifyLayoutChanged()
+      }
     },
     /** dock 上的「全部应用」：打开抽屉同时收起 dock，避免挡住页面 */
     openAllAppsFromDock() {
-      this.dockExpanded = false
+      this.collapseDock(false)
       this.drawerVisible = true
     },
     handleSubsystemChange(value) {
@@ -477,6 +610,12 @@ export default {
     },
     navigateOpenApp(app) {
       if (!app || !app.path) return
+      // 导航前先把 dock/顶栏收到目标状态：新页面第一帧就按最终可视高度渲染，
+      // 不再出现“先按旧高度画一帧，再收起变高”的闪动。
+      this.collapseDock(false)
+      if (app.path !== '/index' && app.path !== '/') {
+        this.headerCollapsed = true
+      }
       if (this.currentSystem !== 'main' && isMainBusinessPath(app.path)) {
         // 禁止 lock 全屏：会挡住 dock/菜单，用户以为「卡死不能点」
         this.$store.dispatch('portal/switchSystem', { system: 'main', skipNavigate: true })
@@ -504,12 +643,14 @@ export default {
         if (asHttp0) {
           targetPath = `/portal/${clientId}/` + encodeHttpToMesPath(asHttp0)
         }
+        targetPath = alignPortalPathToCurrentLeaf(targetPath, this.portalSystemList, this.currentSystem)
+        const openClientId = parsePortalClientId(targetPath) || clientId
         if (this.$route.path === targetPath) {
           return
         }
-        const menusReady = !!(this.$store.state.portal.loadedSubSystems || {})[clientId]
+        const menusReady = !!(this.$store.state.portal.loadedSubSystems || {})[openClientId]
         const activeMap = this.$store.state.portal.pathLinkMap || {}
-        const cachedMap = (this.$store.state.portal.subSystemPathLinkCache || {})[clientId] || {}
+        const cachedMap = (this.$store.state.portal.subSystemPathLinkCache || {})[openClientId] || {}
         const entry = activeMap[targetPath] || lookupPathLinkEntry(targetPath, activeMap)
           || cachedMap[targetPath] || lookupPathLinkEntry(targetPath, cachedMap)
           || activeMap[app.path] || lookupPathLinkEntry(app.path, activeMap)
@@ -517,12 +658,12 @@ export default {
         const link = (entry && entry.link) || (app && app.link) || ''
         // 旧快捷导航可能只有 .../d3/needle；有完整 http(含 #) 时重写成带 __hash__ 的壳 path
         if (link && /^https?:\/\//i.test(link) && String(link).indexOf('#') >= 0) {
-          const loc = httpUrlToPortalLocation(clientId, link)
+          const loc = httpUrlToPortalLocation(openClientId, link)
           if (loc && loc.path) {
-            targetPath = loc.path
+            targetPath = alignPortalPathToCurrentLeaf(loc.path, this.portalSystemList, this.currentSystem)
           }
         }
-        const rest = String(targetPath).replace(new RegExp('^/portal/' + clientId + '/'), '').replace(/\/index$/, '')
+        const rest = String(targetPath).replace(new RegExp('^/portal/' + openClientId + '/'), '').replace(/\/index$/, '')
         const restHttp = /^menu\d+/i.test(rest) ? '' : (slashIpPortRestToHttp(rest.replace(/:/g, '/')) || '')
         // 任意完整 http(s)（含 /#/xxx）都直开；禁止用壳 path 回退成丢 hash 的 host 根
         const isDirect = /^https?:\/\//i.test(link) || !!restHttp
@@ -547,23 +688,23 @@ export default {
 
         const openDirect = () => {
           // 对齐 4200：只切壳 + 立刻 push，绝不 await 全量菜单（那会到 10s+）
-          ensureLocalCamstarCookie(resolvedLink, clientId)
+          ensureLocalCamstarCookie(resolvedLink, openClientId)
           if (resolvedLink) {
-            seedCamstarCookieForUrlInBackground(resolvedLink, clientId)
+            seedCamstarCookieForUrlInBackground(resolvedLink, openClientId)
           }
           const afterPush = () => {
             if (!menusReady) {
               this.$store.dispatch('portal/ensureSubSystemLoaded', {
-                clientId,
+                clientId: openClientId,
                 activate: false,
                 force: false
               }).catch(() => {})
             }
           }
-          const needShell = this.$store.state.portal.currentSystem !== clientId
+          const needShell = this.$store.state.portal.currentSystem !== openClientId
             || !(this.$store.state.portal.pathLinkMap && Object.keys(this.$store.state.portal.pathLinkMap).length)
           if (needShell) {
-            return this.$store.dispatch('portal/activateSubSystemShell', { clientId })
+            return this.$store.dispatch('portal/activateSubSystemShell', { clientId: openClientId })
               .then(() => pushWithTitle())
               .then(afterPush)
           }
@@ -577,16 +718,36 @@ export default {
           })
         }
 
-        // 若依：菜单未就绪时后台拉，不锁全屏；业务区由 InnerLink 自己提示
-        if (!menusReady) {
-          this.$message({ message: '正在准备业务系统菜单…', type: 'info', duration: 1500 })
+        // 菜单已在内存：立即跳转。原逻辑无论菜单是否就绪都先等 ensureSubSystemReady
+        // （含版本比对接口）才 push——JUMP 后端与各子系统共机部署，任何一个子系统慢
+        // 都会把版本接口拖到超时，表现为"打开任何菜单都一直转圈、过一会儿又好了"。
+        // 版本比对转后台：有变更再刷新缓存，不影响本次打开（对齐 Camstar 直开节奏）。
+        if (menusReady) {
+          const showError = err => {
+            this.$message.error(typeof err === 'string' ? err : (err.message || '进入业务系统失败'))
+          }
+          const afterPush = () => {
+            this.$store.dispatch('portal/refreshSubSystemIfChanged', openClientId).catch(() => {})
+          }
+          const needShell = this.$store.state.portal.currentSystem !== openClientId
+            || !(this.$store.state.portal.pathLinkMap && Object.keys(this.$store.state.portal.pathLinkMap).length)
+          if (needShell) {
+            return this.$store.dispatch('portal/activateSubSystemShell', { clientId: openClientId })
+              .then(() => pushWithTitle())
+              .then(afterPush)
+              .catch(showError)
+          }
+          return Promise.resolve(pushWithTitle()).then(afterPush).catch(showError)
         }
+
+        // 若依：菜单未就绪时后台拉，不锁全屏；业务区由 InnerLink 自己提示
+        this.$message({ message: '正在准备业务系统菜单…', type: 'info', duration: 1500 })
         this.$store.dispatch('portal/ensureSubSystemReady', {
-          clientId,
+          clientId: openClientId,
           skipSso: false
         })
           .then(() => {
-            if (this.$store.state.portal.currentSystem !== clientId) {
+            if (this.$store.state.portal.currentSystem !== openClientId) {
               return
             }
             return pushWithTitle()
@@ -629,17 +790,20 @@ export default {
       }
       window.requestAnimationFrame(() => {
         document.querySelectorAll('iframe.inner-link__frame').forEach(frame => {
-          // 隐藏的保温帧跳过，等它再次可见时高度自然按新容器渲染
+          const root = frame.closest('.inner-link-root')
+          // 只抖当前页，且只抖宽度。隐藏页一律不动：
+          // 1px 高度变化会让跨域子页异步重排，切到前台时正好表现为“抖一下”；
+          // 已打开页切回抖动就是这里造成的。
+          if (!root || !root.classList.contains('is-front')) {
+            return
+          }
           if (frame.offsetWidth <= 0 || frame.offsetHeight <= 0) {
             return
           }
           const originalW = frame.style.width
-          const originalH = frame.style.height
           frame.style.width = 'calc(100% - 1px)'
-          frame.style.height = 'calc(100% - 1px)'
           window.requestAnimationFrame(() => {
             frame.style.width = originalW || ''
-            frame.style.height = originalH || ''
           })
         })
       })
@@ -649,102 +813,26 @@ export default {
      * 页面稳定后补一次抖动，确保子系统按最终高度重算
      */
     scheduleInitialIframeNudge() {
+      // 只补一次：1500ms 的二次抖动会落在页面已稳定之后，表现为“过一会儿又闪一下”
       window.setTimeout(() => this.nudgeVisibleIframes(), 600)
-      window.setTimeout(() => this.nudgeVisibleIframes(), 1500)
-    },
-    /** dock 占位变化后防抖补抖（与 setupDockSpaceSync / padding transition 联动） */
-    scheduleDockSpaceIframeNudge() {
-      if (this._dockSpaceNudgeTimer) {
-        clearTimeout(this._dockSpaceNudgeTimer)
-      }
-      // 新浏览器 320ms 等 padding 过渡结束；旧 Chromium（legacy-anim）过渡已禁、dock 瞬时到位，
-      // 短延迟等 layout 落定即可，避免 320ms 后突然补抖造成"又一顿"
-      const delay = document.documentElement.classList.contains('legacy-anim') ? 60 : 320
-      this._dockSpaceNudgeTimer = window.setTimeout(() => {
-        this._dockSpaceNudgeTimer = null
-        this.nudgeVisibleIframes()
-      }, delay)
-    },
-    /**
-     * 实测 dock 占位，替代 CSS 里 100/116/44 的估算值：
-     * --dock-space 由 dock 真实渲染位置（顶边到视口底的距离）逐帧写回，
-     * 展开/收起动画的中间态、未来改 dock 样式都不会再出现"预留不足 → 内容被盖"。
-     * ResizeObserver 不支持时静默退回 CSS 估算值。
-     */
-    setupDockSpaceSync() {
-      if (typeof ResizeObserver === 'undefined') {
-        return
-      }
-      const shellEl = this.$el
-      const dockEl = shellEl.querySelector('.portal-taskbar')
-      if (!shellEl || !dockEl) {
-        return
-      }
-      const sync = () => {
-        const rect = dockEl.getBoundingClientRect()
-        if (!rect || rect.height <= 0) {
-          return
-        }
-        // dock 顶边到视口底 + 安全缝（含阴影/亚像素）；不低于 24px 兜底
-        const space = Math.max(24, Math.ceil(window.innerHeight - rect.top) + 10)
-        // 同值短路：写 --dock-space 会改 padding 触发 layout，若再次触发 observer 回调
-        // 会形成回环；值未变时直接跳过，也免去一次全页重排
-        if (this._lastDockSpace === space) {
-          return
-        }
-        this._lastDockSpace = space
-        shellEl.style.setProperty('--dock-space', space + 'px')
-        // 跨域 iframe（Camstar 等）收不到 resize：占位变化后必须补抖，否则仍按旧高度渲染、底栏文字被裁
-        this.scheduleDockSpaceIframeNudge()
-      }
-      this._dockSpaceObserver = new ResizeObserver(sync)
-      this._dockSpaceObserver.observe(dockEl)
-      this._dockSpaceSync = sync
-      window.addEventListener('resize', this._dockSpaceSync)
-      // padding-bottom 有 transition：动画结束后再抖一次，避免中间态高度错误被业务页锁死
-      this._dockSpaceTransitionEnd = (ev) => {
-        if (ev.target === shellEl && ev.propertyName === 'padding-bottom') {
-          this.scheduleDockSpaceIframeNudge()
-        }
-      }
-      shellEl.addEventListener('transitionend', this._dockSpaceTransitionEnd)
-      // 首帧 + 动画期间 ResizeObserver 会连续回调，padding 的 transition 让跟随保持平滑
-      sync()
-    },
-    teardownDockSpaceSync() {
-      if (this._dockSpaceObserver) {
-        this._dockSpaceObserver.disconnect()
-        this._dockSpaceObserver = null
-      }
-      if (this._dockSpaceSync) {
-        window.removeEventListener('resize', this._dockSpaceSync)
-        this._dockSpaceSync = null
-      }
-      if (this._dockSpaceTransitionEnd && this.$el) {
-        this.$el.removeEventListener('transitionend', this._dockSpaceTransitionEnd)
-        this._dockSpaceTransitionEnd = null
-      }
-      if (this._dockSpaceNudgeTimer) {
-        clearTimeout(this._dockSpaceNudgeTimer)
-        this._dockSpaceNudgeTimer = null
-      }
-      this._lastDockSpace = null
-      if (this.$el) {
-        this.$el.style.removeProperty('--dock-space')
-      }
     },
     goHome() {
       // 已在首页：仍要关抽屉、清 workbench query，避免「点了首页还停在全部应用/待办态」
       this.drawerVisible = false
       this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
     },
-    loadTodoCount() {
+    loadTodoCount(force = false) {
       if (!checkPermi(['bpm:task:query'])) {
         this.todoCount = 0
         return Promise.resolve()
       }
+      // 路由切换频繁，30s 内不重复打接口；切回标签页/首次进入用 force 刷新
+      if (!force && this._todoLoadedAt && Date.now() - this._todoLoadedAt < 30000) {
+        return Promise.resolve(this.todoCount)
+      }
       return getTodoTaskPage({ pageNo: 1, pageSize: 1 }, true).then(response => {
         this.todoCount = (response.data && response.data.total) || 0
+        this._todoLoadedAt = Date.now()
       }).catch(() => {
         this.todoCount = 0
       })
@@ -807,9 +895,11 @@ $muted: #5d718c;
 $canvas: #eaf4fc;
 
 .jump-portal-shell {
-  /* dock 为 fixed 悬浮：高 82px + 底边距 18px = 实占 100px，内容须预留完整空间，
-     否则 iframe 页底部会被 dock 盖住 */
-  --dock-space: 100px;
+  /* dock 为 fixed 悬浮：高 82px + 底边距 18px + 10px 安全缝 = 实占 110px；
+     收起态 24px + 18px + 10px = 52px。
+     这里必须和 ResizeObserver 的测量公式一致：以前写 100/44，观察器随后写回
+     110/52，会在切页后把内容再往下撑 8~10px（表现为闪一下再向下伸展）。 */
+  --dock-space: 110px;
   display: flex;
   height: 100vh;
   min-height: 0;
@@ -824,21 +914,33 @@ $canvas: #eaf4fc;
     radial-gradient(circle at 58% 100%, rgba(255, 192, 75, .11), transparent 24%),
     $canvas;
   font-family: "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+  transition: none;
+}
+
+.jump-portal-shell.dock-animating {
   transition: padding-bottom .26s cubic-bezier(.16, 1, .3, 1);
 }
 
 .jump-portal-shell.dock-expanded {
-  --dock-space: 116px;
+  --dock-space: 110px;
 }
 
-/* 业务页：dock 默认收成小把手（24px+边距14px），内容只预留把手空间，给页面让高度；
-   点把手临时展开时仍按完整高度预留 */
+/* 路由驱动收起时瞬时到位，勿做 padding 过渡（进业务页页面闪一下） */
+.jump-portal-shell.no-anim {
+  transition: none !important;
+}
+
+/* 业务页：dock 收起/展开都不改变内容高度（52px），底栏浮在页面之上。
+   用 !important 是为了盖住历史版本可能残留的内联 --dock-space；
+   否则展开底栏时 iframe 视口会缩 58px，Camstar 的表格/滚动条会重排。 */
 .jump-portal-shell.in-business {
-  --dock-space: 44px;
+  --dock-space: 52px !important;
+  padding-bottom: 52px !important;
 }
 
 .jump-portal-shell.in-business.dock-expanded {
-  --dock-space: 116px;
+  --dock-space: 52px !important;
+  padding-bottom: 52px !important;
 }
 
 button,
@@ -1047,8 +1149,10 @@ button { color: inherit; }
   flex-direction: column;
   overflow-x: hidden;
   overflow-y: auto;
+  /* 页面内容异步撑高时不要触发浏览器滚动锚定，否则会整体往上/下跳 */
+  overflow-anchor: none;
   -webkit-overflow-scrolling: touch;
-  scroll-padding-bottom: var(--dock-space, 100px);
+  scroll-padding-bottom: var(--dock-space, 110px);
 }
 .workspace-content > .app-main {
   flex: 1 1 auto;
@@ -1076,8 +1180,8 @@ button { color: inherit; }
 }
 
 @media (max-width: 820px) {
-  .jump-portal-shell { --dock-space: 100px; padding: 12px 12px var(--dock-space); }
-  .jump-portal-shell.dock-expanded { --dock-space: 116px; }
+  .jump-portal-shell { --dock-space: 102px; padding: 12px 12px var(--dock-space); }
+  .jump-portal-shell.dock-expanded { --dock-space: 102px; }
   .brand-copy strong { font-size: 17px; }
 }
 

@@ -18,6 +18,9 @@ public class SubSystemRolePageReqVO extends PageParam {
     @Schema(description = "外部系统 ID", example = "1")
     private Long subSystemId;
 
+    @Schema(description = "车间编号（按车间维度筛选）", example = "5501")
+    private String workshopCode;
+
     @Schema(description = "角色名称", example = "SCADA管理员")
     private String name;
 

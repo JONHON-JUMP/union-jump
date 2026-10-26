@@ -97,6 +97,14 @@
 
       </el-table-column>
 
+      <el-table-column label="车间维度" align="center" prop="workshopScopeEnabled" width="100">
+        <template v-slot="scope">
+          <el-tag :type="scope.row.workshopScopeEnabled ? 'warning' : 'info'" size="mini">
+            {{ scope.row.workshopScopeEnabled ? '开启' : '关闭' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+
       <el-table-column label="创建时间" align="center" prop="createTime" width="180">
 
         <template v-slot="scope">
@@ -174,11 +182,21 @@
 
         </el-form-item>
 
+        <el-form-item label="车间维度" prop="workshopScopeEnabled">
+          <el-radio-group v-model="form.workshopScopeEnabled">
+            <el-radio :label="false">关闭</el-radio>
+            <el-radio :label="true">开启</el-radio>
+          </el-radio-group>
+          <div class="form-item-tip">
+            关闭：一个系统一个入口（如制造二部MES）。开启：一个系统下多个车间各自入口与角色（如环控5500~5503）；分配角色时角色须带车间编号。
+          </div>
+        </el-form-item>
+
       </el-form>
 
       <div slot="footer" class="dialog-footer">
 
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
 
         <el-button @click="cancel">取 消</el-button>
 
@@ -253,6 +271,8 @@ export default {
       },
 
       form: {},
+      // 提交中：防双击重复创建
+      submitting: false,
 
       rules: {
         clientId: [
@@ -290,9 +310,15 @@ export default {
 
     getList() {
 
+      const seq = (this._listSeq = (this._listSeq || 0) + 1)
+
       this.loading = true
 
       getSubSystemPage(this.queryParams).then(res => {
+
+        if (seq !== this._listSeq) {
+          return
+        }
 
         this.systemList = res.data.list || []
 
@@ -300,15 +326,18 @@ export default {
 
       }).catch(() => {
 
-        this.systemList = []
+        if (seq === this._listSeq) {
+          this.systemList = []
+          this.total = 0
+        }
 
-        this.total = 0
-
-        this.$modal.msgError('加载业务系统列表失败，请重试')
+        // 加载失败（含切页主动取消）由请求拦截器统一处理
 
       }).finally(() => {
 
-        this.loading = false
+        if (seq === this._listSeq) {
+          this.loading = false
+        }
 
       })
 
@@ -344,7 +373,8 @@ export default {
         description: undefined,
         systemUrl: undefined,
         systemIcon: undefined,
-        status: CommonStatusEnum.ENABLE
+        status: CommonStatusEnum.ENABLE,
+        workshopScopeEnabled: false
 
       }
 
@@ -380,7 +410,8 @@ export default {
           description: res.data.description,
           systemUrl: res.data.systemUrl,
           systemIcon: res.data.systemIcon,
-          status: res.data.status
+          status: res.data.status,
+          workshopScopeEnabled: !!res.data.workshopScopeEnabled
         }
         this.open = true
         this.title = '修改业务系统'
@@ -391,33 +422,25 @@ export default {
     },
 
     submitForm() {
-
+      if (this.submitting) {
+        return
+      }
       this.$refs.form.validate(valid => {
-
         if (!valid) {
-
           return
-
         }
-
+        this.submitting = true
         const request = this.form.id ? updateSubSystem : createSubSystem
-
         request(this.form).then(() => {
-
           this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
-
           this.open = false
-
           this.getList()
-
         }).catch(() => {
-
-          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
-
+          // 具体原因由请求拦截器提示（如 clientId 重复），不再叠加通用 toast
+        }).finally(() => {
+          this.submitting = false
         })
-
       })
-
     },
 
     handleDelete(row) {
@@ -427,6 +450,10 @@ export default {
         return deleteSubSystem(row.id)
 
       }).then(() => {
+
+        if (this.systemList && this.systemList.length === 1 && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
 
         this.$modal.msgSuccess('删除成功')
 
@@ -443,6 +470,12 @@ export default {
         return deleteSubSystemList(this.checkedIds)
 
       }).then(() => {
+
+        const removing = (this.checkedIds || []).length
+
+        if (this.systemList && this.systemList.length <= removing && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
 
         this.$modal.msgSuccess('删除成功')
 

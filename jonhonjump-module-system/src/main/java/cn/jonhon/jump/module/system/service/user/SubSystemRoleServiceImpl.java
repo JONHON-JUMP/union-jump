@@ -14,8 +14,14 @@ import cn.jonhon.jump.module.system.dal.mysql.user.*;
 import cn.jonhon.jump.module.system.enums.permission.DataScopeEnum;
 import cn.jonhon.jump.module.system.enums.permission.MenuTypeEnum;
 import cn.jonhon.jump.module.system.enums.permission.RoleTypeEnum;
+import lombok.extern.slf4j.Slf4j;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import cn.jonhon.jump.module.system.framework.subsystemapi.ApiEndpointSpecs;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.validation.annotation.Validated;
 
 import javax.annotation.Resource;
@@ -23,6 +29,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -30,13 +37,16 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import static cn.jonhon.jump.framework.common.exception.enums.GlobalErrorCodeConstants.BAD_REQUEST;
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception0;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertMap;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertSet;
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.*;
 
 @Service
 @Validated
+@Slf4j
 public class SubSystemRoleServiceImpl implements SubSystemRoleService {
 
     @Resource
@@ -62,14 +72,31 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     @Resource
     private SubSystemApiConfigService subSystemApiConfigService;
     @Resource
-    private SubSystemWorkshopService subSystemWorkshopService;
+    private SubSystemAccessService subSystemAccessService;
+    @Resource
+    private PlatformTransactionManager transactionManager;
+    @Resource
+    private SubSystemEmployeeService subSystemEmployeeService;
+    @Resource
+    private SubSystemApiConfigMapper subSystemApiConfigMapper;
+    @Resource
+    private SubSystemApiEndpointMapper subSystemApiEndpointMapper;
+    @Resource
+    private SubSystemWorkshopMapper subSystemWorkshopMapper;
+    @Resource
+    private LeafApiBindingService leafApiBindingService;
 
     @Override
     public PageResult<SubSystemRoleRespVO> getSubSystemRolePage(SubSystemRolePageReqVO pageReqVO) {
+        // 可管系统范围：受限时强制只查授权系统（null=不受限）
+        java.util.Set<Long> allowedSubSystemIds = subSystemAccessService.getAllowedSubSystemIds(
+                cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils.getLoginUserId());
         if (pageReqVO.getSubSystemId() != null) {
             validateSubSystemExists(pageReqVO.getSubSystemId());
+        } else if (allowedSubSystemIds != null && allowedSubSystemIds.isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), 0L);
         }
-        PageResult<SubSystemRoleDO> pageResult = subSystemRoleMapper.selectPage(pageReqVO);
+        PageResult<SubSystemRoleDO> pageResult = subSystemRoleMapper.selectPage(pageReqVO, allowedSubSystemIds);
         return new PageResult<>(buildRespList(pageResult.getList()), pageResult.getTotal());
     }
 
@@ -80,77 +107,87 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     }
 
     @Override
-    public Long createSubSystemRole(SubSystemRoleSaveReqVO createReqVO) {
+    public SubSystemRoleCreateRespVO createSubSystemRole(SubSystemRoleSaveReqVO createReqVO) {
         validateSubSystemExists(createReqVO.getSubSystemId());
         boolean syncToExternal = Boolean.TRUE.equals(createReqVO.getSyncToExternal());
         String roleName = StrUtil.trim(createReqVO.getName());
-        String workshopCode = resolveWorkshopCode(createReqVO.getSubSystemId(), createReqVO.getWorkshopCode(), roleName);
-        if (syncToExternal) {
-            if (StrUtil.isBlank(workshopCode)) {
-                throw exception(SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED);
-            }
-            Long apiSubSystemId = createReqVO.getApiSubSystemId();
-            if (apiSubSystemId == null || apiSubSystemId <= 0) {
-                // 未显式指定时，兼容旧调用：用本地角色所属系统
-                apiSubSystemId = createReqVO.getSubSystemId();
-            }
-            // 同步时：本地角色名统一为 车间编号_角色名称（输入已带此前缀则不再重复拼接）
-            roleName = buildExternalRoleName(workshopCode, roleName);
-            createReqVO.setName(roleName);
-            validateRoleDuplicate(createReqVO.getSubSystemId(), roleName, createReqVO.getCode(), null);
-
-            SubSystemRoleDO role = BeanUtils.toBean(createReqVO, SubSystemRoleDO.class);
-            role.setName(roleName);
-            role.setType(RoleTypeEnum.CUSTOM.getType());
-            role.setDataScope(DataScopeEnum.ALL.getScope());
-            role.setMenuCheckStrictly(1);
-            role.setDeptCheckStrictly(1);
-            role.setRoleRegistered("0");
-            subSystemRoleMapper.insert(role);
-
-            try {
-                subSystemApiConfigService.pushExternalRoleCreate(apiSubSystemId, workshopCode, roleName);
-                markRoleRegistered(role.getId(), "1");
-            } catch (RuntimeException ex) {
-                throw ex;
-            }
-            return role.getId();
+        String workshopCode = acceptWorkshopCode(createReqVO.getSubSystemId(),
+                resolveWorkshopCode(createReqVO.getSubSystemId(),
+                        StrUtil.trimToNull(createReqVO.getWorkshopCode()), null, roleName),
+                syncToExternal);
+        createReqVO.setWorkshopCode(workshopCode);
+        if (!syncToExternal) {
+            String localName = roleName;
+            return new TransactionTemplate(transactionManager).execute(status ->
+                    insertLocalRole(createReqVO, localName));
         }
-        validateRoleDuplicate(createReqVO.getSubSystemId(), roleName, createReqVO.getCode(), null);
-
-        SubSystemRoleDO role = BeanUtils.toBean(createReqVO, SubSystemRoleDO.class);
-        role.setName(roleName);
-        role.setType(RoleTypeEnum.CUSTOM.getType());
-        role.setDataScope(DataScopeEnum.ALL.getScope());
-        role.setMenuCheckStrictly(1);
-        role.setDeptCheckStrictly(1);
-        role.setRoleRegistered("0");
-        subSystemRoleMapper.insert(role);
-        return role.getId();
+        Long apiSubSystemId = createReqVO.getApiSubSystemId();
+        if (apiSubSystemId == null || apiSubSystemId <= 0) {
+            apiSubSystemId = leafApiBindingService.requireApiSubSystemId(
+                    createReqVO.getSubSystemId(), workshopCode,
+                    cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum.ROLE_CREATE);
+        }
+        roleName = buildExternalRoleName(workshopCode, roleName);
+        assertRoleNameLength(roleName);
+        createReqVO.setName(roleName);
+        String externalName = roleName;
+        Long resolvedApiId = apiSubSystemId;
+        // 外部查询不依赖本地行：同名或查失败时还没落库，避免「失败但已建」再点一次撞重名
+        validateRoleDuplicate(createReqVO.getSubSystemId(), externalName, createReqVO.getCode(), null);
+        assertExternalRoleNameFree(resolvedApiId, workshopCode, externalName, false);
+        Long roleId = new TransactionTemplate(transactionManager).execute(status ->
+                insertLocalRole(createReqVO, externalName).getId());
+        try {
+            subSystemApiConfigService.pushExternalRoleCreate(resolvedApiId, workshopCode, externalName);
+        } catch (RuntimeException e) {
+            return new SubSystemRoleCreateRespVO().setId(roleId).setWarning(
+                    "本地角色已保存，但推送到 Camstar 失败：" + e.getMessage()
+                            + "。请到列表中重新注册，不要再次新建。");
+        }
+        markRoleRegistered(roleId, "1");
+        String warning = storeExternalRoleId(roleId, resolvedApiId, workshopCode, externalName);
+        return new SubSystemRoleCreateRespVO().setId(roleId).setWarning(warning);
     }
 
     @Override
     public void updateSubSystemRole(SubSystemRoleSaveReqVO updateReqVO) {
         SubSystemRoleDO role = validateSubSystemRoleExists(updateReqVO.getId());
-        validateSubSystemExists(updateReqVO.getSubSystemId());
-        validateRoleDuplicate(updateReqVO.getSubSystemId(), updateReqVO.getName(), updateReqVO.getCode(), updateReqVO.getId());
+        updateReqVO.setSubSystemId(role.getSubSystemId());
+        validateSubSystemExists(role.getSubSystemId());
+        validateRoleDuplicate(role.getSubSystemId(), updateReqVO.getName(), updateReqVO.getCode(), updateReqVO.getId());
+        String workshopCode = acceptWorkshopCode(role.getSubSystemId(),
+                StrUtil.trimToNull(updateReqVO.getWorkshopCode()), false);
+        String oldWorkshop = StrUtil.trimToNull(role.getWorkshopCode());
+        if (!Objects.equals(oldWorkshop, workshopCode)) {
+            List<SubSystemUserRoleDO> assigned = subSystemUserRoleMapper.selectListByRoleId(role.getId());
+            if (CollUtil.isNotEmpty(assigned)) {
+                throw exception0(BAD_REQUEST.getCode(),
+                        "该角色已分配给 " + assigned.size() + " 个用户，修改车间后这些人会从对应门户入口消失。请先取消分配再改车间。");
+            }
+        }
 
         SubSystemRoleDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemRoleDO.class);
         updateObj.setSubSystemId(role.getSubSystemId());
+        updateObj.setWorkshopCode(workshopCode);
         if (StrUtil.isNotBlank(updateReqVO.getRoleRegistered())) {
             updateObj.setRoleRegistered("1".equals(updateReqVO.getRoleRegistered()) ? "1" : "0");
         } else {
             // 导入等未传字段时不覆盖原注册状态
             updateObj.setRoleRegistered(null);
         }
-        subSystemRoleMapper.updateById(updateObj);
+        try {
+            subSystemRoleMapper.updateById(updateObj);
+        } catch (BadSqlGrammarException ex) {
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
         subSystemPermissionContextService.evictByRoleId(updateReqVO.getId());
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public void deleteSubSystemRole(Long id) {
-        validateSubSystemRoleExists(id);
+        SubSystemRoleDO role = validateSubSystemRoleExists(id);
+        validateRoleDeletable(role);
         validateRoleNotAssigned(id);
         subSystemRoleMapper.deleteById(id);
         subSystemRoleMenuMapper.deleteListByRoleId(id);
@@ -161,7 +198,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     @Transactional(rollbackFor = Exception.class)
     public void deleteSubSystemRoleList(List<Long> ids) {
         ids.forEach(id -> {
-            validateSubSystemRoleExists(id);
+            SubSystemRoleDO role = validateSubSystemRoleExists(id);
+            validateRoleDeletable(role);
             validateRoleNotAssigned(id);
         });
         subSystemRoleMapper.deleteByIds(ids);
@@ -188,33 +226,302 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     }
 
     @Override
-    public void registerSubSystemRole(Long id, SubSystemRoleRegisterReqVO reqVO) {
+    public String registerSubSystemRole(Long id, SubSystemRoleRegisterReqVO reqVO) {
         SubSystemRoleDO role = validateSubSystemRoleExists(id);
         if ("1".equals(role.getRoleRegistered())) {
             throw exception(SUB_SYSTEM_ROLE_ALREADY_REGISTERED);
         }
-        String workshopCode = resolveWorkshopCode(role.getSubSystemId(),
-                reqVO != null ? reqVO.getWorkshopCode() : null, role.getName());
+        String workshopCode = acceptWorkshopCode(role.getSubSystemId(), resolveWorkshopCode(
+                role.getSubSystemId(),
+                reqVO != null ? reqVO.getWorkshopCode() : null,
+                role.getWorkshopCode(), role.getName()), true);
         String roleName = StrUtil.trim(role.getName());
-        if (StrUtil.isBlank(workshopCode)) {
-            throw exception(SUB_SYSTEM_ROLE_NAME_WORKSHOP_INVALID);
-        }
         Long apiSubSystemId = reqVO != null ? reqVO.getApiSubSystemId() : null;
         if (apiSubSystemId == null || apiSubSystemId <= 0) {
-            apiSubSystemId = role.getSubSystemId();
+            apiSubSystemId = leafApiBindingService.requireApiSubSystemId(
+                    role.getSubSystemId(), workshopCode,
+                    cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum.ROLE_CREATE);
         }
-        // 名称尚未带车间前缀时，补全本地名再推送，与新建勾选同步规则一致
         String externalName = buildExternalRoleName(workshopCode, roleName);
+        assertRoleNameLength(externalName);
         if (!Objects.equals(externalName, roleName)) {
             validateRoleDuplicate(role.getSubSystemId(), externalName, role.getCode(), role.getId());
-            SubSystemRoleDO rename = new SubSystemRoleDO();
-            rename.setId(role.getId());
-            rename.setName(externalName);
-            subSystemRoleMapper.updateById(rename);
-            roleName = externalName;
         }
-        subSystemApiConfigService.pushExternalRoleCreate(apiSubSystemId, workshopCode, roleName);
+        // 外部同名或查询失败时不改本地角色名
+        assertExternalRoleNameFree(apiSubSystemId, workshopCode, externalName, true);
+        new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+            SubSystemRoleDO patch = new SubSystemRoleDO();
+            patch.setId(role.getId());
+            patch.setWorkshopCode(workshopCode);
+            if (!Objects.equals(externalName, roleName)) {
+                patch.setName(externalName);
+            }
+            subSystemRoleMapper.updateById(patch);
+        });
+        subSystemApiConfigService.pushExternalRoleCreate(apiSubSystemId, workshopCode, externalName);
         markRoleRegistered(role.getId(), "1");
+        String warning = storeExternalRoleId(role.getId(), apiSubSystemId, workshopCode, externalName);
+        subSystemPermissionContextService.evictByRoleId(role.getId());
+        return warning;
+    }
+
+    /**
+     * 推送成功后回查外部 roleId 并落库。
+     * 查不到不回滚：对方角色已经建出，本地保留并标记已注册，外部编号留空，由管理员用【关联外部】补绑。
+     *
+     * @return 需要提示管理员补绑时的文案；已写入 roleId 时返回 null
+     */
+    private String storeExternalRoleId(Long roleId, Long apiSubSystemId, String workshopCode, String externalRoleName) {
+        Map<String, String> nameToId;
+        try {
+            nameToId = lookupExternalRoles(apiSubSystemId, workshopCode, externalRoleName);
+        } catch (RuntimeException e) {
+            log.warn("[storeExternalRoleId] roleId={} 回查外部 roleId 失败", roleId, e);
+            return "Camstar 角色【" + externalRoleName + "】已创建，但没有查回 roleId："
+                    + e.getMessage() + "。本地角色已保留并标记为已注册，请用【关联外部】按角色名补绑";
+        }
+        String externalRoleId = findExternalRoleId(nameToId, externalRoleName);
+        if (StrUtil.isBlank(externalRoleId)) {
+            return "Camstar 角色【" + externalRoleName + "】已创建，但按角色名没有查到 roleId。本地角色已保留并标记为已注册，请用【关联外部】按角色名补绑";
+        }
+        SubSystemRoleDO updateObj = new SubSystemRoleDO();
+        updateObj.setId(roleId);
+        updateObj.setExternalRoleId(externalRoleId.trim());
+        updateObj.setRoleRegistered("1");
+        subSystemRoleMapper.updateById(updateObj);
+        return null;
+    }
+
+    @Override
+    public List<SubSystemExternalRoleRespVO> getExternalRoleList(Long apiSubSystemId, String workshopCode, String roleName) {
+        Map<String, String> nameToId = lookupExternalRoles(apiSubSystemId,
+                StrUtil.trimToNull(workshopCode), StrUtil.trimToNull(roleName));
+        return nameToId.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> new SubSystemExternalRoleRespVO()
+                        .setRoleName(entry.getKey())
+                        .setRoleId(entry.getValue()))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * 车间列表 + 按角色名全系统补查。只按车间拉列表时，对方若截断分页，新建角色会落在页外；
+     * 按角色名再查一次（不带车间），与接口管理按条件查询同一路，保证目标角色在结果里。
+     */
+    private Map<String, String> lookupExternalRoles(Long apiSubSystemId, String workshopCode, String roleName) {
+        Map<String, String> nameToId = new LinkedHashMap<>();
+        RuntimeException workshopError = null;
+        if (StrUtil.isNotBlank(workshopCode)) {
+            try {
+                nameToId.putAll(subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, workshopCode, null));
+            } catch (RuntimeException e) {
+                workshopError = e;
+                log.warn("[lookupExternalRoles] 按车间查询外部角色失败，继续按角色名补查。workshop={}", workshopCode, e);
+            }
+        }
+        if (StrUtil.isNotBlank(roleName)) {
+            RuntimeException nameError = null;
+            try {
+                mergeNamedRoles(nameToId,
+                        subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, null, roleName), roleName);
+            } catch (RuntimeException e) {
+                nameError = e;
+                log.warn("[lookupExternalRoles] 按角色名查询外部角色失败。roleName={}", roleName, e);
+            }
+            // 对方角色名是 车间_角色名，本地若还是短名，再按完整名查一次（精确条件，不靠车间列表）
+            if (StrUtil.isNotBlank(workshopCode) && !roleName.startsWith(workshopCode.trim() + "_")) {
+                String prefixed = workshopCode.trim() + "_" + roleName.trim();
+                try {
+                    mergeNamedRoles(nameToId,
+                            subSystemApiConfigService.queryExternalRoleIds(apiSubSystemId, null, prefixed), prefixed);
+                } catch (RuntimeException e) {
+                    if (nameError == null) {
+                        nameError = e;
+                    }
+                    log.warn("[lookupExternalRoles] 按完整角色名查询外部角色失败。roleName={}", prefixed, e);
+                }
+            }
+            if (nameToId.isEmpty() && nameError != null) {
+                throw workshopError != null ? workshopError : nameError;
+            }
+        }
+        if (nameToId.isEmpty() && workshopError != null) {
+            throw workshopError;
+        }
+        return nameToId;
+    }
+
+    /** 角色名补查只并入同名角色，避免对方忽略 roleName、把全系统角色都灌进下拉。 */
+    private static void mergeNamedRoles(Map<String, String> target, Map<String, String> queried, String roleName) {
+        if (queried == null || queried.isEmpty() || StrUtil.isBlank(roleName)) {
+            return;
+        }
+        String wanted = roleName.trim();
+        for (Map.Entry<String, String> entry : queried.entrySet()) {
+            if (entry.getKey() != null && entry.getKey().trim().equalsIgnoreCase(wanted)
+                    && StrUtil.isNotBlank(entry.getValue())) {
+                target.putIfAbsent(entry.getKey().trim(), entry.getValue().trim());
+            }
+        }
+    }
+
+    @Override
+    public void bindExternalRole(Long id, String externalRoleId) {
+        SubSystemRoleDO role = validateSubSystemRoleExists(id);
+        String roleId = StrUtil.trimToNull(externalRoleId);
+        if (roleId == null) {
+            // 先按仍在管辖范围内的角色，把对方人员上的该角色卸下，再清本地编号
+            detachExternalRoleFromUsers(role);
+        }
+        LambdaUpdateWrapper<SubSystemRoleDO> wrapper = new LambdaUpdateWrapper<SubSystemRoleDO>()
+                .eq(SubSystemRoleDO::getId, id)
+                .set(SubSystemRoleDO::getExternalRoleId, roleId)
+                .set(SubSystemRoleDO::getRoleRegistered, roleId != null ? "1" : "0");
+        subSystemRoleMapper.update(null, wrapper);
+    }
+
+    /**
+     * 解除关联前，把已注册人员在 Camstar 上的该角色卸下。
+     * 此时外部编号还在，同步仍把它算作 JUMP 管辖，不会被当成对方手工角色留下来。
+     */
+    private void detachExternalRoleFromUsers(SubSystemRoleDO role) {
+        if (role == null || StrUtil.isBlank(role.getExternalRoleId())) {
+            return;
+        }
+        List<SubSystemUserRoleDO> links = subSystemUserRoleMapper.selectListByRoleId(role.getId());
+        if (CollUtil.isEmpty(links)) {
+            return;
+        }
+        List<Long> userIds = links.stream().map(SubSystemUserRoleDO::getUserId).collect(Collectors.toList());
+        List<SubSystemUsersDO> users = subSystemUsersMapper.selectBatchIds(userIds).stream()
+                .filter(user -> "1".equals(user.getEmployeeRegistered()))
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(users)) {
+            return;
+        }
+        Long apiSubSystemId = resolveCamstarApiSubSystemId(role.getSubSystemId());
+        if (apiSubSystemId == null) {
+            throw exception0(BAD_REQUEST.getCode(),
+                    "已有人员使用该角色，但没有可用的 Camstar 人员接口，无法从对方系统卸下。"
+                            + "请先配置人员接口后再解除关联。");
+        }
+        for (SubSystemUsersDO user : users) {
+            String userCode = externalUserCode(user);
+            if (StrUtil.isBlank(userCode)) {
+                continue;
+            }
+            List<Long> keepRoleIds = subSystemUserRoleMapper.selectListByUserId(user.getId()).stream()
+                    .map(SubSystemUserRoleDO::getRoleId)
+                    .filter(roleId -> !Objects.equals(roleId, role.getId()))
+                    .collect(Collectors.toList());
+            if (CollUtil.isNotEmpty(keepRoleIds)) {
+                keepRoleIds = subSystemRoleMapper.selectListByIds(keepRoleIds).stream()
+                        .filter(item -> StrUtil.isNotBlank(item.getExternalRoleId()))
+                        .map(SubSystemRoleDO::getId)
+                        .collect(Collectors.toList());
+            }
+            subSystemEmployeeService.syncUserRoles(apiSubSystemId, role.getSubSystemId(), userCode, keepRoleIds);
+        }
+    }
+
+    private Long resolveCamstarApiSubSystemId(Long rosterSubSystemId) {
+        LinkedHashSet<Long> candidates = new LinkedHashSet<>();
+        if (rosterSubSystemId != null) {
+            candidates.add(rosterSubSystemId);
+        }
+        List<Long> roleCreateIds = subSystemApiEndpointMapper
+                .selectEnabledSubSystemIdsByPurpose(ApiEndpointSpecs.ROLE_CREATE);
+        if (CollUtil.isNotEmpty(roleCreateIds)) {
+            candidates.addAll(roleCreateIds);
+        }
+        List<Long> createIds = subSystemApiEndpointMapper
+                .selectEnabledSubSystemIdsByPurpose(ApiEndpointSpecs.CREATE);
+        if (CollUtil.isNotEmpty(createIds)) {
+            candidates.addAll(createIds);
+        }
+        for (Long candidate : candidates) {
+            SubSystemApiConfigDO config = subSystemApiConfigMapper.selectBySubSystemId(candidate);
+            if (config != null && "camstar".equalsIgnoreCase(StrUtil.blankToDefault(config.getApiType(), ""))) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+
+    private static String externalUserCode(SubSystemUsersDO user) {
+        String workshop = StrUtil.trim(user.getWorkshopId());
+        String bare = StrUtil.blankToDefault(user.getUsername(), "").trim();
+        if ("1".equals(user.getUsernameWithWorkshop()) && StrUtil.isNotBlank(workshop)
+                && !bare.startsWith(workshop + "_")) {
+            return workshop + "_" + bare;
+        }
+        return bare;
+    }
+
+    /** 对方已有同名角色，或暂时查不到对方角色时，中止推送。 */
+    private void assertExternalRoleNameFree(Long apiSubSystemId, String workshopCode, String roleName,
+                                            boolean alreadyLocal) {
+        Map<String, String> nameToId;
+        try {
+            // 车间列表 + 按角色名全系统补查：只看车间列表时，截断会把已有同名角色漏掉
+            nameToId = lookupExternalRoles(apiSubSystemId, workshopCode, roleName);
+        } catch (RuntimeException ex) {
+            log.warn("[assertExternalRoleNameFree] 回查外部角色失败，已中止推送。roleName={}", roleName, ex);
+            String saved = alreadyLocal ? "本地角色已保留。" : "";
+            throw exception0(BAD_REQUEST.getCode(),
+                    saved + "无法确认 Camstar 是否已有同名角色【" + roleName + "】，已中止推送。请稍后重试。"
+                            + ex.getMessage());
+        }
+        if (StrUtil.isNotBlank(findExternalRoleId(nameToId, roleName))) {
+            String tip = alreadyLocal
+                    ? "Camstar 已存在同名角色【" + roleName + "】。本地角色已保留，请使用【关联外部】绑定，不要再次新建。"
+                    : "Camstar 已存在同名角色【" + roleName + "】。请先保存本地角色，再使用【关联外部】。";
+            throw exception0(BAD_REQUEST.getCode(), tip);
+        }
+    }
+
+    private SubSystemRoleCreateRespVO insertLocalRole(SubSystemRoleSaveReqVO createReqVO, String roleName) {
+        validateRoleDuplicate(createReqVO.getSubSystemId(), roleName, createReqVO.getCode(), null);
+        SubSystemRoleDO role = BeanUtils.toBean(createReqVO, SubSystemRoleDO.class);
+        role.setName(roleName);
+        role.setType(RoleTypeEnum.CUSTOM.getType());
+        role.setDataScope(DataScopeEnum.ALL.getScope());
+        role.setMenuCheckStrictly(1);
+        role.setDeptCheckStrictly(1);
+        role.setRoleRegistered("0");
+        try {
+            subSystemRoleMapper.insert(role);
+        } catch (BadSqlGrammarException ex) {
+            // workshop_code 等新列未升级时报「表结构未升级」，比兜底的「系统异常」可排查
+            throw exception(SUB_SYSTEM_SCHEMA_OUTDATED);
+        }
+        return new SubSystemRoleCreateRespVO().setId(role.getId());
+    }
+
+    private static void assertRoleNameLength(String roleName) {
+        if (roleName != null && roleName.length() > 30) {
+            throw exception0(BAD_REQUEST.getCode(),
+                    "同步后的角色名【" + roleName + "】超过 30 个字符，请缩短角色名称");
+        }
+    }
+
+    /** 角色名匹配忽略首尾空格和大小写（Camstar 回查字段名不完全稳定） */
+    private static String findExternalRoleId(Map<String, String> nameToId, String roleName) {
+        if (nameToId == null || nameToId.isEmpty() || StrUtil.isBlank(roleName)) {
+            return null;
+        }
+        String direct = nameToId.get(roleName);
+        if (StrUtil.isNotBlank(direct)) {
+            return direct.trim();
+        }
+        String target = roleName.trim();
+        for (Map.Entry<String, String> entry : nameToId.entrySet()) {
+            if (entry.getKey() != null && entry.getKey().trim().equalsIgnoreCase(target)
+                    && StrUtil.isNotBlank(entry.getValue())) {
+                return entry.getValue().trim();
+            }
+        }
+        return null;
     }
 
     private void markRoleRegistered(Long id, String roleRegistered) {
@@ -224,16 +531,72 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         subSystemRoleMapper.updateById(updateObj);
     }
 
-    /** 车间优先：入参 > 角色名前缀 > 花名册系统推断（MES4200 → 4200） */
-    private String resolveWorkshopCode(Long subSystemId, String explicit, String roleName) {
+    /**
+     * 多叶子且这次是同步/注册时，车间必须是该系统的叶子。
+     * 没开车间维度允许空。填了编号则必须落在已启用的车间叶子上。
+     */
+    private String acceptWorkshopCode(Long subSystemId, String workshopCode, boolean requiredWhenMulti) {
+        String code = StrUtil.trimToNull(workshopCode);
+        List<SubSystemWorkshopDO> leaves = subSystemId == null
+                ? Collections.emptyList()
+                : subSystemWorkshopMapper.selectEnabledBySubSystemId(subSystemId);
+        SubSystemDO subSystem = subSystemId == null ? null : subSystemMapper.selectById(subSystemId);
+        boolean hasLeaves = leaves != null && !leaves.isEmpty();
+        boolean workshopScope = subSystem != null && subSystem.workshopScopeOn();
+        if (code == null) {
+            // 开了车间维度且已有叶子才要求填写；EAM 这类系统不必编一个编号
+            if (requiredWhenMulti && workshopScope && hasLeaves) {
+                throw exception(SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED);
+            }
+            return null;
+        }
+        if (CollUtil.isNotEmpty(leaves)) {
+            boolean known = false;
+            for (SubSystemWorkshopDO leaf : leaves) {
+                if (code.equals(StrUtil.trim(leaf.getWorkshopCode()))) {
+                    known = true;
+                    break;
+                }
+            }
+            if (!known) {
+                throw exception(SUB_SYSTEM_USER_WORKSHOP_LEAF_INVALID);
+            }
+        }
+        return code;
+    }
+
+    /**
+     * 显式车间、角色上已有车间优先。
+     * 名字里第一个下划线前的一段，只有确实是本系统已启用叶子时才当成车间，否则当没填。
+     */
+    private String resolveWorkshopCode(Long subSystemId, String explicit, String storedOnRole, String roleName) {
         if (StrUtil.isNotBlank(explicit)) {
             return explicit.trim();
         }
-        String fromName = parseWorkshopPrefix(roleName);
-        if (StrUtil.isNotBlank(fromName)) {
-            return fromName;
+        if (StrUtil.isNotBlank(storedOnRole)) {
+            return storedOnRole.trim();
         }
-        return subSystemWorkshopService.inferWorkshopCode(subSystemId);
+        String prefix = parseWorkshopPrefix(roleName);
+        if (StrUtil.isBlank(prefix) || !isEnabledLeaf(subSystemId, prefix)) {
+            return null;
+        }
+        return prefix;
+    }
+
+    private boolean isEnabledLeaf(Long subSystemId, String workshopCode) {
+        if (subSystemId == null || StrUtil.isBlank(workshopCode)) {
+            return false;
+        }
+        List<SubSystemWorkshopDO> leaves = subSystemWorkshopMapper.selectEnabledBySubSystemId(subSystemId);
+        if (CollUtil.isEmpty(leaves)) {
+            return false;
+        }
+        for (SubSystemWorkshopDO leaf : leaves) {
+            if (workshopCode.equals(StrUtil.trim(leaf.getWorkshopCode()))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 车间编号_短名；若已带此前缀则原样返回 */
@@ -310,7 +673,7 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
             Set<Long> validMenuIds = convertSet(menus, SubSystemMenuDO::getId);
             for (Long menuId : menuIds) {
                 if (!validMenuIds.contains(menuId)) {
-                    throw exception(SUB_SYSTEM_ROLE_NOT_EXISTS);
+                    throw exception(SUB_SYSTEM_MENU_NOT_EXISTS);
                 }
             }
         }
@@ -420,6 +783,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         if (subSystem == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统
+        subSystemAccessService.checkAccessible(subSystemId);
         return subSystem;
     }
 
@@ -428,10 +793,13 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         if (role == null) {
             throw exception(SUB_SYSTEM_ROLE_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能操作授权系统的角色
+        subSystemAccessService.checkAccessible(role.getSubSystemId());
         return role;
     }
 
     private void validateRoleDuplicate(Long subSystemId, String name, String code, Long id) {
+        rejectReservedRoleCode(code, id);
         SubSystemRoleDO role = subSystemRoleMapper.selectBySubSystemIdAndName(subSystemId, name);
         if (role != null && !ObjectUtil.equal(role.getId(), id)) {
             throw exception(SUB_SYSTEM_ROLE_NAME_DUPLICATE, name);
@@ -439,6 +807,32 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         role = subSystemRoleMapper.selectBySubSystemIdAndCode(subSystemId, code);
         if (role != null && !ObjectUtil.equal(role.getId(), id)) {
             throw exception(SUB_SYSTEM_ROLE_CODE_DUPLICATE, code);
+        }
+    }
+
+    /** admin / super_admin 会在子系统拿到全部权限，不能被新建或改占。已是该编码的角色允许原样保存。 */
+    private void rejectReservedRoleCode(String code, Long id) {
+        if (!"admin".equals(code) && !"super_admin".equals(code)) {
+            return;
+        }
+        if (id != null) {
+            SubSystemRoleDO current = subSystemRoleMapper.selectById(id);
+            if (current != null && code.equals(current.getCode())) {
+                return;
+            }
+        }
+        throw exception(ROLE_ADMIN_CODE_ERROR, code);
+    }
+
+    private void validateRoleDeletable(SubSystemRoleDO role) {
+        if (role == null) {
+            return;
+        }
+        if (RoleTypeEnum.SYSTEM.getType().equals(role.getType())) {
+            throw exception(ROLE_CAN_NOT_UPDATE_SYSTEM_TYPE_ROLE);
+        }
+        if ("1".equals(role.getRoleRegistered()) || StrUtil.isNotBlank(role.getExternalRoleId())) {
+            throw exception0(BAD_REQUEST.getCode(), "角色已在外部系统注册，不能删除。请先在对方系统删除或解除关联后再删");
         }
     }
 

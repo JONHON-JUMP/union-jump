@@ -13,9 +13,31 @@ public interface SubSystemUserQuickNavService {
     SubSystemUserQuickNavRespVO getUserQuickNav(Long userId, Long subSystemId);
 
     /**
+     * @param workshopCode 可选；MES 车间入口时只返回该车间角色可见的快捷导航
+     */
+    SubSystemUserQuickNavRespVO getUserQuickNav(Long userId, Long subSystemId, String workshopCode);
+
+    /**
      * 保存个人快捷导航，返回落库后的权威结果（含锁定项合并与 apps）
      */
     SubSystemUserQuickNavRespVO saveUserQuickNav(Long userId, Long subSystemId, List<Long> menuIds);
+
+    /**
+     * @param workshopCode 可选；多车间叶子各自保存，互不覆盖
+     */
+    SubSystemUserQuickNavRespVO saveUserQuickNav(Long userId, Long subSystemId, List<Long> menuIds,
+                                                 String workshopCode);
+
+    /**
+     * 单项加入个人快捷导航（增量：只插一行，不动其它项），返回落库后的权威结果。
+     * 星标开/关必须走增量接口，save 是全量覆盖语义，前端列表不完整时会把其它项全删。
+     */
+    SubSystemUserQuickNavRespVO addUserQuickNavMenu(Long userId, Long subSystemId, String workshopCode, Long menuId);
+
+    /**
+     * 单项移除个人快捷导航（增量：只删一行，不动其它项）；角色锁定默认项不移除。
+     */
+    SubSystemUserQuickNavRespVO removeUserQuickNavMenu(Long userId, Long subSystemId, String workshopCode, Long menuId);
 
     void deleteByMenuId(Long menuId);
 

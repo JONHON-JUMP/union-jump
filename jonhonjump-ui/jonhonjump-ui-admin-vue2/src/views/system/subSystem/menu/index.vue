@@ -188,7 +188,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item v-if="form.type !== MenuTypeEnum.BUTTON" label="路由地址" prop="path">
+            <el-form-item v-if="form.type !== MenuTypeEnum.BUTTON" label="路由地址" prop="path" :required="form.type === MenuTypeEnum.MENU">
               <el-input v-model="form.path" placeholder="完整 http 地址；hash 路由连同 # 一起填，如 http://192.168.240.123:8080/#/pageA" />
             </el-form-item>
           </el-col>
@@ -238,7 +238,7 @@
         </el-row>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
@@ -304,6 +304,7 @@ import { isExternal } from '@/utils/validate'
 import { flattenMenuTree, inheritedStyleId as resolveInheritedStyleId, isFirstLevelMenu as checkFirstLevelMenu } from '@/utils/menuStyleInherit'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
+import { escapeHtml } from '@/utils/escapeHtml'
 import { refreshPortalMenusAfterAdminChange } from '@/utils/portalMenuRefresh'
 import CommonMenuDialog from './CommonMenuDialog.vue'
 
@@ -322,6 +323,8 @@ export default {
       selectedClient: null,
       title: '',
       open: false,
+      // 提交中：防双击重复创建
+      submitting: false,
       isExpandAll: false,
       refreshTable: true,
       checkedIds: [],
@@ -340,7 +343,22 @@ export default {
       rules: {
         name: [{ required: true, message: '菜单名称不能为空', trigger: 'blur' }],
         sort: [{ required: true, message: '菜单顺序不能为空', trigger: 'blur' }],
-        status: [{ required: true, message: '状态不能为空', trigger: 'blur' }]
+        status: [{ required: true, message: '状态不能为空', trigger: 'blur' }],
+        // 只有菜单必填并显示红星；目录可空，按钮不渲染该行
+        path: [{
+          validator: (rule, value, callback) => {
+            if (this.form.type !== SystemMenuTypeEnum.MENU) {
+              callback()
+              return
+            }
+            if (value == null || String(value).trim() === '') {
+              callback(new Error('路由地址不能为空'))
+              return
+            }
+            callback()
+          },
+          trigger: 'blur'
+        }]
       },
       MenuTypeEnum: SystemMenuTypeEnum
     }
@@ -443,7 +461,7 @@ export default {
         this.menuList = this.handleTree(res.data || [], 'id')
       }).catch(() => {
         this.menuList = []
-        this.$modal.msgError('加载菜单列表失败，请重试')
+        // 加载失败（含切页主动取消）由请求拦截器统一处理
       }).finally(() => {
         this.loading = false
       })
@@ -462,8 +480,35 @@ export default {
       return {
         id: node.id,
         label: node.name,
-        children: node.children
+        children: node.children,
+        isDisabled: this.isParentOptionDisabled(node.id)
       }
+    },
+    isParentOptionDisabled(id) {
+      if (!this.form || !this.form.id || id === 0 || id === '0') {
+        return false
+      }
+      if (id === this.form.id) {
+        return true
+      }
+      return this.descendantMenuIds(this.form.id).has(id)
+    },
+    descendantMenuIds(rootId) {
+      const found = new Set()
+      const roots = (this.menuOptions[0] && this.menuOptions[0].children) || []
+      const walk = (nodes, under) => {
+        (nodes || []).forEach(node => {
+          const hit = under || node.id === rootId
+          if (hit && node.id !== rootId) {
+            found.add(node.id)
+          }
+          if (node.children && node.children.length) {
+            walk(node.children, hit)
+          }
+        })
+      }
+      walk(roots, false)
+      return found
     },
     getTreeselect(subSystemId) {
       const id = subSystemId || (this.selectedClient ? this.selectedClient.id : null)
@@ -474,7 +519,9 @@ export default {
       return getSubSystemMenuList({ subSystemId: id }).then(res => {
         this.menuOptions = []
         const menu = { id: 0, name: '主类目', children: [] }
-        menu.children = this.handleTree(res.data || [], 'id')
+        // 按钮不能作为上级菜单（后端同样校验），否则子菜单会挂在按钮下、门户树里整段消失
+        const parentCandidates = (res.data || []).filter(item => item.type !== SystemMenuTypeEnum.BUTTON)
+        menu.children = this.handleTree(parentCandidates, 'id')
         this.menuOptions.push(menu)
       })
     },
@@ -550,13 +597,13 @@ export default {
       }
       const data = response.data || {}
       let text = '新建：' + ((data.createKeys && data.createKeys.length) || 0)
-      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      ;(data.createKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) })
       text += '<br />更新：' + ((data.updateKeys && data.updateKeys.length) || 0)
-      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + k })
+      ;(data.updateKeys || []).forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) })
       const failMap = data.failureKeys || {}
       const failKeys = Object.keys(failMap)
       text += '<br />失败：' + failKeys.length
-      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + k + '：' + failMap[k] })
+      failKeys.forEach(k => { text += '<br />&nbsp;&nbsp;' + escapeHtml(k) + '：' + escapeHtml(failMap[k]) })
       this.$alert(text, '导入结果', { dangerouslyUseHTMLString: true })
       this.getList()
       this.loadClientList()
@@ -566,6 +613,7 @@ export default {
     },
     handleUpdate(row) {
       this.resetFormData()
+      this.form.id = row.id
       const subSystemId = row.subSystemId || (this.selectedClient ? this.selectedClient.id : null)
       this.getTreeselect(subSystemId).then(() => {
         return getSubSystemMenu(row.id)
@@ -586,6 +634,7 @@ export default {
           alwaysShow: res.data.alwaysShow,
           styleId: res.data.styleId
         }
+        this.menuOptions = this.menuOptions.slice()
         this.open = true
         this.title = '修改业务系统菜单'
       }).catch(() => {
@@ -593,6 +642,9 @@ export default {
       })
     },
     submitForm() {
+      if (this.submitting) {
+        return
+      }
       this.$refs.form.validate(valid => {
         if (!valid) {
           return
@@ -629,6 +681,7 @@ export default {
         if (!checkFirstLevelMenu(payload.parentId)) {
           payload.styleId = null
         }
+        this.submitting = true
         const request = payload.id ? updateSubSystemMenu : createSubSystemMenu
         request(payload).then(() => {
           this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
@@ -637,7 +690,9 @@ export default {
           this.loadClientList()
           this.refreshSubPortalMenus()
         }).catch(() => {
-          this.$modal.msgError(this.form.id ? '修改失败，请重试' : '新增失败，请重试')
+          // 具体原因已由请求拦截器提示（如父菜单类型、重名等），不再叠加通用 toast
+        }).finally(() => {
+          this.submitting = false
         })
       })
     },

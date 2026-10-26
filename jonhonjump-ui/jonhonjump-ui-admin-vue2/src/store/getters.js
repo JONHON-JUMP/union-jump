@@ -1,7 +1,5 @@
-import {
-  resolveCurrentSystemLabel,
-  resolveCurrentSystemSearchRoutes
-} from '@/utils/portalSearchRoutes'
+import { resolveCurrentSystemSearchRoutes } from '@/utils/portalSearchRoutes'
+import { resolveCurrentSubsystemLabel } from '@/utils/portalSubsystem'
 
 const getters = {
   sidebar: state => state.app.sidebar,
@@ -25,7 +23,8 @@ const getters = {
   currentSystem: state => state.portal.currentSystem,
   portalSystemList: state => state.portal.systemList,
   currentSystemSidebarRouters: state => resolveCurrentSystemSearchRoutes(state),
-  currentSystemLabel: state => resolveCurrentSystemLabel(state),
+  // 与顶部「当前系统」同一套名称：clientName（如 环控特种焊接中心(5503)），主系统为「统一门户」
+  currentSystemLabel: state => resolveCurrentSubsystemLabel(state.portal.currentSystem, state.portal.systemList),
   allAppsMenusLoading: state => state.portal.allAppsMenusLoading,
   // 数据字典
   dict_datas: state => state.dict.dictDatas

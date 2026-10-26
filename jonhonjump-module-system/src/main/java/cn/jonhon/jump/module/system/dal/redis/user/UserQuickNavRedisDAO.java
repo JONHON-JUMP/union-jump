@@ -6,6 +6,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Repository;
 
 import javax.annotation.Resource;
+import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
 
@@ -18,6 +19,8 @@ import static cn.jonhon.jump.module.system.dal.redis.RedisKeyConstants.USER_QUIC
 @Repository
 public class UserQuickNavRedisDAO {
 
+    private static final Duration CACHE_TTL = Duration.ofHours(2);
+
     @Resource
     private StringRedisTemplate stringRedisTemplate;
 
@@ -28,7 +31,7 @@ public class UserQuickNavRedisDAO {
 
     public void set(Long userId, UserQuickNavRespVO quickNav) {
         String redisKey = formatKey(userId);
-        stringRedisTemplate.opsForValue().set(redisKey, JsonUtils.toJsonString(quickNav));
+        stringRedisTemplate.opsForValue().set(redisKey, JsonUtils.toJsonString(quickNav), CACHE_TTL);
     }
 
     public void delete(Long userId) {

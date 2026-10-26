@@ -7,9 +7,9 @@
 
     <select id="queryDocInfo"
             resultType="cn.jonhon.jump.module.mes.process.dal.process.oracle.dto.CaoeDocInfoDTO">
-        SELECT oid, doc_state AS docState, doc_link AS docLink
+        SELECT oid, doc_state AS docState, doc_link AS docLink, SOURCESYS AS sourceSys
         FROM (
-            SELECT oid, doc_state, doc_link, doc_version, doc_iteration
+            SELECT oid, doc_state, doc_link, doc_version, doc_iteration, SOURCESYS
             FROM DBA_MGR.caoe_doc
             WHERE doc_number = #{docNumber}
             ORDER BY doc_version DESC, TO_NUMBER(doc_iteration) DESC NULLS LAST
@@ -19,6 +19,11 @@
 
     <select id="queryProcessState" resultType="java.lang.String">
         SELECT pp_state FROM DBA_MGR.CAOE_PP
+        WHERE PP_NUMBER = #{accno} AND PP_VERSION = #{version} AND ROWNUM = 1
+    </select>
+
+    <select id="queryProcessSourceSystem" resultType="java.lang.String">
+        SELECT SOURCESYS FROM DBA_MGR.CAOE_PP
         WHERE PP_NUMBER = #{accno} AND PP_VERSION = #{version} AND ROWNUM = 1
     </select>
 

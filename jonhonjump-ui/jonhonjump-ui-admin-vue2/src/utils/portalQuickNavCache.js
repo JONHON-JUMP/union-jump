@@ -54,11 +54,13 @@ function hydrateMemoryFromSession() {
 
 hydrateMemoryFromSession()
 
-export function buildQuickNavScopeKey(currentSystem, subSystemId) {
+export function buildQuickNavScopeKey(currentSystem, subSystemId, workshopCode) {
   if (currentSystem === 'main' || !subSystemId) {
     return 'main'
   }
-  return `sub:${subSystemId}`
+  const workshop = workshopCode == null ? '' : String(workshopCode).trim()
+  // MES 按车间拆入口时，同一 subSystemId 多车间各自缓存
+  return workshop ? `sub:${subSystemId}:${workshop}` : `sub:${subSystemId}`
 }
 
 export function getQuickNavCache(scopeKey) {

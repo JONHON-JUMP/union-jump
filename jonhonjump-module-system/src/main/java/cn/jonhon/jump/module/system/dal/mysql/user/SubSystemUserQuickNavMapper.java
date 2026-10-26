@@ -1,5 +1,6 @@
 package cn.jonhon.jump.module.system.dal.mysql.user;
 
+import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.mybatis.core.mapper.BaseMapperX;
 import cn.jonhon.jump.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemUserQuickNavDO;
@@ -14,10 +15,23 @@ import java.util.List;
 public interface SubSystemUserQuickNavMapper extends BaseMapperX<SubSystemUserQuickNavDO> {
 
     default List<SubSystemUserQuickNavDO> selectListByUserIdAndSubSystemId(Long userId, Long subSystemId) {
-        return selectList(new LambdaQueryWrapperX<SubSystemUserQuickNavDO>()
+        return selectListByUserIdAndSubSystemIdAndWorkshop(userId, subSystemId, null);
+    }
+
+    /** workshopCode 空：系统级（workshop_code 空或 null） */
+    default List<SubSystemUserQuickNavDO> selectListByUserIdAndSubSystemIdAndWorkshop(
+            Long userId, Long subSystemId, String workshopCode) {
+        LambdaQueryWrapperX<SubSystemUserQuickNavDO> wrapper = new LambdaQueryWrapperX<SubSystemUserQuickNavDO>()
                 .eq(SubSystemUserQuickNavDO::getUserId, userId)
-                .eq(SubSystemUserQuickNavDO::getSubSystemId, subSystemId)
-                .orderByAsc(SubSystemUserQuickNavDO::getSort)
+                .eq(SubSystemUserQuickNavDO::getSubSystemId, subSystemId);
+        if (StrUtil.isBlank(workshopCode)) {
+            wrapper.and(w -> w.isNull(SubSystemUserQuickNavDO::getWorkshopCode)
+                    .or()
+                    .eq(SubSystemUserQuickNavDO::getWorkshopCode, ""));
+        } else {
+            wrapper.eq(SubSystemUserQuickNavDO::getWorkshopCode, workshopCode.trim());
+        }
+        return selectList(wrapper.orderByAsc(SubSystemUserQuickNavDO::getSort)
                 .orderByAsc(SubSystemUserQuickNavDO::getId));
     }
 
@@ -26,6 +40,32 @@ public interface SubSystemUserQuickNavMapper extends BaseMapperX<SubSystemUserQu
      */
     @Delete("DELETE FROM sub_system_user_quick_nav WHERE user_id = #{userId} AND sub_system_id = #{subSystemId}")
     void deleteByUserIdAndSubSystemId(@Param("userId") Long userId, @Param("subSystemId") Long subSystemId);
+
+    @Delete("<script>DELETE FROM sub_system_user_quick_nav WHERE user_id = #{userId} AND sub_system_id = #{subSystemId} "
+            + "AND ( "
+            + "<choose>"
+            + "<when test='workshopCode == null or workshopCode == \"\"'>"
+            + "workshop_code IS NULL OR workshop_code = ''"
+            + "</when>"
+            + "<otherwise>workshop_code = #{workshopCode}</otherwise>"
+            + "</choose>"
+            + " )</script>")
+    void deleteByUserIdAndSubSystemIdAndWorkshop(@Param("userId") Long userId,
+                                                 @Param("subSystemId") Long subSystemId,
+                                                 @Param("workshopCode") String workshopCode);
+
+    @Delete("<script>DELETE FROM sub_system_user_quick_nav WHERE user_id = #{userId} AND sub_system_id = #{subSystemId} "
+            + "<choose>"
+            + "<when test='workshopCode == null or workshopCode == \"\"'>"
+            + " AND (workshop_code IS NULL OR workshop_code = '')"
+            + "</when>"
+            + "<otherwise> AND workshop_code = #{workshopCode}</otherwise>"
+            + "</choose>"
+            + " AND menu_id = #{menuId}</script>")
+    void deleteByUserIdAndSubSystemIdAndWorkshopAndMenuId(@Param("userId") Long userId,
+                                                          @Param("subSystemId") Long subSystemId,
+                                                          @Param("workshopCode") String workshopCode,
+                                                          @Param("menuId") Long menuId);
 
     default List<SubSystemUserQuickNavDO> selectListByMenuId(Long menuId) {
         return selectList(SubSystemUserQuickNavDO::getMenuId, menuId);

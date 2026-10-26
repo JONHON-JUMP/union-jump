@@ -35,6 +35,13 @@ export function getSubSystemEmployeeDeleteTip(subSystemId) {
   return request({ url: '/system/sub-system-employee/delete-tip?subSystemId=' + subSystemId, method: 'get' })
 }
 // 可选「新增人员」接口目标列表（接口管理中 create 已启用；与花名册系统解耦）
+export function listExternalEmployees(apiSubSystemId, workshopCode, userCode) {
+  return request({
+    url: '/system/sub-system-employee/external-list',
+    method: 'get',
+    params: { apiSubSystemId, workshopCode, userCode }
+  })
+}
 export function getSubSystemRegisterableApis() {
   return request({ url: '/system/sub-system-employee/registerable-apis', method: 'get' })
 }

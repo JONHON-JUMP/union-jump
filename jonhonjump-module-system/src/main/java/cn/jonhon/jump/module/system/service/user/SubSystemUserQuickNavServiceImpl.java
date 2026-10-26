@@ -18,14 +18,21 @@ import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMenuMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemRoleQuickNavMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUserQuickNavMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUserRoleMapper;
+import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemWorkshopDO;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUsersMapper;
+import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemWorkshopMapper;
 import cn.jonhon.jump.module.system.dal.redis.user.SubSystemUserQuickNavRedisDAO;
 import cn.jonhon.jump.module.system.dal.redis.user.SubSystemUserQuickNavRedisDAO.SubSystemQuickNavCacheKey;
 import cn.jonhon.jump.module.system.service.permission.MenuColorService;
 import cn.jonhon.jump.module.system.util.MenuStyleHelper;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
+
+import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
+import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.SUB_SYSTEM_USER_QUICK_NAV_SAVE_FAIL;
 
 import javax.annotation.Resource;
 import java.util.ArrayList;
@@ -46,6 +53,7 @@ import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.co
  */
 @Service
 @Validated
+@Slf4j
 public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavService {
 
     @Resource
@@ -67,18 +75,26 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
     @Resource
     private SubSystemMapper subSystemMapper;
     @Resource
+    private SubSystemWorkshopMapper subSystemWorkshopMapper;
+    @Resource
     private OAuth2ClientMapper oauth2ClientMapper;
     @Resource
     private MenuColorService menuColorService;
 
     @Override
     public SubSystemUserQuickNavRespVO getUserQuickNav(Long userId, Long subSystemId) {
-        // 跨界导航热路径（菜单在主库）：先 Redis；未命中再现场重建（含 apps）写回。不拉 my-menus 全树。
-        SubSystemUserQuickNavRespVO cached = subSystemUserQuickNavRedisDAO.get(userId, subSystemId);
+        return getUserQuickNav(userId, subSystemId, null);
+    }
+
+    @Override
+    public SubSystemUserQuickNavRespVO getUserQuickNav(Long userId, Long subSystemId, String workshopCode) {
+        String workshop = StrUtil.trim(workshopCode);
+        // 按叶子隔离缓存：5500/5501 各一份，禁止整系统缓存串味
+        SubSystemUserQuickNavRespVO cached = subSystemUserQuickNavRedisDAO.get(userId, subSystemId, workshop);
         if (isQuickNavCacheReady(cached)) {
             return cached;
         }
-        return rebuildUserQuickNav(userId, subSystemId);
+        return rebuildUserQuickNav(userId, subSystemId, workshop);
     }
 
     private static boolean isQuickNavCacheReady(SubSystemUserQuickNavRespVO cached) {
@@ -89,10 +105,14 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
     }
 
     private SubSystemUserQuickNavRespVO rebuildUserQuickNav(Long userId, Long subSystemId) {
-        // 角色默认变更已在 saveRoleQuickNav → alignUsers 处理；此处不再 heal，
-        // 否则会把「可配但非角色默认」误判为已取消，个人加星后立刻被清掉
-        SubSystemUserQuickNavRespVO saved = loadUserQuickNavFromDb(userId, subSystemId);
-        List<Long> roleDefaults = subSystemRoleQuickNavService.getUserDefaultMenuIds(userId, subSystemId);
+        return rebuildUserQuickNav(userId, subSystemId, null);
+    }
+
+    private SubSystemUserQuickNavRespVO rebuildUserQuickNav(Long userId, Long subSystemId, String workshopCode) {
+        String workshop = StrUtil.trim(workshopCode);
+        // 个人配置与角色默认均按叶子取，禁止 5500 配置渗到 5501
+        SubSystemUserQuickNavRespVO saved = loadUserQuickNavFromDb(userId, subSystemId, workshop);
+        List<Long> roleDefaults = subSystemRoleQuickNavService.getUserDefaultMenuIds(userId, subSystemId, workshop);
         if (!Boolean.TRUE.equals(saved.getConfigured()) && CollUtil.isNotEmpty(roleDefaults)) {
             saved = new SubSystemUserQuickNavRespVO(roleDefaults, false, null);
         }
@@ -104,23 +124,89 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
             candidates.addAll(roleDefaults);
         }
         Set<Long> allowedMenuIds = subSystemUsersService.retainAllowedQuickNavMenuIds(
-                userId, subSystemId, candidates);
+                userId, subSystemId, candidates, workshop);
         SubSystemUserQuickNavRespVO result = filterByAllowedMenuIds(saved, allowedMenuIds);
         List<Long> lockedMenuIds = CollUtil.isEmpty(roleDefaults) ? Collections.emptyList()
                 : roleDefaults.stream().filter(allowedMenuIds::contains).collect(Collectors.toList());
-        // 角色默认快捷导航为锁定项：展示/apps 必须并入，否则个人已 configured 时角色新配的入口不出现
         List<Long> displayMenuIds = mergeLockedMenuIds(result.getMenuIds(), lockedMenuIds);
         result.setMenuIds(displayMenuIds);
         result.setLockedMenuIds(lockedMenuIds);
-        result.setApps(buildQuickNavApps(subSystemId, displayMenuIds));
-        subSystemUserQuickNavRedisDAO.set(userId, subSystemId, result);
+        result.setApps(buildQuickNavApps(subSystemId, displayMenuIds, workshop));
+        subSystemUserQuickNavRedisDAO.set(userId, subSystemId, workshop, result);
         return result;
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public SubSystemUserQuickNavRespVO saveUserQuickNav(Long userId, Long subSystemId, List<Long> menuIds) {
-        List<Long> roleDefaults = subSystemRoleQuickNavService.getUserDefaultMenuIds(userId, subSystemId);
+        return saveUserQuickNav(userId, subSystemId, menuIds, null);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public SubSystemUserQuickNavRespVO addUserQuickNavMenu(Long userId, Long subSystemId, String workshopCode, Long menuId) {
+        String workshop = StrUtil.trim(workshopCode);
+        if (menuId != null) {
+            // 无权限菜单不落库，直接返回权威结果
+            Set<Long> allowed = subSystemUsersService.retainAllowedQuickNavMenuIds(
+                    userId, subSystemId, Collections.singleton(menuId), workshop);
+            if (allowed.contains(menuId)) {
+                List<SubSystemUserQuickNavDO> savedList = subSystemUserQuickNavMapper
+                        .selectListByUserIdAndSubSystemIdAndWorkshop(userId, subSystemId, workshop);
+                // 该车间还没有个人行时，先把系统级（workshop 空）已有快捷导航带过来再追加。
+                // 否则第一次加星只插入新菜单，读这个车间时旧列表全部看不见。
+                if (CollUtil.isEmpty(savedList) && StrUtil.isNotBlank(workshop)) {
+                    List<SubSystemUserQuickNavDO> legacyList = subSystemUserQuickNavMapper
+                            .selectListByUserIdAndSubSystemIdAndWorkshop(userId, subSystemId, "");
+                    if (CollUtil.isNotEmpty(legacyList)) {
+                        LinkedHashSet<Long> seed = new LinkedHashSet<>();
+                        for (SubSystemUserQuickNavDO row : legacyList) {
+                            if (row.getMenuId() != null) {
+                                seed.add(row.getMenuId());
+                            }
+                        }
+                        seed.add(menuId);
+                        return saveUserQuickNav(userId, subSystemId, new ArrayList<>(seed), workshop);
+                    }
+                }
+                boolean exists = savedList.stream().anyMatch(row -> Objects.equals(row.getMenuId(), menuId));
+                if (!exists) {
+                    SubSystemUserQuickNavDO record = new SubSystemUserQuickNavDO();
+                    record.setUserId(userId);
+                    record.setSubSystemId(subSystemId);
+                    record.setWorkshopCode(StrUtil.blankToDefault(workshop, ""));
+                    record.setMenuId(menuId);
+                    record.setSort(savedList.size());
+                    subSystemUserQuickNavMapper.insert(record);
+                    subSystemUserQuickNavRedisDAO.delete(userId, subSystemId, workshop);
+                }
+            }
+        }
+        return rebuildUserQuickNav(userId, subSystemId, workshop);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public SubSystemUserQuickNavRespVO removeUserQuickNavMenu(Long userId, Long subSystemId, String workshopCode, Long menuId) {
+        String workshop = StrUtil.trim(workshopCode);
+        if (menuId != null) {
+            // 角色锁定默认项不可移除：忽略本次操作，返回权威结果（锁定项仍在列表中）
+            List<Long> roleDefaults = subSystemRoleQuickNavService.getUserDefaultMenuIds(userId, subSystemId, workshop);
+            if (CollUtil.isEmpty(roleDefaults) || !roleDefaults.contains(menuId)) {
+                subSystemUserQuickNavMapper.deleteByUserIdAndSubSystemIdAndWorkshopAndMenuId(
+                        userId, subSystemId, workshop, menuId);
+                subSystemUserQuickNavRedisDAO.delete(userId, subSystemId, workshop);
+            }
+        }
+        return rebuildUserQuickNav(userId, subSystemId, workshop);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public SubSystemUserQuickNavRespVO saveUserQuickNav(Long userId, Long subSystemId, List<Long> menuIds,
+                                                        String workshopCode) {
+        String workshop = StrUtil.trim(workshopCode);
+        List<Long> roleDefaults = subSystemRoleQuickNavService.getUserDefaultMenuIds(userId, subSystemId, workshop);
         LinkedHashSet<Long> candidates = new LinkedHashSet<>();
         if (CollUtil.isNotEmpty(menuIds)) {
             candidates.addAll(menuIds);
@@ -129,26 +215,49 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
             candidates.addAll(roleDefaults);
         }
         Set<Long> allowedMenuIds = subSystemUsersService.retainAllowedQuickNavMenuIds(
-                userId, subSystemId, candidates);
+                userId, subSystemId, candidates, workshop);
         List<Long> lockedMenuIds = CollUtil.isEmpty(roleDefaults) ? Collections.emptyList()
                 : roleDefaults.stream().filter(allowedMenuIds::contains).collect(Collectors.toList());
         List<Long> validMenuIds = CollUtil.isEmpty(menuIds) ? Collections.emptyList()
                 : menuIds.stream().filter(allowedMenuIds::contains).distinct().collect(Collectors.toList());
         validMenuIds = mergeLockedMenuIds(validMenuIds, lockedMenuIds);
+        validMenuIds = retainOmittedExistingMenuIds(userId, subSystemId, workshop, validMenuIds, allowedMenuIds, lockedMenuIds);
 
-        subSystemUserQuickNavMapper.deleteByUserIdAndSubSystemId(userId, subSystemId);
-        for (int i = 0; i < validMenuIds.size(); i++) {
-            SubSystemUserQuickNavDO record = new SubSystemUserQuickNavDO();
-            record.setUserId(userId);
-            record.setSubSystemId(subSystemId);
-            record.setMenuId(validMenuIds.get(i));
-            record.setSort(i);
-            subSystemUserQuickNavMapper.insert(record);
+        try {
+            subSystemUserQuickNavMapper.deleteByUserIdAndSubSystemIdAndWorkshop(userId, subSystemId, workshop);
+            String workshopStore = StrUtil.blankToDefault(workshop, "");
+            for (int i = 0; i < validMenuIds.size(); i++) {
+                SubSystemUserQuickNavDO record = new SubSystemUserQuickNavDO();
+                record.setUserId(userId);
+                record.setSubSystemId(subSystemId);
+                record.setWorkshopCode(workshopStore);
+                record.setMenuId(validMenuIds.get(i));
+                record.setSort(i);
+                subSystemUserQuickNavMapper.insert(record);
+            }
+            SubSystemUserQuickNavRespVO result = new SubSystemUserQuickNavRespVO(validMenuIds, true, lockedMenuIds);
+            result.setApps(buildQuickNavApps(subSystemId, validMenuIds, workshop));
+            subSystemUserQuickNavRedisDAO.set(userId, subSystemId, workshop, result);
+            return result;
+        } catch (DataAccessException ex) {
+            String msg = StrUtil.blankToDefault(ex.getMessage(), "");
+            String cause = ex.getMostSpecificCause() != null
+                    ? StrUtil.blankToDefault(ex.getMostSpecificCause().getMessage(), "") : "";
+            boolean schemaOrUk = StrUtil.containsIgnoreCase(msg, "workshop_code")
+                    || StrUtil.containsIgnoreCase(cause, "workshop_code")
+                    || StrUtil.containsIgnoreCase(msg, "duplicate")
+                    || StrUtil.containsIgnoreCase(cause, "duplicate")
+                    || StrUtil.containsIgnoreCase(msg, "unique")
+                    || StrUtil.containsIgnoreCase(cause, "unique")
+                    || StrUtil.containsIgnoreCase(msg, "sub_system_user_quick_nav_seq")
+                    || StrUtil.containsIgnoreCase(cause, "sub_system_user_quick_nav_seq");
+            log.error("[saveUserQuickNav] db fail userId={}, subSystemId={}, workshop={}: {}",
+                    userId, subSystemId, workshop, ex.toString());
+            if (schemaOrUk) {
+                throw exception(SUB_SYSTEM_USER_QUICK_NAV_SAVE_FAIL);
+            }
+            throw ex;
         }
-        SubSystemUserQuickNavRespVO result = new SubSystemUserQuickNavRespVO(validMenuIds, true, lockedMenuIds);
-        result.setApps(buildQuickNavApps(subSystemId, validMenuIds));
-        subSystemUserQuickNavRedisDAO.set(userId, subSystemId, result);
-        return result;
     }
 
     @Override
@@ -232,11 +341,7 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
             return;
         }
         subSystemUserQuickNavMapper.deleteByUserIdsAndSubSystemIdAndMenuIds(userIds, subSystemId, menuIds);
-        Set<SubSystemQuickNavCacheKey> keys = userIds.stream()
-                .filter(Objects::nonNull)
-                .map(uid -> SubSystemUserQuickNavRedisDAO.cacheKey(uid, subSystemId))
-                .collect(Collectors.toSet());
-        subSystemUserQuickNavRedisDAO.deleteList(keys);
+        subSystemUserQuickNavRedisDAO.deleteBySubSystemId(subSystemId, userIds);
     }
 
     @Override
@@ -272,7 +377,10 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
                     if (subUser == null || subUser.getMainUserId() == null || subUser.getSubSystemId() == null) {
                         continue;
                     }
-                    keys.add(SubSystemUserQuickNavRedisDAO.cacheKey(subUser.getMainUserId(), subUser.getSubSystemId()));
+                    keys.add(SubSystemUserQuickNavRedisDAO.cacheKey(
+                            subUser.getMainUserId(), subUser.getSubSystemId(), subUser.getWorkshopId()));
+                    keys.add(SubSystemUserQuickNavRedisDAO.cacheKey(
+                            subUser.getMainUserId(), subUser.getSubSystemId()));
                 }
             }
         }
@@ -301,7 +409,7 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
             CollUtil.emptyIfNull(existingMenuIds).forEach(candidates::add);
             CollUtil.emptyIfNull(roleDefaults).forEach(candidates::add);
             Set<Long> userAllowed = subSystemUsersService.retainAllowedQuickNavMenuIds(
-                    userId, subSystemId, candidates);
+                    userId, subSystemId, candidates, null);
             LinkedHashSet<Long> next = new LinkedHashSet<>();
             for (Long menuId : CollUtil.emptyIfNull(existingMenuIds)) {
                 if (menuId == null || !userAllowed.contains(menuId)) {
@@ -317,22 +425,28 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
                 roleDefaults.stream().filter(userAllowed::contains).forEach(next::add);
             }
             List<Long> validMenuIds = new ArrayList<>(next);
-            subSystemUserQuickNavMapper.deleteByUserIdAndSubSystemId(userId, subSystemId);
+            // 角色对齐仍写系统级（workshop 空）；各叶子个人配置不在此覆盖
+            subSystemUserQuickNavMapper.deleteByUserIdAndSubSystemIdAndWorkshop(userId, subSystemId, "");
             for (int i = 0; i < validMenuIds.size(); i++) {
                 SubSystemUserQuickNavDO record = new SubSystemUserQuickNavDO();
                 record.setUserId(userId);
                 record.setSubSystemId(subSystemId);
+                record.setWorkshopCode("");
                 record.setMenuId(validMenuIds.get(i));
                 record.setSort(i);
                 subSystemUserQuickNavMapper.insert(record);
             }
-            subSystemUserQuickNavRedisDAO.delete(userId, subSystemId);
+            subSystemUserQuickNavRedisDAO.delete(userId, subSystemId, null);
         }
     }
 
     private SubSystemUserQuickNavRespVO loadUserQuickNavFromDb(Long userId, Long subSystemId) {
+        return loadUserQuickNavFromDb(userId, subSystemId, null);
+    }
+
+    private SubSystemUserQuickNavRespVO loadUserQuickNavFromDb(Long userId, Long subSystemId, String workshopCode) {
         List<SubSystemUserQuickNavDO> savedList = subSystemUserQuickNavMapper
-                .selectListByUserIdAndSubSystemId(userId, subSystemId);
+                .selectListByUserIdAndSubSystemIdAndWorkshop(userId, subSystemId, StrUtil.trim(workshopCode));
         boolean configured = CollUtil.isNotEmpty(savedList);
         List<Long> menuIds = savedList.stream()
                 .map(SubSystemUserQuickNavDO::getMenuId)
@@ -347,7 +461,7 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
         CollUtil.emptyIfNull(existingMenuIds).forEach(candidates::add);
         CollUtil.emptyIfNull(roleMenuIds).forEach(candidates::add);
         Set<Long> allowedMenuIds = subSystemUsersService.retainAllowedQuickNavMenuIds(
-                userId, subSystemId, candidates);
+                userId, subSystemId, candidates, null);
 
         LinkedHashSet<Long> merged = new LinkedHashSet<>();
         existingMenuIds.stream().filter(allowedMenuIds::contains).forEach(merged::add);
@@ -362,16 +476,43 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
             return;
         }
 
-        subSystemUserQuickNavMapper.deleteByUserIdAndSubSystemId(userId, subSystemId);
+        subSystemUserQuickNavMapper.deleteByUserIdAndSubSystemIdAndWorkshop(userId, subSystemId, "");
         for (int i = 0; i < validMenuIds.size(); i++) {
             SubSystemUserQuickNavDO record = new SubSystemUserQuickNavDO();
             record.setUserId(userId);
             record.setSubSystemId(subSystemId);
+            record.setWorkshopCode("");
             record.setMenuId(validMenuIds.get(i));
             record.setSort(i);
             subSystemUserQuickNavMapper.insert(record);
         }
-        subSystemUserQuickNavRedisDAO.delete(userId, subSystemId);
+        subSystemUserQuickNavRedisDAO.delete(userId, subSystemId, null);
+    }
+
+    /**
+     * 全量保存会先删后插。排序只调整顺序，删除走单项接口。
+     * 请求里没带到的已有菜单一律保留，空列表也不许把该车间清空。
+     */
+    private List<Long> retainOmittedExistingMenuIds(Long userId, Long subSystemId, String workshop,
+                                                    List<Long> validMenuIds, Set<Long> allowedMenuIds,
+                                                    List<Long> lockedMenuIds) {
+        List<Long> existingMenuIds = loadUserQuickNavFromDb(userId, subSystemId, workshop).getMenuIds();
+        if (CollUtil.isEmpty(existingMenuIds)) {
+            return validMenuIds;
+        }
+        LinkedHashSet<Long> kept = new LinkedHashSet<>();
+        if (CollUtil.isNotEmpty(validMenuIds)) {
+            validMenuIds.forEach(kept::add);
+        }
+        for (Long id : existingMenuIds) {
+            if (id != null && allowedMenuIds.contains(id)) {
+                kept.add(id);
+            }
+        }
+        if (kept.isEmpty()) {
+            return validMenuIds;
+        }
+        return mergeLockedMenuIds(new ArrayList<>(kept), lockedMenuIds);
     }
 
     private List<Long> mergeLockedMenuIds(List<Long> menuIds, List<Long> lockedMenuIds) {
@@ -394,9 +535,35 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
     }
 
     /**
+     * 门户入口编号与切换列表一致：sub_system_workshop 多行时，一行一个逻辑系统，编号为 父clientId_车间编号。
+     */
+    private String resolvePortalEntryClientId(SubSystemDO subSystem, String oauthClientId, String workshopCode) {
+        String mesClientId = subSystem.resolvePortalClientId(oauthClientId);
+        if (StrUtil.isBlank(mesClientId) || subSystem.getId() == null) {
+            return mesClientId;
+        }
+        String workshop = StrUtil.trim(workshopCode);
+        List<SubSystemWorkshopDO> leaves;
+        try {
+            leaves = subSystemWorkshopMapper.selectEnabledBySubSystemId(subSystem.getId());
+        } catch (Exception ex) {
+            log.debug("[resolvePortalEntryClientId] workshop lookup skip: {}", ex.toString());
+            return mesClientId;
+        }
+        if (CollUtil.isEmpty(leaves) || leaves.size() <= 1 || StrUtil.isBlank(workshop)) {
+            return mesClientId;
+        }
+        boolean known = leaves.stream().anyMatch(row -> workshop.equals(StrUtil.trim(row.getWorkshopCode())));
+        if (!known) {
+            return mesClientId;
+        }
+        return mesClientId + "_" + workshop;
+    }
+
+    /**
      * 仅按快捷导航勾选的菜单 id 组装可渲染卡片，不拉整棵 my-menus。
      */
-    private List<QuickNavAppItemVO> buildQuickNavApps(Long subSystemId, List<Long> menuIds) {
+    private List<QuickNavAppItemVO> buildQuickNavApps(Long subSystemId, List<Long> menuIds, String workshopCode) {
         if (CollUtil.isEmpty(menuIds) || subSystemId == null) {
             return Collections.emptyList();
         }
@@ -406,7 +573,7 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
         }
         OAuth2ClientDO client = subSystem.getOauth2ClientId() == null
                 ? null : oauth2ClientMapper.selectById(subSystem.getOauth2ClientId());
-        String clientId = subSystem.resolvePortalClientId(client != null ? client.getClientId() : null);
+        String clientId = resolvePortalEntryClientId(subSystem, client != null ? client.getClientId() : null, workshopCode);
         if (StrUtil.isBlank(clientId)) {
             return Collections.emptyList();
         }
@@ -593,7 +760,8 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
     }
 
     private Set<SubSystemQuickNavCacheKey> convertCacheKeys(List<SubSystemUserQuickNavDO> affectedList) {
-        return convertSet(affectedList, item -> SubSystemUserQuickNavRedisDAO.cacheKey(item.getUserId(), item.getSubSystemId()));
+        return convertSet(affectedList, item -> SubSystemUserQuickNavRedisDAO.cacheKey(
+                item.getUserId(), item.getSubSystemId(), item.getWorkshopCode()));
     }
 
 }

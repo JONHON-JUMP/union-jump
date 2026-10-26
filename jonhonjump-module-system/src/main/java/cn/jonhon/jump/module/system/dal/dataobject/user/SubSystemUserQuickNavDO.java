@@ -29,6 +29,10 @@ public class SubSystemUserQuickNavDO extends BaseDO {
      */
     private Long subSystemId;
     /**
+     * 叶子车间编号；空=系统级。多车间入口各自独立配置，互不串
+     */
+    private String workshopCode;
+    /**
      * 子系统菜单编号
      */
     private Long menuId;

@@ -14,6 +14,20 @@ const ignoreMsgs = [
   "刷新令牌已过期" // 使用刷新令牌，刷新获取新的访问令牌时，结果因为过期失败，此时需要忽略。否则，会导致继续 401，无法跳转到登出界面
 ]
 
+/** 对方接口失败时不要把整页 HTML 错误页铺进提示框 */
+function plainApiError(msg) {
+  const text = msg == null ? '' : String(msg)
+  if (!/<!doctype|<html|<head|<title/i.test(text)) {
+    return text.length > 300 ? text.slice(0, 300) + '…' : text
+  }
+  const title = ((text.match(/<title>([^<]*)<\/title>/i) || [])[1] || '').trim()
+  const status = (text.match(/HTTP\s+(\d+)/) || [])[1]
+  if (status === '404' || title.indexOf('无法找到资源') >= 0) {
+    return '对方系统没有这个接口（HTTP 404），请核对接口地址是否已在对方系统发布'
+  }
+  return '对方系统返回了错误页面' + (status ? '（HTTP ' + status + '）' : '') + (title ? '：' + title : '')
+}
+
 // 是否显示重新登录
 export let isRelogin = { show: false };
 // Axios 无感知刷新令牌，参考 https://www.dashingdog.cn/article/11 与 https://segmentfault.com/a/1190000020210980 实现
@@ -21,6 +35,47 @@ export let isRelogin = { show: false };
 let requestList = []
 // 是否正在刷新中
 let isRefreshToken = false
+
+/**
+ * 页面级 GET 请求登记：路由切换时统一取消。
+ * 背景：页面很慢/打不开时，用户关掉页面，但浏览器里这些 XHR 仍在跑，
+ * 同域 6 个连接被占满后，新页面的请求全部排队，表现为「关掉卡住的页面后，其它页面也打不开」。
+ * 只取消 GET；POST/PUT/DELETE 不取消，避免「提交后立刻切页」把写请求打断。
+ * isGlobal: true 的请求（登录态/门户入口/快捷导航）不参与取消。
+ */
+const pendingPageGets = new Set()
+
+function isGlobalRequest(config) {
+  return !!(config && (config.isGlobal === true || (config.headers && config.headers.isGlobal === true)))
+}
+
+export function cancelPendingPageRequests() {
+  pendingPageGets.forEach(source => {
+    try {
+      source.cancel('route-change')
+    } catch (e) {
+      // ignore
+    }
+  })
+  pendingPageGets.clear()
+}
+
+function trackPageGet(config) {
+  if (!config || config.method !== 'get' || isGlobalRequest(config) || config.cancelToken) {
+    return
+  }
+  const source = axios.CancelToken.source()
+  config.cancelToken = source.token
+  config.__pageCancelSource = source
+  pendingPageGets.add(source)
+}
+
+function untrackPageGet(config) {
+  const source = config && config.__pageCancelSource
+  if (source) {
+    pendingPageGets.delete(source)
+  }
+}
 
 axios.defaults.headers['Content-Type'] = 'application/json;charset=utf-8'
 // 创建axios实例
@@ -34,6 +89,8 @@ const service = axios.create({
 })
 // request拦截器
 service.interceptors.request.use(config => {
+  // 页面级 GET 登记（路由切换时统一取消，避免慢页面占满连接池拖死后续页面）
+  trackPageGet(config)
   // 是否静默失败（工作台等场景：无权限时不弹全局错误）
   if ((config.headers || {}).isSilent === true) {
     config.isSilent = true
@@ -99,6 +156,7 @@ service.interceptors.request.use(config => {
 
 // 响应拦截器
 service.interceptors.response.use(async res => {
+  untrackPageGet(res.config)
   let { data } = res
   // 未设置状态码则默认成功状态
   // 二进制数据则直接返回，例如说 Excel 导出
@@ -130,8 +188,8 @@ service.interceptors.response.use(async res => {
   }
 
   const code = data.code || 200;
-  // 获取错误信息
-  const msg = data.msg || errorCode[code] || errorCode['default']
+  // 获取错误信息。对方接口 404 时后端有时会带上整页 HTML，这里收成一句，避免错误页源码铺满提示框
+  const msg = plainApiError(data.msg || errorCode[code] || errorCode['default'])
 
   if (ignoreMsgs.indexOf(msg) !== -1) { // 如果是忽略的错误码，直接返回 msg 异常
     return Promise.reject(msg)
@@ -206,6 +264,11 @@ service.interceptors.response.use(async res => {
     return res.data
   }
 }, error => {
+    untrackPageGet(error.config)
+    if (axios.isCancel(error)) {
+      // 路由切换时主动取消的页面级 GET：静默，不弹「系统接口超时」等全局错误
+      return Promise.reject(error)
+    }
     console.log('err' + error)
     let {message} = error;
     if (message === "Network Error") {

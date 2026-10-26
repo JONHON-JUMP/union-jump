@@ -51,6 +51,20 @@ public class SubSystemDO extends BaseDO {
      * 系统状态（0正常 1停用）
      */
     private Integer status;
+    /**
+     * 是否启用多叶子车间维度：0=单入口；1=角色须带车间，门户按叶子展开。
+     * 库字段为 smallint，勿用 Boolean（PG 写入 true/false 会类型异常）。
+     */
+    private Integer workshopScopeEnabled;
+
+    /**
+     * 是否启用车间作用域（空视为 false）。
+     * 勿命名为 isWorkshopScopeEnabled：MyBatis 会当成 boolean 属性，
+     * 向 PG smallint 写入 true/false 导致新增/修改报系统异常。
+     */
+    public boolean workshopScopeOn() {
+        return workshopScopeEnabled != null && workshopScopeEnabled == 1;
+    }
 
     /**
      * 门户路由用的系统编号：优先本表 client_id，否则用已绑定的 OAuth2 client_id。
@@ -64,8 +78,9 @@ public class SubSystemDO extends BaseDO {
 
     /**
      * 是否门户业务系统（有系统编号，或仍绑着旧 OAuth2 客户端）。仅接口目标为 false。
+     * 勿命名为 isPortalBound：is 前缀会被 MyBatis 当成 boolean 属性读取（同 workshopScopeOn 的教训）。
      */
-    public boolean isPortalBound() {
+    public boolean portalBound() {
         return (clientId != null && !clientId.trim().isEmpty()) || oauth2ClientId != null;
     }
 

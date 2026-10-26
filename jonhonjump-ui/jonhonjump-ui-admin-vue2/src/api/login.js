@@ -31,6 +31,8 @@ export function getInfo(includeMenus = false, redisOnly = false) {
   return request({
     url: '/system/auth/get-permission-info',
     method: 'get',
+    // 全局请求：路由切换时不取消（登录态/门户初始化依赖）
+    isGlobal: true,
     // 用 0/1，避免 axios/qs 把 false 丢掉导致「无参数」走全量菜单
     params: {
       includeMenus: includeMenus ? 1 : 0,
@@ -44,6 +46,7 @@ export function checkPermission(rbacVersion) {
   return request({
     url: '/system/auth/check-permission',
     method: 'get',
+    isGlobal: true,
     params: { rbacVersion },
     headers: { isSilent: true }
   })
@@ -54,6 +57,7 @@ export function getBootId() {
   return request({
     url: '/system/auth/get-boot-id',
     method: 'get',
+    isGlobal: true,
     // 发版窗口主系统可能短暂不可用 / 旧 Token 失效：静默探测，勿弹全局错误或重登框
     headers: { isSilent: true, isToken: false }
   })

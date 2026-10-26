@@ -9,6 +9,7 @@ import lombok.Data;
 import javax.validation.constraints.NotBlank;
 import javax.validation.constraints.NotNull;
 import javax.validation.constraints.Size;
+import java.util.Set;
 
 @Schema(description = "管理后台 - 角色创建/更新 Request VO")
 @Data
@@ -44,5 +45,9 @@ public class RoleSaveReqVO {
     @Size(max = 500, message = "备注长度不能超过 500 个字符")
     @DiffLogField(name = "备注")
     private String remark;
+
+    @Schema(description = "可管理的业务系统编号集合；空=不限", example = "[1,2]")
+    @DiffLogField(name = "可管业务系统")
+    private Set<Long> subSystemIds;
 
 }

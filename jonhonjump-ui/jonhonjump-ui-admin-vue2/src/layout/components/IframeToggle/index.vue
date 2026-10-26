@@ -17,15 +17,19 @@
       </div>
     </div>
 
-    <div class="iframe-toggle__frames">
+    <div class="iframe-toggle__frames" :style="frameHeight ? { height: frameHeight + 'px' } : null">
       <!-- 活跃 + Camstar 保温：保温帧 v-show=false，再开不重建 -->
       <inner-link
         v-for="item in allIframeFrames"
-        v-show="isIframeVisible(item)"
+        :class="{
+          'is-frame-hidden': !isIframeVisible(item) && !isParkedFrame(item),
+          'is-parked-hidden': !isIframeVisible(item) && isParkedFrame(item)
+        }"
         :key="iframeKey(item)"
         :iframeId="'iframe-' + stableFrameId(iframeKey(item))"
         :src="normalizeLink(item)"
         :active="isIframeVisible(item)"
+        :releaseOnHide="isParkedFrame(item)"
         :clientId="parsePortalClientId(item.path)"
         :directExternal="isDirectExternalLink(normalizeLink(item))"
       />
@@ -42,7 +46,9 @@ import {
   slashIpPortRestToHttp,
   unwrapDirectHttpIframeLink,
   portalTabKey,
-  portalTabsMatch
+  portalTabsMatch,
+  portalPathAliasKey,
+  portalQueryBucket
 } from '@/utils/portalRoute'
 import { syncPortalIframeView } from '@/utils/portalIframe'
 
@@ -51,26 +57,53 @@ export default {
   data() {
     return {
       placeholderFailed: false,
-      placeholderTimer: null
+      placeholderTimer: null,
+      /** 切页后先给已登记帧一帧时间挂上来，避免“旧的刚隐藏、新的还没显示”时闪一下占位 */
+      placeholderArmed: false,
+      placeholderArmTimer: null,
+      /** 锁住 iframe 视口高度：路由切换过程中父级哪怕有 1px 抖动，也不让 Camstar 重排 */
+      frameHeight: 0,
+      frameHeightTimer: null
     }
   },
   computed: {
     iframeViews() {
       return this.$store.state.tagsView.iframeViews
     },
+    visitedViews() {
+      return this.$store.state.tagsView.visitedViews
+    },
     allIframeFrames() {
       const map = {}
-      ;(this.$store.state.tagsView.warmIframeViews || []).forEach(item => {
-        if (item && item.path) {
-          map[portalTabKey(item) || item.path] = item
+      const put = (item) => {
+        if (!item || !item.path) {
+          return
         }
-      })
-      ;(this.iframeViews || []).forEach(item => {
-        if (item && item.path) {
-          map[portalTabKey(item) || item.path] = item
+        // 与 v-for 的 key 用同一套，保温/活跃来回搬时 key 不变
+        map[this.iframeKey(item)] = item
+      }
+      // 活跃覆盖保温里的同一帧，但下面的顺序不再把保温帧插到最前面
+      ;(this.$store.state.tagsView.warmIframeViews || []).forEach(put)
+      ;(this.iframeViews || []).forEach(put)
+      // Chrome 会在 iframe 节点被 insertBefore 挪位时丢掉文档并重新请求。
+      // 关页把该帧从活跃列挪进保温列后，若保温帧排在前面，还开着的那一页会被挪动，
+      // 表现就是：先闪空表单（正在等待业务主机），再出加载层，最后数据才回来。
+      // 手动切页不改这份顺序，所以不刷新。这里按第一次出现的顺序钉死，只追加新帧、去掉已销毁的帧。
+      const prev = this._stableFrameOrder || []
+      const order = []
+      for (let i = 0; i < prev.length; i++) {
+        if (map[prev[i]]) {
+          order.push(prev[i])
         }
-      })
-      return Object.keys(map).map(k => map[k])
+      }
+      const keys = Object.keys(map)
+      for (let i = 0; i < keys.length; i++) {
+        if (order.indexOf(keys[i]) < 0) {
+          order.push(keys[i])
+        }
+      }
+      this._stableFrameOrder = order
+      return order.map(key => map[key])
     },
     routeClientId() {
       return parsePortalClientId(this.$route.path)
@@ -112,6 +145,9 @@ export default {
       return !!(link && /^https?:\/\//i.test(link))
     },
     showFramePlaceholder() {
+      if (!this.placeholderArmed) {
+        return false
+      }
       if (!this.routeClientId) {
         return false
       }
@@ -127,8 +163,20 @@ export default {
       immediate: true,
       handler() {
         this.placeholderFailed = false
+        const isIframeRoute = !!this.routeClientId
+        // 从首页/主系统页进入业务页：
+        // - 第一次进入业务页：还没有业务态高度，先按容器自适应，再锁定；
+        // - 之后（首页 ↔ 已打开业务页）：保持业务态高度锁，绝不在首页高度和业务高度之间来回 resize，
+        //   否则 Camstar 视口一变就会闪/抖。
+        if (isIframeRoute && !this._lastWasIframeRoute) {
+          if (!this._hasBusinessHeight) {
+            this.frameHeight = 0
+            this.scheduleFrameHeightSync(false)
+          }
+        }
+        this._lastWasIframeRoute = isIframeRoute
         this.$nextTick(() => this.ensureFrameRegistered())
-        this.armPlaceholderTimeout()
+        this.armPlaceholderDelayed()
       }
     },
     showFramePlaceholder(show) {
@@ -148,13 +196,74 @@ export default {
   },
   mounted() {
     this.ensureFrameRegistered()
-    this.armPlaceholderTimeout()
+    this.armPlaceholderDelayed()
+    this._hasBusinessHeight = false
+    this._onPortalLayoutChanged = () => {
+      // 只有业务页里的布局变化（收起/展开顶栏、底栏）才需要重测；
+      // 首页的布局变化不影响已锁定的业务态高度，保持不动，避免回业务页时 resize。
+      if (this.routeClientId) {
+        this.scheduleFrameHeightSync(true)
+      }
+    }
+    this._onWindowResize = () => {
+      // 窗口尺寸变了，业务态高度需要重测；首页里先标记失效
+      this._hasBusinessHeight = false
+      if (this.routeClientId) {
+        this.scheduleFrameHeightSync(true)
+      }
+    }
+    this.$root.$on('portal-layout-changed', this._onPortalLayoutChanged)
+    window.addEventListener('resize', this._onWindowResize)
+    this._lastWasIframeRoute = !!this.routeClientId
+    if (this.routeClientId) {
+      this.scheduleFrameHeightSync(false)
+    }
   },
   beforeDestroy() {
     this.clearPlaceholderTimeout()
+    if (this.placeholderArmTimer) {
+      clearTimeout(this.placeholderArmTimer)
+      this.placeholderArmTimer = null
+    }
+    if (this.frameHeightTimer) {
+      clearTimeout(this.frameHeightTimer)
+      this.frameHeightTimer = null
+    }
+    if (this._onPortalLayoutChanged) {
+      this.$root.$off('portal-layout-changed', this._onPortalLayoutChanged)
+      this._onPortalLayoutChanged = null
+    }
+    if (this._onWindowResize) {
+      window.removeEventListener('resize', this._onWindowResize)
+      this._onWindowResize = null
+    }
   },
   methods: {
     parsePortalClientId,
+    /**
+     * 把 iframe 视口高度锁成像素值。
+     * 路由切换时不再重算，父级哪怕有 1px 抖动也不会传给 Camstar；
+     * 只有窗口 resize、顶栏折叠、底栏展开收起这类“明确的布局变化”才解锁重算。
+     */
+    scheduleFrameHeightSync(unlock) {
+      if (this.frameHeightTimer) {
+        clearTimeout(this.frameHeightTimer)
+        this.frameHeightTimer = null
+      }
+      if (unlock) {
+        this.frameHeight = 0
+      }
+      this.$nextTick(() => {
+        this.frameHeightTimer = window.setTimeout(() => {
+          this.frameHeightTimer = null
+          const h = this.$el ? this.$el.clientHeight : 0
+          this.frameHeight = h > 0 ? h : 0
+          if (this.routeClientId) {
+            this._hasBusinessHeight = true
+          }
+        }, unlock ? 380 : 80)
+      })
+    },
     stableFrameId(path) {
       return String(path || '').replace(/[^\w]+/g, '_').slice(0, 120)
     },
@@ -189,6 +298,30 @@ export default {
         }
       }, 12000)
     },
+    /**
+     * 切页后决定是否延迟占位层：
+     * - 目标页已经有 iframe（已打开过）→ 延迟 80ms，让新帧直接顶上来，不闪 loading；
+     * - 目标页没有 iframe（新页面）→ 立即显示 loading，并用不透明占位盖住旧帧，
+     *   避免“打开新页面时闪一下上一个页面/已关闭页面”的残影。
+     */
+    armPlaceholderDelayed() {
+      const hasTargetFrame = (this.allIframeFrames || []).some(item => this.isIframeVisible(item))
+      if (this.placeholderArmTimer) {
+        clearTimeout(this.placeholderArmTimer)
+        this.placeholderArmTimer = null
+      }
+      if (!hasTargetFrame) {
+        this.placeholderArmed = true
+        this.armPlaceholderTimeout()
+        return
+      }
+      this.placeholderArmed = false
+      this.placeholderArmTimer = window.setTimeout(() => {
+        this.placeholderArmTimer = null
+        this.placeholderArmed = true
+        this.armPlaceholderTimeout()
+      }, 80)
+    },
     clearPlaceholderTimeout() {
       if (this.placeholderTimer) {
         clearTimeout(this.placeholderTimer)
@@ -214,7 +347,48 @@ export default {
       return nonce ? `${base}__${nonce}` : base
     },
     isIframeVisible(item) {
-      return portalTabsMatch(this.$route, item)
+      if (portalTabsMatch(this.$route, item)) {
+        return true
+      }
+      const frames = this.allIframeFrames || []
+      if (frames.some(frame => portalTabsMatch(this.$route, frame))) {
+        return false
+      }
+      // 关页后路由和已打开帧的 query/hash 可能对不齐。没有精确帧时，
+      // 用同一菜单下唯一的根帧顶上，避免再冷开一套（空表单 → 加载 → 重载）。
+      if (!item || portalQueryBucket(item) === 'child' || (item.meta && item.meta.portalChild)) {
+        return false
+      }
+      if (portalQueryBucket(this.$route) === 'child') {
+        return false
+      }
+      if (portalPathAliasKey(item.path) !== portalPathAliasKey(this.$route.path)) {
+        return false
+      }
+      const sameRoot = frames.filter(frame =>
+        frame
+        && portalQueryBucket(frame) !== 'child'
+        && !(frame.meta && frame.meta.portalChild)
+        && portalPathAliasKey(frame.path) === portalPathAliasKey(this.$route.path)
+      )
+      return sameRoot.length === 1 && sameRoot[0] === item
+    },
+    /** 已关页签、只在保温池里的帧。关掉后要释放业务会话，不能继续占着请求 */
+    isParkedFrame(item) {
+      const key = portalTabKey(item)
+      if (!key) {
+        return false
+      }
+      // 已打开页签（visitedViews 里还在）一律不算保温：iframeViews 的 key 可能因
+      // Camstar 内部路由/标题同步而漂移，误判成保温会在切走时挂起、切回时重载，
+      // 表现就是 Camstar 页面切回时闪/抖。
+      if ((this.visitedViews || []).some(view => portalTabsMatch(view, item))) {
+        return false
+      }
+      return !(this.iframeViews || []).some(view =>
+        portalTabKey(view) === key
+        || portalPathAliasKey(view.path) === portalPathAliasKey(item.path)
+      )
     },
     goPortalHome() {
       this.$store.dispatch('portal/navigateToPortalHome').catch(() => {})
@@ -249,6 +423,20 @@ export default {
   bottom: 0;
   left: 0;
   height: auto;
+}
+/* 已打开、但不在前台的页：不做任何显隐，只压到下层。
+   显隐（visibility/opacity/display）都会让 Camstar 这类跨域页面在重新可见时
+   恢复焦点/滚动，表现为“数据没刷新但页面抖一下”。前台帧根节点是不透明底，
+   会完整盖住下面的帧，所以保持可见不会露馅。已关闭/保温帧仍透明隐藏。 */
+.iframe-toggle__frames > .inner-link-root.is-frame-hidden {
+  pointer-events: none;
+  z-index: 0;
+}
+/* 已关闭/保温帧：透明隐藏，避免残留旧页面画面（切回会重建/重载，属于预期） */
+.iframe-toggle__frames > .inner-link-root.is-parked-hidden {
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
 }
 .iframe-sso-wait {
   position: absolute;

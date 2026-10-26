@@ -37,4 +37,7 @@ public class SubSystemClientSimpleRespVO {
     @Schema(description = "是否 JUMP 门户业务系统（已绑定 OAuth）。false=仅接口目标，不出现在外部用户管理等业务系统列表")
     private Boolean portalBound;
 
+    @Schema(description = "是否启用车间作用域（多叶子）")
+    private Boolean workshopScopeEnabled;
+
 }

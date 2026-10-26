@@ -18,6 +18,9 @@ public class SubSystemRoleImportExcelVO {
     @ExcelProperty("角色标识")
     private String code;
 
+    @ExcelProperty("车间编号")
+    private String workshopCode;
+
     @ExcelProperty("显示顺序")
     private Integer sort;
 

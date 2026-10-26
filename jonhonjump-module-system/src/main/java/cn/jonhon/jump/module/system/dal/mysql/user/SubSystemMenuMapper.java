@@ -25,11 +25,13 @@ public interface SubSystemMenuMapper extends BaseMapperX<SubSystemMenuDO> {
 
 
 
-    default List<SubSystemMenuDO> selectList(SubSystemMenuListReqVO reqVO) {
+    default List<SubSystemMenuDO> selectList(SubSystemMenuListReqVO reqVO, Collection<Long> allowedSubSystemIds) {
 
         return selectList(new LambdaQueryWrapperX<SubSystemMenuDO>()
 
                 .eqIfPresent(SubSystemMenuDO::getSubSystemId, reqVO.getSubSystemId())
+
+                .inIfPresent(SubSystemMenuDO::getSubSystemId, allowedSubSystemIds)
 
                 .likeIfPresent(SubSystemMenuDO::getMenuName, reqVO.getName())
 
