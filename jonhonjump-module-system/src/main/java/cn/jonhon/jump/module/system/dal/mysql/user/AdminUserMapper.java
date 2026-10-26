@@ -48,6 +48,10 @@ public interface AdminUserMapper extends BaseMapperX<AdminUserDO> {
         return selectOne(AdminUserDO::getDomainNo, domainNo);
     }
 
+    default AdminUserDO selectByCardNo(String cardNo) {
+        return selectOne(AdminUserDO::getCardNo, cardNo);
+    }
+
     default PageResult<AdminUserDO> selectPage(UserPageReqVO reqVO, Collection<Long> deptIds, Collection<Long> userIds) {
         return selectPage(reqVO, new LambdaQueryWrapperX<AdminUserDO>()
                 .likeIfPresent(AdminUserDO::getUsername, reqVO.getUsername())

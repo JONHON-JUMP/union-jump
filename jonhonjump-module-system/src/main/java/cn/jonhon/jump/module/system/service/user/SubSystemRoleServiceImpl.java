@@ -83,6 +83,8 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
     private SubSystemApiEndpointMapper subSystemApiEndpointMapper;
     @Resource
     private SubSystemWorkshopMapper subSystemWorkshopMapper;
+    @Resource
+    private LeafApiBindingService leafApiBindingService;
 
     @Override
     public PageResult<SubSystemRoleRespVO> getSubSystemRolePage(SubSystemRolePageReqVO pageReqVO) {
@@ -121,7 +123,9 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         }
         Long apiSubSystemId = createReqVO.getApiSubSystemId();
         if (apiSubSystemId == null || apiSubSystemId <= 0) {
-            apiSubSystemId = createReqVO.getSubSystemId();
+            apiSubSystemId = leafApiBindingService.requireApiSubSystemId(
+                    createReqVO.getSubSystemId(), workshopCode,
+                    cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum.ROLE_CREATE);
         }
         roleName = buildExternalRoleName(workshopCode, roleName);
         assertRoleNameLength(roleName);
@@ -234,7 +238,9 @@ public class SubSystemRoleServiceImpl implements SubSystemRoleService {
         String roleName = StrUtil.trim(role.getName());
         Long apiSubSystemId = reqVO != null ? reqVO.getApiSubSystemId() : null;
         if (apiSubSystemId == null || apiSubSystemId <= 0) {
-            apiSubSystemId = role.getSubSystemId();
+            apiSubSystemId = leafApiBindingService.requireApiSubSystemId(
+                    role.getSubSystemId(), workshopCode,
+                    cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum.ROLE_CREATE);
         }
         String externalName = buildExternalRoleName(workshopCode, roleName);
         assertRoleNameLength(externalName);

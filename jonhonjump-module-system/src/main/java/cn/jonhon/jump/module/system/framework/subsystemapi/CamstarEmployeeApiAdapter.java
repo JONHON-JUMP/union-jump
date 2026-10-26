@@ -46,7 +46,6 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
     private final EndpointSpec updateEndpoint;
     private final EndpointSpec deleteEndpoint;
     private final EndpointSpec teamComboEndpoint;
-    private final EndpointSpec assignRoleEndpoint;
     private final EndpointSpec authEndpoint;
     private final String cookieName;
     private final String authUserCode;
@@ -63,7 +62,6 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         this.deleteEndpoint = requireSpec(specs, ApiEndpointSpecs.DELETE, "删除接口");
         // 可选接口：未配置接口行时为 null（调用前判空）
         this.teamComboEndpoint = specs.get(ApiEndpointSpecs.TEAM_COMBO);
-        this.assignRoleEndpoint = specs.get(ApiEndpointSpecs.ASSIGN_ROLE);
         JsonNode auth = parseJson(StrUtil.blankToDefault(config.getAuthConfig(), "{}"));
         this.authUserCode = text(auth, "userCode", "");
         this.cookieName = text(auth, "cookieName", DEFAULT_COOKIE_NAME);
@@ -158,9 +156,7 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
      */
     public void assignRoles(String userCode, Set<String> managedRoleIds, Set<String> targetRoleIds) {
         requireEnabled(queryEndpoint, "查询");
-        EndpointSpec writeEndpoint = assignRoleEndpoint != null && assignRoleEndpoint.isEnabled()
-                ? assignRoleEndpoint : updateEndpoint;
-        requireEnabled(writeEndpoint, "人员分配角色");
+        requireEnabled(updateEndpoint, "修改人员");
         // 1. 查现状。对方若忽略 userCode，目标用户可能不在第一页，按页往后找，有上限。
         JsonNode matched = findEmployeeByUserCode(userCode);
         if (matched == null) {
@@ -205,8 +201,47 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
             throw new ExternalApiException("查询到的人员缺少用户名或车间，已中止回写，避免覆盖对方其他字段");
         }
         item.put("userRoleIdStr", String.join(",", finalRoleIds));
-        JsonNode writeResp = executeWithRelogin(writeEndpoint, Collections.singletonList(item));
+        JsonNode writeResp = executeWithRelogin(updateEndpoint, Collections.singletonList(item));
         checkSuccess(writeResp);
+    }
+
+    /**
+     * 同步域账号/刷卡卡号/ERP号。Camstar 没有单独的账号接口，这三项就在「修改人员」
+     * addOrUpdateUser 里。该接口是全量覆盖，所以先查出人员原样回写，只替换本次要同步的非空字段，
+     * 不传 password，避免把班组、角色、菜单、工位清掉或重置密码。
+     */
+    @Override
+    public void updateUserAccount(SubSystemEmployeeDTO employee) {
+        requireEnabled(queryEndpoint, "查询");
+        requireEnabled(updateEndpoint, "修改人员");
+        if (StrUtil.isBlank(employee.getDomainName()) && StrUtil.isBlank(employee.getCardNo())
+                && StrUtil.isBlank(employee.getErpNo())) {
+            throw new ExternalApiException("域账号、刷卡卡号、ERP号至少填写一个");
+        }
+        JsonNode matched = findEmployeeByUserCode(employee.getUserCode());
+        if (matched == null) {
+            throw new ExternalApiException("对方系统未找到用户【" + employee.getUserCode() + "】，请先在花名册完成人员注册");
+        }
+        Map<String, Object> item = JsonUtils.parseObject(matched.toString(),
+                new TypeReference<Map<String, Object>>() { });
+        if (item == null) {
+            throw new ExternalApiException("对方系统人员数据解析失败，已中止回写");
+        }
+        item.remove("password");
+        item.remove("Password");
+        item.remove("page");
+        item.remove("rows");
+        item.remove("userRoleList");
+        String userName = item.get("userName") == null ? "" : String.valueOf(item.get("userName")).trim();
+        String workshopCode = item.get("workshopCode") == null ? "" : String.valueOf(item.get("workshopCode")).trim();
+        if (StrUtil.isBlank(userName) || StrUtil.isBlank(workshopCode)) {
+            throw new ExternalApiException("查询到的人员缺少用户名或车间，已中止回写，避免覆盖对方其他字段");
+        }
+        putIfNotBlank(item, "domainName", employee.getDomainName());
+        putIfNotBlank(item, "cardNo", employee.getCardNo());
+        putIfNotBlank(item, "erpNo", employee.getErpNo());
+        JsonNode resp = executeWithRelogin(updateEndpoint, Collections.singletonList(item));
+        checkSuccess(resp);
     }
 
     @Override

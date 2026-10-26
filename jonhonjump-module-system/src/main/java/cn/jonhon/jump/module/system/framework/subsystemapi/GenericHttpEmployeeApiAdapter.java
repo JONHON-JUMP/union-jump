@@ -54,7 +54,7 @@ public class GenericHttpEmployeeApiAdapter implements SubSystemEmployeeApi {
         this.createEndpoint = requireSpec(specs, ApiEndpointSpecs.CREATE, "新增接口");
         this.updateEndpoint = requireSpec(specs, ApiEndpointSpecs.UPDATE, "修改接口");
         this.deleteEndpoint = requireSpec(specs, ApiEndpointSpecs.DELETE, "删除接口");
-        // 可选接口：未配置接口行时为 null，teamCombo() 返回空列表
+        // 可选接口：未配置接口行时为 null
         this.teamComboEndpoint = specs.get(ApiEndpointSpecs.TEAM_COMBO);
         JsonNode pm = safeParse(config.getParamMapping());
         if (pm != null) {
@@ -127,6 +127,15 @@ public class GenericHttpEmployeeApiAdapter implements SubSystemEmployeeApi {
             }
         }
         return list;
+    }
+
+    @Override
+    public void updateUserAccount(SubSystemEmployeeDTO employee) {
+        if (StrUtil.isBlank(employee.getDomainName()) && StrUtil.isBlank(employee.getCardNo())
+                && StrUtil.isBlank(employee.getErpNo())) {
+            throw new ExternalApiException("域账号、刷卡卡号、ERP账号至少需要一项有值");
+        }
+        update(employee);
     }
 
     @Override

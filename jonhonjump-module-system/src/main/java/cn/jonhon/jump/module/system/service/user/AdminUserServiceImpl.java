@@ -123,6 +123,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         createReqVO.setUsername(StrUtil.trim(createReqVO.getUsername()));
         validateUserForCreateOrUpdate(null, createReqVO.getUsername(),
                 createReqVO.getMobile(), createReqVO.getEmail(), createReqVO.getDeptId(), createReqVO.getPostIds());
+        // 1.2.1 域账号/刷卡卡号唯一（JUMP 为唯一维护源，业务系统靠同步获取）
+        validateDomainNoAndCardNoUnique(null, createReqVO.getDomainNo(), createReqVO.getCardNo());
         // 1.3 只能把用户建在自己数据权限范围内的部门
         validateDeptDataScope(createReqVO.getDeptId(), null);
         // 2.1 插入用户（user_uid 由生成器保证全局唯一，禁止外部指定）
@@ -216,6 +218,8 @@ public class AdminUserServiceImpl implements AdminUserService {
         // 1. 校验正确性
         AdminUserDO oldUser = validateUserForCreateOrUpdate(updateReqVO.getId(), updateReqVO.getUsername(),
                 updateReqVO.getMobile(), updateReqVO.getEmail(), updateReqVO.getDeptId(), updateReqVO.getPostIds());
+        // 1.0.1 域账号/刷卡卡号唯一（JUMP 为唯一维护源，业务系统靠同步获取）
+        validateDomainNoAndCardNoUnique(updateReqVO.getId(), updateReqVO.getDomainNo(), updateReqVO.getCardNo());
         // 1.1 原用户 / 目标部门都必须在当前数据权限范围内
         validateDeptDataScope(updateReqVO.getDeptId(), updateReqVO.getId());
 
@@ -632,6 +636,26 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     /**
+     * 域账号/刷卡卡号唯一性校验：一个域账号、一个卡号只能属于一个人（JUMP 为唯一维护源，
+     * 同步到业务系统前先在这里保证不重复）。空值跳过，id 非空时排除自身。
+     */
+    @VisibleForTesting
+    void validateDomainNoAndCardNoUnique(Long id, String domainNo, String cardNo) {
+        if (StrUtil.isNotBlank(domainNo)) {
+            AdminUserDO user = userMapper.selectByDomainNo(domainNo.trim());
+            if (user != null && !user.getId().equals(id)) {
+                throw exception(USER_DOMAIN_NO_DUPLICATE, domainNo, user.getUsername());
+            }
+        }
+        if (StrUtil.isNotBlank(cardNo)) {
+            AdminUserDO user = userMapper.selectByCardNo(cardNo.trim());
+            if (user != null && !user.getId().equals(id)) {
+                throw exception(USER_CARD_NO_DUPLICATE, cardNo, user.getUsername());
+            }
+        }
+    }
+
+    /**
      * 校验旧密码
      * @param id          用户 id
      * @param oldPassword 旧密码
@@ -679,9 +703,13 @@ public class AdminUserServiceImpl implements AdminUserService {
                 return;
             }
             // 2.1.2 校验，判断是否有不符合的原因
+            AdminUserDO existUser = userMapper.selectByUsername(importUser.getUsername());
             try {
                 validateUserForCreateOrUpdate(null, null, importUser.getMobile(), importUser.getEmail(),
                         importUser.getDeptId(), null);
+                // 域账号/刷卡卡号唯一：导入同样受约束（更新行排除自身）
+                validateDomainNoAndCardNoUnique(existUser == null ? null : existUser.getId(),
+                        importUser.getDomainNo(), importUser.getCardNo());
                 // 导入同样受部门数据权限约束，不能借 Excel 绕过
                 validateDeptDataScope(importUser.getDeptId(), null);
             } catch (ServiceException ex) {
@@ -690,7 +718,6 @@ public class AdminUserServiceImpl implements AdminUserService {
             }
 
             // 2.2.1 判断如果不存在，在进行插入
-            AdminUserDO existUser = userMapper.selectByUsername(importUser.getUsername());
             if (existUser == null) {
                 AdminUserDO newUser = BeanUtils.toBean(importUser, AdminUserDO.class)
                         .setPassword(encodePassword(initPassword))

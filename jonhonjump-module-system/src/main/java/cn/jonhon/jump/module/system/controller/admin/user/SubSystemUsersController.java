@@ -6,6 +6,7 @@ import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.excel.core.util.ExcelUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
+import cn.jonhon.jump.module.system.service.user.SubSystemEmployeeService;
 import cn.jonhon.jump.module.system.service.user.SubSystemUserImportService;
 import cn.jonhon.jump.module.system.service.user.SubSystemUsersService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -46,6 +47,9 @@ public class SubSystemUsersController {
 
     @Resource
     private SubSystemUserImportService subSystemUserImportService;
+
+    @Resource
+    private SubSystemEmployeeService subSystemEmployeeService;
 
     @Resource
     private cn.jonhon.jump.module.system.service.user.SubSystemPermissionContextService subSystemPermissionContextService;
@@ -295,6 +299,20 @@ public class SubSystemUsersController {
     public CommonResult<SubSystemUsersAssignRoleRespVO> assignSubSystemUserRole(@Valid @RequestBody SubSystemUsersAssignRoleReqVO reqVO) {
 
         return success(subSystemUsersService.assignSubSystemUserRole(reqVO));
+
+    }
+
+
+
+    @PostMapping("/sync-user-account")
+
+    @Operation(summary = "同步域账号/刷卡卡号到业务系统；仅在传入 ERP 账号时才同步 ERP")
+
+    @PreAuthorize("@ss.hasPermission('sub-system:user:update')")
+
+    public CommonResult<SubSystemUserAccountSyncRespVO> syncUserAccount(@Valid @RequestBody SubSystemUserAccountSyncReqVO reqVO) {
+
+        return success(subSystemEmployeeService.syncUserAccount(reqVO));
 
     }
 

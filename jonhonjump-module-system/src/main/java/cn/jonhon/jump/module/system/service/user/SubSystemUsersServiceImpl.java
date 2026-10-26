@@ -86,6 +86,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     private SubSystemApiConfigMapper subSystemApiConfigMapper;
     @Resource
     private SubSystemWorkshopMapper subSystemWorkshopMapper;
+    @Resource
+    private LeafApiBindingService leafApiBindingService;
 
     @Override
     public List<SubSystemUsersRespVO> getListByMainUserId(Long mainUserId) {
@@ -791,7 +793,9 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     /** 勾选同步时：按 external_role_id 映射调对方接口上挂/解除（查-合并-回写，不动对方手工挂的角色） */
     private void syncExternalUserRoles(SubSystemUsersDO user, SubSystemUsersAssignRoleReqVO reqVO) {
         if (reqVO.getApiSubSystemId() == null) {
-            throw exception0(BAD_REQUEST.getCode(), "同步外部角色请选择接口目标");
+            reqVO.setApiSubSystemId(leafApiBindingService.requireApiSubSystemId(
+                    user.getSubSystemId(), user.getWorkshopId(),
+                    cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum.ROLE_ASSIGN));
         }
         if (!"1".equals(user.getEmployeeRegistered())) {
             throw exception0(BAD_REQUEST.getCode(), "该用户尚未关联外部人员，请先在列表中【关联外部】");
@@ -1056,6 +1060,13 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 .map(SubSystemDO::getOauth2ClientId).filter(Objects::nonNull).collect(Collectors.toSet());
         Map<Long, OAuth2ClientDO> oauthClientMap = CollUtil.isEmpty(oauthClientIds) ? Collections.emptyMap()
                 : convertMap(oauth2ClientMapper.selectBatchIds(oauthClientIds), OAuth2ClientDO::getId);
+        // 接口配置类型（camstar/http）：前端按它筛选可同步域账号/卡号的挂接行
+        Map<Long, String> apiTypeMap = new HashMap<>();
+        for (SubSystemApiConfigDO config : subSystemApiConfigMapper.selectListBySubSystemIds(subSystemIds)) {
+            if (config.getSubSystemId() != null && StrUtil.isNotBlank(config.getApiType())) {
+                apiTypeMap.putIfAbsent(config.getSubSystemId(), config.getApiType());
+            }
+        }
         return list.stream().map(item -> {
             SubSystemUsersRespVO vo = BeanUtils.toBean(item, SubSystemUsersRespVO.class);
             SubSystemDO subSystem = subSystemMap.get(item.getSubSystemId());
@@ -1065,6 +1076,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 vo.setClientId(subSystem.resolvePortalClientId(
                         oauth2Client != null ? oauth2Client.getClientId() : null));
                 vo.setClientName(subSystem.getSystemName());
+                vo.setApiType(apiTypeMap.get(item.getSubSystemId()));
             }
             // 身份字段以子系统用户表为准；仅在本地字段为空时用主用户兜底用户名/姓名
             AdminUserDO mainUser = item.getMainUserId() == null ? null : mainUserMap.get(item.getMainUserId());

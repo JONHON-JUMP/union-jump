@@ -8,6 +8,8 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemRegisterableApiRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserAccountSyncReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserAccountSyncRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
@@ -60,6 +62,8 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
 
     @Resource
     private SubSystemEmployeeApiFactory subSystemEmployeeApiFactory;
+    @Resource
+    private LeafApiBindingService leafApiBindingService;
     @Resource
     private SubSystemApiConfigService subSystemApiConfigService;
     @Resource
@@ -196,8 +200,6 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
 
     @Override
     public List<SubSystemUserRegisterRespVO> registerEmployees(SubSystemUserRegisterReqVO reqVO) {
-        // 接口目标必须已配置且新增接口启用（未配置时 getApi 会抛具体业务异常）
-        getApi(reqVO.getApiSubSystemId());
         // 用户名拼接车间编号为可选项，对任意类型接口（camstar/http）均可用：
         // 对接系统要求用户名全局唯一时，以 车间编号_工号 注册，同一工号可登录不同车间系统
         boolean usernameWithWorkshop = Boolean.TRUE.equals(reqVO.getUsernameWithWorkshop());
@@ -238,22 +240,23 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                 continue;
             }
             try {
-                SubSystemEmployeeDTO dto = buildEmployeeDTO(roster, reqVO.getApiSubSystemId(), reqVO.getWorkshopCode(),
+                Long apiSubSystemId = resolveRegisterApi(reqVO, roster);
+                SubSystemEmployeeDTO dto = buildEmployeeDTO(roster, apiSubSystemId, reqVO.getWorkshopCode(),
                         usernameWithWorkshop);
-                if (workshopCodeRequired(roster.getSubSystemId(), resolveApiType(reqVO.getApiSubSystemId()))
+                if (workshopCodeRequired(roster.getSubSystemId(), resolveApiType(apiSubSystemId))
                         && StrUtil.isBlank(dto.getWorkshopCode())) {
                     result.setSuccess(false).setMessage("请填写车间编号");
                     continue;
                 }
                 // 车间编号_工号：各车间账号相互独立（5500_14059 与 4200_14059 不是同一用户）
                 // 注册前只认「目标账号」是否已在对方存在；其它车间同工号账号不拦截
-                SubSystemEmployeeDTO existing = findExactExternalEmployee(reqVO.getApiSubSystemId(), dto.getUserCode());
+                SubSystemEmployeeDTO existing = findExactExternalEmployee(apiSubSystemId, dto.getUserCode());
                 boolean alreadyExists = existing != null;
                 if (!alreadyExists) {
-                    getApi(reqVO.getApiSubSystemId()).create(dto);
+                    getApi(apiSubSystemId).create(dto);
                 }
                 String markMessage = markRegisteredWithRetry(roster.getId(), dto.getWorkshopCode(),
-                        usernameWithWorkshop, resolveApiType(reqVO.getApiSubSystemId()));
+                        usernameWithWorkshop, resolveApiType(apiSubSystemId));
                 result.setSuccess(true);
                 if (alreadyExists) {
                     result.setMessage("对方已有账号 " + dto.getUserCode() + "，已标记为已注册");
@@ -273,6 +276,67 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
             }
         }
         return results;
+    }
+
+    @Override
+    public SubSystemUserAccountSyncRespVO syncUserAccount(SubSystemUserAccountSyncReqVO reqVO) {
+        SubSystemUsersDO roster = subSystemUsersMapper.selectById(reqVO.getId());
+        if (roster == null) {
+            throw exception0(BAD_REQUEST.getCode(), "挂接记录不存在");
+        }
+        if (roster.getMainUserId() == null) {
+            throw exception0(BAD_REQUEST.getCode(), "该挂接未关联主系统用户，无法同步域账号/卡号");
+        }
+        // 可管系统范围校验：受限角色只能同步授权系统的挂接
+        subSystemAccessService.checkAccessible(roster.getSubSystemId());
+        AdminUserDO mainUser = adminUserMapper.selectById(roster.getMainUserId());
+        if (mainUser == null) {
+            throw exception0(BAD_REQUEST.getCode(), "关联的主系统用户不存在");
+        }
+        Long apiSubSystemId = reqVO.getApiSubSystemId() != null
+                ? reqVO.getApiSubSystemId()
+                : leafApiBindingService.requireApiSubSystemId(
+                        roster.getSubSystemId(), roster.getWorkshopId(),
+                        cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum.ACCOUNT_SYNC);
+        // 域账号、刷卡卡号只读自主用户资料，不接受弹窗改写；ERP 仅在请求显式传入时同步
+        String workshopCode = StrUtil.trimToNull(roster.getWorkshopId());
+        if (workshopCode == null) {
+            throw exception0(BAD_REQUEST.getCode(),
+                    "所选业务系统未填写车间编号，请先在该挂接的「修改」中补充后再同步");
+        }
+        SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
+        dto.setWorkshopCode(workshopCode);
+        dto.setDomainName(StrUtil.trimToNull(mainUser.getDomainNo()));
+        dto.setCardNo(StrUtil.trimToNull(mainUser.getCardNo()));
+        dto.setErpNo(StrUtil.trimToNull(reqVO.getErpNo()));
+        if (dto.getDomainName() == null && dto.getCardNo() == null && dto.getErpNo() == null) {
+            throw exception0(BAD_REQUEST.getCode(),
+                    "域账号和刷卡卡号均未维护，且未选择 ERP 账号。请先在用户编辑中维护后再同步");
+        }
+        // 对方系统用户名：注册时标记拼接车间则为 车间编号_工号，否则为登录工号
+        dto.setUserCode("1".equals(roster.getUsernameWithWorkshop())
+                ? workshopCode + "_" + roster.getUsername() : roster.getUsername());
+        List<String> syncedFields = new ArrayList<>();
+        if (dto.getDomainName() != null) {
+            syncedFields.add("域账号");
+        }
+        if (dto.getCardNo() != null) {
+            syncedFields.add("刷卡卡号");
+        }
+        if (dto.getErpNo() != null) {
+            syncedFields.add("ERP账号");
+        }
+        try {
+            getApi(apiSubSystemId).updateUserAccount(dto);
+        } catch (ExternalApiException | UnsupportedOperationException e) {
+            log.warn("[syncUserAccount] rosterId={} apiSubSystemId={} userCode={} 同步人员账号失败",
+                    roster.getId(), apiSubSystemId, dto.getUserCode(), e);
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
+        return new SubSystemUserAccountSyncRespVO()
+                .setUserCode(dto.getUserCode())
+                .setSyncedFields(syncedFields)
+                .setMessage("已将" + String.join("、", syncedFields) + "同步到业务账号 " + dto.getUserCode());
     }
 
     @Override
@@ -599,6 +663,16 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         if (StrUtil.isNotBlank(roster.getWorkshopId())) {
             dto.setUserCode(roster.getWorkshopId().trim() + "_" + dto.getUserCode().trim());
         }
+    }
+
+    private Long resolveRegisterApi(SubSystemUserRegisterReqVO reqVO, SubSystemUsersDO roster) {
+        if (reqVO.getApiSubSystemId() != null) {
+            return reqVO.getApiSubSystemId();
+        }
+        String workshopCode = StrUtil.blankToDefault(reqVO.getWorkshopCode(), roster.getWorkshopId());
+        return leafApiBindingService.requireApiSubSystemId(
+                roster.getSubSystemId(), workshopCode,
+                cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum.USER_REGISTER);
     }
 
     private SubSystemEmployeeApi getApi(Long subSystemId) {

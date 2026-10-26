@@ -5,6 +5,8 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemEmployeeSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemRegisterableApiRespVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserAccountSyncReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserAccountSyncRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterRespVO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemTeamComboDTO;
@@ -47,6 +49,13 @@ public interface SubSystemEmployeeService {
      * 成功后把花名册行的人员接口注册状态置为已注册；已注册项跳过；单项失败不影响其余
      */
     List<SubSystemUserRegisterRespVO> registerEmployees(SubSystemUserRegisterReqVO reqVO);
+
+    /**
+     * 把用户资料中的域账号、刷卡卡号同步到所选业务接口。
+     * 车间编号取自挂接记录，缺失则拒绝同步。
+     * 未传 ERP 账号时不同步 ERP，只同步域账号和刷卡卡号。
+     */
+    SubSystemUserAccountSyncRespVO syncUserAccount(SubSystemUserAccountSyncReqVO reqVO);
 
     /**
      * 把 JUMP 分配的业务角色同步到外部系统（查-合并-回写）：

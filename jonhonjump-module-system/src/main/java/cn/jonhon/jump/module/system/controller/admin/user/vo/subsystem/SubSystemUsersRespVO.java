@@ -64,6 +64,9 @@ public class SubSystemUsersRespVO {
     @Schema(description = "注册成功时所调「新增人员」接口的适配器类型（camstar/http）")
     private String registeredApiType;
 
+    @Schema(description = "所属系统接口配置的适配器类型（camstar/http；未配置接口为 null）")
+    private String apiType;
+
     @Schema(description = "备注")
     private String remark;
 

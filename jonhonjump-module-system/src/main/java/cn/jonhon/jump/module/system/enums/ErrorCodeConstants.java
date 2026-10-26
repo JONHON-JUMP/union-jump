@@ -54,6 +54,8 @@ public interface ErrorCodeConstants {
     ErrorCode USER_MOBILE_NOT_EXISTS = new ErrorCode(1_002_003_010, "该手机号尚未注册");
     ErrorCode USER_REGISTER_DISABLED = new ErrorCode(1_002_003_011, "注册功能已关闭");
     ErrorCode USER_UID_GENERATE_FAILED = new ErrorCode(1_002_003_031, "生成用户唯一标识失败，请稍后重试");
+    ErrorCode USER_DOMAIN_NO_DUPLICATE = new ErrorCode(1_002_003_095, "域账号【{}】已被用户【{}】占用，一个域账号只能属于一个人");
+    ErrorCode USER_CARD_NO_DUPLICATE = new ErrorCode(1_002_003_096, "刷卡卡号【{}】已被用户【{}】占用，一个卡号只能属于一个人");
     ErrorCode SUB_SYSTEM_IMPORT_NOT_BOUND = new ErrorCode(1_002_003_032, "请先选择并关联已登记的业务系统，确认后再导入");
     ErrorCode SUB_SYSTEM_IMPORT_LIST_EMPTY = new ErrorCode(1_002_003_033, "导入数据不能为空");
     ErrorCode SUB_SYSTEM_USER_NOT_EXISTS = new ErrorCode(1_002_003_012, "业务系统用户不存在");

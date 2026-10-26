@@ -14,6 +14,20 @@ const ignoreMsgs = [
   "刷新令牌已过期" // 使用刷新令牌，刷新获取新的访问令牌时，结果因为过期失败，此时需要忽略。否则，会导致继续 401，无法跳转到登出界面
 ]
 
+/** 对方接口失败时不要把整页 HTML 错误页铺进提示框 */
+function plainApiError(msg) {
+  const text = msg == null ? '' : String(msg)
+  if (!/<!doctype|<html|<head|<title/i.test(text)) {
+    return text.length > 300 ? text.slice(0, 300) + '…' : text
+  }
+  const title = ((text.match(/<title>([^<]*)<\/title>/i) || [])[1] || '').trim()
+  const status = (text.match(/HTTP\s+(\d+)/) || [])[1]
+  if (status === '404' || title.indexOf('无法找到资源') >= 0) {
+    return '对方系统没有这个接口（HTTP 404），请核对接口地址是否已在对方系统发布'
+  }
+  return '对方系统返回了错误页面' + (status ? '（HTTP ' + status + '）' : '') + (title ? '：' + title : '')
+}
+
 // 是否显示重新登录
 export let isRelogin = { show: false };
 // Axios 无感知刷新令牌，参考 https://www.dashingdog.cn/article/11 与 https://segmentfault.com/a/1190000020210980 实现
@@ -174,8 +188,8 @@ service.interceptors.response.use(async res => {
   }
 
   const code = data.code || 200;
-  // 获取错误信息
-  const msg = data.msg || errorCode[code] || errorCode['default']
+  // 获取错误信息。对方接口 404 时后端有时会带上整页 HTML，这里收成一句，避免错误页源码铺满提示框
+  const msg = plainApiError(data.msg || errorCode[code] || errorCode['default'])
 
   if (ignoreMsgs.indexOf(msg) !== -1) { // 如果是忽略的错误码，直接返回 msg 异常
     return Promise.reject(msg)

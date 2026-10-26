@@ -279,31 +279,8 @@
         </el-form-item>
         <template v-if="!form.id">
           <el-form-item label="同步注册">
-            <el-checkbox
-              v-model="form.syncToExternal"
-              :disabled="!registerApis.length"
-              @change="applyDefaultAddRegisterApi"
-            >同步注册到外部系统（调「新增人员」接口）</el-checkbox>
-            <div class="form-tip">
-              <span v-if="registerApis.length">新建后同时在对方系统建人，成功后标记为已关联外部</span>
-              <span v-else style="color:#e6a23c">未找到已启用的「新增人员」接口。请到【接口管理】配置并启用</span>
-            </div>
-          </el-form-item>
-          <el-form-item v-if="form.syncToExternal" label="接口目标" prop="apiSubSystemId">
-            <el-select
-              v-model="form.apiSubSystemId"
-              placeholder="请选择要调用的新增人员接口"
-              filterable
-              style="width: 100%"
-            >
-              <el-option
-                v-for="item in registerApis"
-                :key="item.subSystemId"
-                :label="item.systemName"
-                :value="item.subSystemId"
-              />
-            </el-select>
-            <div class="form-tip">接口来自【接口管理】中「新增」用途已启用的系统，可与左侧花名册系统不同</div>
+            <el-checkbox v-model="form.syncToExternal">同步注册到外部系统</el-checkbox>
+            <div class="form-tip">新建后同时在业务系统建人，成功后标记为已关联外部</div>
           </el-form-item>
         </template>
         <el-form-item label="关联车间编号" prop="usernameWithWorkshop">
@@ -341,7 +318,7 @@
         <el-form-item label="角色">
           <el-select v-model="roleForm.roleIds" multiple placeholder="请选择角色" style="width: 100%" filterable>
             <el-option
-              v-for="item in roleOptions"
+              v-for="item in visibleRoleOptions"
               :key="item.id"
               :label="roleOptionLabel(item)"
               :value="item.id"
@@ -349,26 +326,13 @@
             />
           </el-select>
           <div v-if="roleForm.workshopId" class="form-tip">
-            当前车间「{{ roleForm.workshopId }}」，只能选择该车间下的角色或未打车间的角色
+            当前车间「{{ roleForm.workshopId }}」，仅展示该车间及未打车间的角色，其它车间角色不显示
           </div>
         </el-form-item>
         <el-form-item label="同步外部">
-          <el-checkbox v-model="roleForm.syncToExternal">调用外部系统接口同步上挂/解除角色</el-checkbox>
+          <el-checkbox v-model="roleForm.syncToExternal">同步上挂或解除角色到业务系统</el-checkbox>
           <div class="form-tip">
             勾选的角色必须已在「业务角色管理」中关联外部角色，否则本次同步失败；只增删 JUMP 管辖范围内的角色，对方系统手工挂的角色（含 Login）保持不变
-          </div>
-        </el-form-item>
-        <el-form-item v-if="roleForm.syncToExternal" label="接口目标">
-          <el-select v-model="roleForm.apiSubSystemId" placeholder="请选择调用哪个系统的人员接口" filterable style="width: 100%">
-            <el-option
-              v-for="item in registerApis"
-              :key="item.subSystemId"
-              :label="item.systemName"
-              :value="item.subSystemId"
-            />
-          </el-select>
-          <div v-if="!registerApis.length" class="form-tip" style="color:#f56c6c">
-            没有已启用「新增人员」的接口目标，请先在【接口管理】接入并启用
           </div>
         </el-form-item>
       </el-form>
@@ -421,17 +385,6 @@
         <el-form-item label="用户名">
           <el-input :value="bindForm.username + (bindForm.nickname ? '（' + bindForm.nickname + '）' : '')" disabled />
         </el-form-item>
-        <el-form-item label="接口目标" required>
-          <el-select v-model="bindForm.apiSubSystemId" placeholder="请选择外部系统" filterable style="width: 100%"
-                     :disabled="bindLoading" @change="onBindFilterChange">
-            <el-option
-              v-for="item in registerApis"
-              :key="item.subSystemId"
-              :label="item.systemName"
-              :value="item.subSystemId"
-            />
-          </el-select>
-        </el-form-item>
         <el-form-item label="车间编号" required>
           <el-input
             v-model="bindForm.workshopCode"
@@ -446,10 +399,9 @@
         <el-form-item label="外部人员">
           <div style="margin-bottom: 6px">
             <el-button size="mini" type="primary" plain :loading="bindLoading"
-                       :disabled="!bindForm.apiSubSystemId"
                        @click="loadExternalEmployees">查询外部人员</el-button>
             <el-button size="mini" type="primary" plain :loading="bindRegistering"
-                       :disabled="!bindForm.apiSubSystemId || !bindForm.workshopCode"
+                       :disabled="!bindForm.workshopCode"
                        @click="pushRegisterFromBind">新增外部人员</el-button>
           </div>
           <el-checkbox v-model="bindForm.usernameWithWorkshop" style="margin-bottom: 6px">关联车间编号：注册为 车间编号_工号</el-checkbox>
@@ -503,11 +455,12 @@ import {
   registerSubSystemEmployee
 } from '@/api/system/subSystemEmployee'
 import { getHangableExternalTree } from '@/api/system/subSystemWorkshop'
+import { getLeafApiBindings, bindingLabel } from '@/api/system/subSystemApiBinding'
 import { getUser } from '@/api/system/user'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
 import { escapeHtml } from '@/utils/escapeHtml'
-import { subSystemRoleOptionLabel, isSubSystemRoleOptionDisabled } from '@/utils/subSystemRoleOption'
+import { subSystemRoleOptionLabel, isSubSystemRoleOptionDisabled, filterSubSystemRoleOptions } from '@/utils/subSystemRoleOption'
 import dialogDirtyGuard from '@/mixins/dialogDirtyGuard'
 import workshopLeftNav from '../mixins/workshopLeftNav'
 
@@ -579,6 +532,7 @@ export default {
         nickname: '',
         employeeRegistered: '0',
         apiSubSystemId: undefined,
+        apiLabel: '',
         workshopCode: undefined,
         userCode: undefined,
         usernameWithWorkshop: false
@@ -601,20 +555,6 @@ export default {
           trigger: 'change'
         }],
         username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }],
-        apiSubSystemId: [{
-          validator: (rule, value, callback) => {
-            if (this.form.id || !this.form.syncToExternal) {
-              callback()
-              return
-            }
-            if ((this.registerApis || []).length && !value) {
-              callback(new Error('请选择接口目标'))
-              return
-            }
-            callback()
-          },
-          trigger: 'change'
-        }],
         workshopId: [{
           validator: (rule, value, callback) => {
             if (!this.syncWorkshopRequired) {
@@ -633,6 +573,10 @@ export default {
     }
   },
   computed: {
+    /** 角色下拉只展示当前车间可选的角色（其它车间未选中的隐藏，已选中的保留回显） */
+    visibleRoleOptions() {
+      return filterSubSystemRoleOptions(this.roleOptions, this.roleForm.workshopId, this.roleForm.roleIds)
+    },
     filteredClientList() {
       const keyword = (this.clientKeyword || '').trim().toLowerCase()
       if (!keyword) {
@@ -874,13 +818,16 @@ export default {
       this.form.postIds = []
       if (this.form.subSystemId) {
         this.loadSubOptions(this.form.subSystemId)
-        this.loadRegisterableApis().then(() => this.applyDefaultAddRegisterApi())
+        this.applyLeafBinding(this.form, this.form.subSystemId, this.form.workshopId, 'user_register')
       }
     },
     handleWorkshopChange() {
       this.form.teamId = undefined
       const id = this.form.subSystemId || (this.selectedClient && this.selectedClient.id)
       this.reloadTeams(id)
+      if (!this.form.id) {
+        this.applyLeafBinding(this.form, this.form.subSystemId, this.form.workshopId, 'user_register')
+      }
     },
     reloadTeams(subSystemId) {
       if (!subSystemId) {
@@ -967,6 +914,7 @@ export default {
         employeeRegistered: '0',
         syncToExternal: false,
         apiSubSystemId: undefined,
+        apiLabel: '',
         usernameWithWorkshop: '0',
         remark: undefined,
         postIds: []
@@ -1132,7 +1080,7 @@ export default {
           delete payload.employeeRegistered
         }
         delete payload.registeredApiType
-        const shouldRegister = isAdd && syncToExternal && !!apiSubSystemId
+        const shouldRegister = isAdd && syncToExternal
         this.submitting = true
         const request = isAdd ? createSubSystemUser : updateSubSystemUser
         const afterSaved = (msg) => {
@@ -1165,7 +1113,7 @@ export default {
             return
           }
           return registerSubSystemEmployee({
-            apiSubSystemId,
+            apiSubSystemId: apiSubSystemId || undefined,
             workshopCode: payload.workshopId,
             usernameWithWorkshop,
             ids: [res.data]
@@ -1173,7 +1121,7 @@ export default {
             const results = regRes.data || []
             const fail = results.filter(r => !r.success)
             if (fail.length) {
-              this.$modal.msgError('用户已保存，但接口注册失败：' + (fail[0].message || '未知错误'))
+              this.$modal.msgError('用户已保存，但同步到业务系统失败：' + (fail[0].message || '未知错误'))
               this.open = false
               this.getList()
               this.loadClientList()
@@ -1239,9 +1187,12 @@ export default {
         roleIds: [],
         // 默认不同步外部：多数角色未关联外部角色，默认勾选会让“分配成功”看起来像失败
         syncToExternal: false,
-        apiSubSystemId: undefined
+        apiSubSystemId: undefined,
+        apiLabel: '',
+        rosterSubSystemId: row.subSystemId
       }
       this.openRole = true
+      this.applyLeafBinding(this.roleForm, row.subSystemId, row.workshopId, 'role_assign')
       const openKey = 'role:' + row.id
       this.openingKey = openKey
       const sid = row.subSystemId
@@ -1263,13 +1214,8 @@ export default {
           if (this.openingKey === openKey) {
             this.$modal.msgError('加载已分配角色失败，请重试')
           }
-        }),
-        this.loadRegisterableApis()
-      ]).then(() => {
-        if (this.openingKey === openKey) {
-          this.applyDefaultAssignApi(sid)
-        }
-      }).finally(() => {
+        })
+      ]).finally(() => {
         if (this.openingKey === openKey) {
           this.openingKey = ''
         }
@@ -1282,15 +1228,6 @@ export default {
     roleOptionDisabled(item) {
       return isSubSystemRoleOptionDisabled(item, this.roleForm.workshopId)
     },
-    /** 接口目标默认带出本花名册系统已启用的人员接口；没有同系统配置且只有一个目标时用那一个 */
-    applyDefaultAssignApi(rosterSubSystemId) {
-      const apis = this.registerApis || []
-      const hit = apis.find(item => item.subSystemId === rosterSubSystemId)
-      const picked = hit ? hit.subSystemId : (apis.length === 1 ? apis[0].subSystemId : undefined)
-      if (picked && !this.roleForm.apiSubSystemId) {
-        this.roleForm.apiSubSystemId = picked
-      }
-    },
     submitRole() {
       // 车间叶子下：已选角色不能是其它车间的（历史勾选也拦一道，与后端校验一致）
       if (this.roleForm.workshopId) {
@@ -1302,10 +1239,6 @@ export default {
           this.$modal.msgError('请只选择当前车间「' + this.roleForm.workshopId + '」下的角色')
           return
         }
-      }
-      if (this.roleForm.syncToExternal && !this.roleForm.apiSubSystemId) {
-        this.$modal.msgError('勾选同步外部时请选择接口目标')
-        return
       }
       this.roleSubmitting = true
       assignSubSystemUserRole({
@@ -1338,18 +1271,27 @@ export default {
     loadRegisterableApis() {
       return getSubSystemRegisterableApis().then(res => {
         this.registerApis = res.data || []
-        this.applyDefaultAddRegisterApi()
       }).catch(() => {
         this.registerApis = []
       })
     },
-    applyDefaultAddRegisterApi() {
-      if (this.form.id || !this.form.syncToExternal || this.form.apiSubSystemId) {
-        return
+    applyLeafBinding(target, subSystemId, workshopCode, scene) {
+      if (!target) {
+        return Promise.resolve()
       }
-      if (this.registerApis.length === 1) {
-        this.form.apiSubSystemId = this.registerApis[0].subSystemId
+      target.apiSubSystemId = undefined
+      target.apiLabel = ''
+      if (!subSystemId) {
+        return Promise.resolve()
       }
+      return getLeafApiBindings(subSystemId, workshopCode).then(res => {
+        const hit = ((res.data && res.data.bindings) || []).find(item => item.scene === scene)
+        if (!hit) {
+          return
+        }
+        target.apiSubSystemId = hit.apiSubSystemId
+        target.apiLabel = bindingLabel(hit)
+      }).catch(() => {})
     },
     handleBind(row) {
       this.externalEmployees = []
@@ -1360,35 +1302,40 @@ export default {
         nickname: row.nickname,
         employeeRegistered: row.employeeRegistered || '0',
         apiSubSystemId: undefined,
+        apiLabel: '',
         workshopCode: row.workshopId || undefined,
         userCode: undefined,
-        usernameWithWorkshop: row.usernameWithWorkshop === '1'
+        usernameWithWorkshop: row.usernameWithWorkshop === '1',
+        rosterSubSystemId: row.subSystemId || (this.selectedClient && this.selectedClient.id)
       }
       this.bindOpen = true
       const sid = row.subSystemId || (this.selectedClient && this.selectedClient.id)
-      Promise.all([
-        this.registerApis.length ? Promise.resolve() : this.loadRegisterableApis(),
-        this.loadSubOptions(sid)
-      ]).then(() => {
+      this.applyLeafBinding(this.bindForm, sid, row.workshopId, 'employee_query')
+      this.loadSubOptions(sid).then(() => {
         if (!this.bindForm.workshopCode) {
           this.bindForm.workshopCode = row.workshopId || undefined
         }
-        const hit = (this.registerApis || []).find(item => item.subSystemId === sid)
-        this.bindForm.apiSubSystemId = hit
-          ? hit.subSystemId
-          : ((this.registerApis || []).length === 1 ? this.registerApis[0].subSystemId : undefined)
       })
     },
     onBindFilterChange() {
       this.bindForm.userCode = undefined
       this.externalEmployees = []
       this.externalEmployeeTip = ''
+      const sid = this.bindForm.rosterSubSystemId || (this.selectedClient && this.selectedClient.id)
+      this.applyLeafBinding(this.bindForm, sid, this.bindForm.workshopCode, 'employee_query')
     },
     loadExternalEmployees(silent) {
       if (!this.bindForm.apiSubSystemId) {
-        if (!silent) {
-          this.$modal.msgWarning('请先选择接口目标')
-        }
+        const sid = this.bindForm.rosterSubSystemId || (this.selectedClient && this.selectedClient.id)
+        this.applyLeafBinding(this.bindForm, sid, this.bindForm.workshopCode, 'employee_query').then(() => {
+          if (!this.bindForm.apiSubSystemId) {
+            if (!silent) {
+              this.$modal.msgWarning('暂时无法查询外部人员')
+            }
+            return
+          }
+          this.loadExternalEmployees(silent)
+        })
         return
       }
       if (!this.bindForm.username) {
@@ -1454,7 +1401,6 @@ export default {
     pushRegisterFromBind() {
       this.bindRegistering = true
       registerSubSystemEmployee({
-        apiSubSystemId: this.bindForm.apiSubSystemId,
         workshopCode: this.bindForm.workshopCode,
         usernameWithWorkshop: !!this.bindForm.usernameWithWorkshop,
         ids: [this.bindForm.id]

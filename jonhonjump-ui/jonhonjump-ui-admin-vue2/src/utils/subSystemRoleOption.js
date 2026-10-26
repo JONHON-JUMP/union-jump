@@ -31,3 +31,22 @@ export function isSubSystemRoleOptionDisabled(item, workshopId) {
   }
   return String(item.workshopCode) !== String(workshopId)
 }
+
+/**
+ * 角色下拉只展示当前车间可选的角色：保留 未打车间（如超管）/ 当前车间 的角色，
+ * 其它车间的角色直接隐藏（比置灰占位清爽）。
+ * 已被用户选中的其它车间角色保留展示：既能回显名称，也让提交前的车间校验能找到它。
+ */
+export function filterSubSystemRoleOptions(roles, workshopId, selectedRoleIds) {
+  const list = roles || []
+  if (!workshopId) {
+    return list
+  }
+  const selected = new Set((selectedRoleIds || []).map(id => Number(id)))
+  return list.filter(item => {
+    if (!item.workshopCode || String(item.workshopCode) === String(workshopId)) {
+      return true
+    }
+    return item.id != null && selected.has(Number(item.id))
+  })
+}

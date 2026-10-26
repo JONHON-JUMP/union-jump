@@ -41,7 +41,7 @@
         />
         <el-alert
           v-else
-          title="叶子 = 人员挂接与角色作用域单位；多叶子系统请在「业务系统登记」开启车间维度。有用户/角色占用的叶子不能删、不能改编号。"
+          title="叶子 = 人员挂接与角色作用域单位；多叶子系统请在「业务系统登记」开启车间维度。有用户/角色占用的叶子不能删、不能改编号。新上业务系统后，在对应叶子上点「接口绑定」，把各次调用接到已有接口系统，不用改代码。"
           type="info"
           :closable="false"
           show-icon
@@ -103,8 +103,10 @@
               <span>{{ parseTime(scope.row.createTime) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" align="center" width="150" fixed="right">
+          <el-table-column label="操作" align="center" width="220" fixed="right">
             <template v-slot="scope">
+              <el-button size="mini" type="text" icon="el-icon-connection" @click="openApiBinding(scope.row)"
+                         v-hasPermi="['sub-system:workshop:update']">接口绑定</el-button>
               <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
                          v-hasPermi="['sub-system:workshop:update']">修改</el-button>
               <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)"
@@ -156,6 +158,95 @@
         <el-button @click="cancel">取 消</el-button>
       </div>
     </el-dialog>
+
+    <el-dialog
+      :title="bindingTitle"
+      :visible.sync="bindingOpen"
+      width="980px"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        title="供开发或运维在新上业务系统时配置。选定接口系统后，本叶子的各次页面调用会接到该系统里用途相同的接口。保存后，使用者注册、分配角色、同步账号时直接调用，不再选择接口。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb8"
+      />
+      <el-form label-width="110px" size="small" class="mb8">
+        <el-form-item label="统一接口系统" style="margin-bottom: 0">
+          <el-select
+            v-model="bindingBulkSystemId"
+            placeholder="选择后填入下方全部调用"
+            filterable
+            clearable
+            style="width: 360px"
+          >
+            <el-option
+              v-for="item in apiOptions"
+              :key="item.subSystemId"
+              :label="item.systemName"
+              :value="item.subSystemId"
+            />
+          </el-select>
+          <el-button type="primary" plain style="margin-left: 8px" @click="applyBulkApiSystem">填入全部调用</el-button>
+        </el-form-item>
+      </el-form>
+      <el-table v-loading="bindingLoading" :data="bindingRows" border>
+        <el-table-column label="页面调用" min-width="180">
+          <template v-slot="scope">
+            <div>{{ scope.row.label }}</div>
+            <div class="form-tip">对应接口用途：{{ scope.row.purposeLabel }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="接口系统" min-width="220">
+          <template v-slot="scope">
+            <el-select
+              v-model="scope.row.apiSubSystemId"
+              placeholder="请选择接口系统"
+              filterable
+              clearable
+              style="width: 100%"
+              @change="onBindingSystemChange(scope.row)"
+            >
+              <el-option
+                v-for="item in apiOptions"
+                :key="item.subSystemId"
+                :label="item.systemName"
+                :value="item.subSystemId"
+              />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="具体接口" min-width="320">
+          <template v-slot="scope">
+            <el-select
+              v-model="scope.row.endpointId"
+              placeholder="请选择具体接口"
+              filterable
+              clearable
+              :disabled="!scope.row.apiSubSystemId"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="item in endpointsOf(scope.row)"
+                :key="item.id"
+                :label="endpointLabel(item)"
+                :value="item.id"
+                :disabled="item.enabled === false"
+              />
+            </el-select>
+            <div v-if="scope.row.apiSubSystemId && !endpointsOf(scope.row).length" class="form-tip" style="color:#f56c6c">
+              该系统没有「{{ scope.row.purposeLabel }}」接口
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" :loading="bindingSaving" @click="saveApiBinding">保 存</el-button>
+        <el-button @click="bindingOpen = false">取 消</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -169,6 +260,7 @@ import {
   getSubSystemWorkshopPage,
   updateSubSystemWorkshop
 } from '@/api/system/subSystemWorkshop'
+import { getLeafApiBindings, getLeafApiOptions, saveLeafApiBindings } from '@/api/system/subSystemApiBinding'
 import { CommonStatusEnum } from '@/utils/constants'
 import { DICT_TYPE, ensureDictDatas, getDictDatas } from '@/utils/dict'
 import subSystemImportGate from '@/utils/subSystemImportGate'
@@ -189,6 +281,13 @@ export default {
       title: '',
       open: false,
       checkedIds: [],
+      bindingOpen: false,
+      bindingLoading: false,
+      bindingSaving: false,
+      bindingLeaf: null,
+      bindingRows: [],
+      bindingBulkSystemId: undefined,
+      apiOptions: [],
       queryParams: {
         pageNo: 1,
         pageSize: 10,
@@ -220,6 +319,13 @@ export default {
         (item.name && item.name.toLowerCase().includes(keyword)) ||
         (item.clientId && item.clientId.toLowerCase().includes(keyword))
       )
+    },
+    bindingTitle() {
+      const leaf = this.bindingLeaf
+      if (!leaf) {
+        return '接口绑定'
+      }
+      return '接口绑定 - ' + (leaf.workshopName || leaf.workshopCode) + '（' + leaf.workshopCode + '）'
     }
   },
   created() {
@@ -380,6 +486,92 @@ export default {
     },
     handleRowCheckboxChange(selection) {
       this.checkedIds = selection.map(item => item.id)
+    },
+    openApiBinding(row) {
+      this.bindingLeaf = row
+      this.bindingRows = []
+      this.bindingBulkSystemId = undefined
+      this.bindingOpen = true
+      this.bindingLoading = true
+      Promise.all([
+        getLeafApiOptions(),
+        getLeafApiBindings(row.subSystemId, row.workshopCode)
+      ]).then(([optionRes, listRes]) => {
+        this.apiOptions = optionRes.data || []
+        const saved = (listRes.data && listRes.data.bindings) || []
+        this.bindingRows = ((listRes.data && listRes.data.scenes) || []).map(scene => {
+          const hit = saved.find(item => item.scene === scene.scene) || {}
+          return {
+            ...scene,
+            apiSubSystemId: hit.apiSubSystemId,
+            endpointId: hit.endpointId
+          }
+        })
+        this.bindingRows.forEach(row => {
+          if (row.apiSubSystemId && !this.endpointsOf(row).some(item => item.id === row.endpointId)) {
+            row.endpointId = undefined
+            this.onBindingSystemChange(row)
+          }
+        })
+      }).catch(() => {
+        this.bindingRows = []
+      }).finally(() => {
+        this.bindingLoading = false
+      })
+    },
+    endpointsOf(row) {
+      const system = (this.apiOptions || []).find(item => item.subSystemId === row.apiSubSystemId)
+      const endpoints = system && system.endpoints ? system.endpoints : []
+      return endpoints.filter(item => item.purpose === row.purpose)
+    },
+    endpointLabel(item) {
+      return item.url || item.name || item.purposeLabel || '接口'
+    },
+    onBindingSystemChange(row) {
+      const endpoints = this.endpointsOf(row)
+      if (endpoints.some(item => item.id === row.endpointId)) {
+        return
+      }
+      const enabled = endpoints.filter(item => item.enabled !== false)
+      row.endpointId = enabled.length === 1 ? enabled[0].id : undefined
+    },
+    applyBulkApiSystem() {
+      if (!this.bindingBulkSystemId) {
+        this.$modal.msgWarning('请先选择接口系统')
+        return
+      }
+      ;(this.bindingRows || []).forEach(row => {
+        row.apiSubSystemId = this.bindingBulkSystemId
+        row.endpointId = undefined
+        this.onBindingSystemChange(row)
+      })
+    },
+    saveApiBinding() {
+      if (!this.bindingLeaf || this.bindingSaving) {
+        return
+      }
+      const incomplete = (this.bindingRows || []).find(row =>
+        (row.apiSubSystemId && !row.endpointId) || (!row.apiSubSystemId && row.endpointId)
+      )
+      if (incomplete) {
+        this.$modal.msgWarning('「' + incomplete.label + '」需要同时选择接口系统和具体接口')
+        return
+      }
+      this.bindingSaving = true
+      saveLeafApiBindings({
+        bizSubSystemId: this.bindingLeaf.subSystemId,
+        workshopCode: this.bindingLeaf.workshopCode,
+        items: (this.bindingRows || []).map(row => ({
+          scene: row.scene,
+          apiSubSystemId: row.apiSubSystemId || null,
+          endpointId: row.endpointId || null
+        }))
+      }).then(() => {
+        this.$modal.msgSuccess('接口绑定已保存')
+        this.bindingOpen = false
+      }).finally(() => {
+        this.bindingSaving = false
+      })
     }
   }
 }

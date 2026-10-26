@@ -27,14 +27,24 @@
     <el-card shadow="never" class="user-detail-card">
       <div slot="header" class="user-detail-card__header">
         <span>已挂业务系统</span>
-        <el-button
-          type="primary"
-          plain
-          icon="el-icon-plus"
-          size="mini"
-          @click="handleAddSubSystemUser"
-          v-hasPermi="['sub-system:user:create']"
-        >挂接系统</el-button>
+        <div>
+          <el-button
+            type="primary"
+            plain
+            icon="el-icon-plus"
+            size="mini"
+            @click="handleAddSubSystemUser"
+            v-hasPermi="['sub-system:user:create']"
+          >挂接系统</el-button>
+          <el-button
+            type="success"
+            plain
+            icon="el-icon-key"
+            size="mini"
+            @click="handleSyncAccount"
+            v-hasPermi="['sub-system:user:update']"
+          >同步域账号/卡号</el-button>
+        </div>
       </div>
       <el-table
         :data="subSystemList"
@@ -134,7 +144,7 @@
         <el-form-item label="角色">
           <el-select v-model="roleForm.roleIds" multiple placeholder="请选择角色" style="width: 100%" filterable>
             <el-option
-              v-for="item in roleOptions"
+              v-for="item in visibleRoleOptions"
               :key="item.id"
               :label="roleOptionLabel(item)"
               :value="item.id"
@@ -142,26 +152,13 @@
             />
           </el-select>
           <div v-if="roleForm.workshopId" class="form-tip">
-            当前车间「{{ roleForm.workshopId }}」，请优先选择该车间下的角色
+            当前车间「{{ roleForm.workshopId }}」，仅展示该车间及未打车间的角色，其它车间角色不显示
           </div>
         </el-form-item>
         <el-form-item label="同步外部">
-          <el-checkbox v-model="roleForm.syncToExternal">调用外部系统接口同步上挂/解除角色</el-checkbox>
+          <el-checkbox v-model="roleForm.syncToExternal">同步上挂或解除角色到业务系统</el-checkbox>
           <div class="form-tip">
             勾选的角色须已在「业务角色管理」中关联外部角色；只增删 JUMP 管辖范围内的角色
-          </div>
-        </el-form-item>
-        <el-form-item v-if="roleForm.syncToExternal" label="接口目标">
-          <el-select v-model="roleForm.apiSubSystemId" placeholder="请选择调用哪个系统的人员接口" filterable style="width: 100%">
-            <el-option
-              v-for="item in registerApis"
-              :key="item.subSystemId"
-              :label="item.systemName"
-              :value="item.subSystemId"
-            />
-          </el-select>
-          <div v-if="!registerApis.length" class="form-tip" style="color:#f56c6c">
-            没有已启用「新增人员」的接口目标，请先在【接口管理】接入并启用
           </div>
         </el-form-item>
       </el-form>
@@ -176,23 +173,6 @@
       <el-form :model="bindForm" label-width="100px">
         <el-form-item label="用户名">
           <el-input :value="bindForm.username + (bindForm.nickname ? '（' + bindForm.nickname + '）' : '')" disabled />
-        </el-form-item>
-        <el-form-item label="接口目标" required>
-          <el-select
-            v-model="bindForm.apiSubSystemId"
-            placeholder="请选择外部系统"
-            filterable
-            style="width: 100%"
-            :disabled="bindLoading"
-            @change="onBindFilterChange"
-          >
-            <el-option
-              v-for="item in registerApis"
-              :key="item.subSystemId"
-              :label="item.systemName"
-              :value="item.subSystemId"
-            />
-          </el-select>
         </el-form-item>
         <el-form-item label="车间编号" required>
           <el-input
@@ -212,7 +192,6 @@
               type="primary"
               plain
               :loading="bindLoading"
-              :disabled="!bindForm.apiSubSystemId"
               @click="loadExternalEmployees"
             >查询外部人员</el-button>
             <el-button
@@ -220,7 +199,7 @@
               type="primary"
               plain
               :loading="bindRegistering"
-              :disabled="!bindForm.apiSubSystemId || !bindForm.workshopCode"
+              :disabled="!bindForm.workshopCode"
               @click="pushRegisterFromBind"
             >新增外部人员</el-button>
           </div>
@@ -249,6 +228,74 @@
         <el-button @click="bindOpen = false">取 消</el-button>
       </div>
     </el-dialog>
+
+    <!-- 同步域账号/刷卡卡号：只读展示用户资料，选择已挂接业务系统 -->
+    <el-dialog title="同步域账号/刷卡卡号" :visible.sync="syncOpen" width="600px" append-to-body :close-on-click-modal="false">
+      <el-form :model="syncForm" label-width="100px">
+        <el-form-item label="业务系统" required>
+          <el-select
+            v-model="syncForm.rosterId"
+            placeholder="请选择已挂接的业务系统"
+            style="width: 100%"
+            filterable
+          >
+            <el-option
+              v-for="item in hungSystemOptions"
+              :key="item.id"
+              :label="item.label"
+              :value="item.id"
+            />
+          </el-select>
+          <div v-if="!hungSystemOptions.length" class="form-tip form-tip--warn">
+            该用户还没有挂接业务系统。请先使用「挂接系统」完成挂接。
+          </div>
+        </el-form-item>
+        <el-form-item label="车间编号" required>
+          <el-input :value="syncWorkshopCode || '未填写'" disabled />
+          <div v-if="syncForm.rosterId && !syncWorkshopCode" class="form-tip form-tip--warn">
+            所选业务系统未填写车间编号。同步需要车间编号，请先在该挂接的「修改」中补充。
+          </div>
+          <div v-else-if="syncWorkshopCode" class="form-tip">
+            已按所选业务系统带出车间编号，同步时会一并提交。
+          </div>
+        </el-form-item>
+        <el-form-item v-if="syncTarget" label="业务用户名">
+          <el-input :value="syncTarget.userCode" disabled />
+          <div class="form-tip">按此账号在业务系统中定位人员。已启用「关联车间编号」时，账号为车间编号_工号。</div>
+        </el-form-item>
+        <el-form-item label="域账号">
+          <el-input :value="user.domainNo || ''" disabled placeholder="未维护" />
+        </el-form-item>
+        <el-form-item label="刷卡卡号">
+          <el-input :value="user.cardNo || ''" disabled placeholder="未维护" />
+          <div class="form-tip">域账号和刷卡卡号取自用户资料，此处不能修改。如需变更，请在用户编辑中修改。</div>
+        </el-form-item>
+        <el-form-item label="ERP账号">
+          <div class="sync-erp-row">
+            <el-checkbox v-model="syncForm.syncErp" :disabled="!erpNoOptions.length" @change="onSyncErpChange">同步</el-checkbox>
+            <el-select
+              v-model="syncForm.erpNo"
+              :disabled="!syncForm.syncErp"
+              placeholder="请选择一个 ERP 账号"
+              style="width: 100%"
+              clearable
+            >
+              <el-option v-for="item in erpNoOptions" :key="item" :label="item" :value="item" />
+            </el-select>
+          </div>
+          <div v-if="!erpNoOptions.length" class="form-tip">该用户尚未维护 ERP 账号。如需同步，请先在用户编辑中维护。</div>
+          <div v-else-if="!syncForm.syncErp" class="form-tip">未勾选时不同步 ERP 账号，只同步域账号和刷卡卡号。</div>
+          <div v-else-if="!syncForm.erpNo" class="form-tip form-tip--warn">已勾选同步 ERP 账号，请从已维护的账号中选择一个。</div>
+        </el-form-item>
+        <el-form-item label-width="100px">
+          <div class="form-tip" :class="{ 'form-tip--warn': !canSync }">{{ syncTip }}</div>
+        </el-form-item>
+      </el-form>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" :loading="syncSubmitting" :disabled="!canSync" @click="submitSyncAccount">确认同步</el-button>
+        <el-button @click="syncOpen = false">取 消</el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -260,7 +307,8 @@ import {
   deleteSubSystemUser,
   getSubSystemRoleSimpleList,
   getSubSystemUserRoleIds,
-  getSubSystemUsersByMainUserId
+  getSubSystemUsersByMainUserId,
+  syncSubSystemUserAccount
 } from '@/api/system/subSystemUsers'
 import {
   getSubSystemRegisterableApis,
@@ -268,8 +316,9 @@ import {
   registerSubSystemEmployee
 } from '@/api/system/subSystemEmployee'
 import SubSystemUserEditDialog from '@/views/system/components/SubSystemUserEditDialog'
+import { getLeafApiBindings, bindingLabel } from '@/api/system/subSystemApiBinding'
 import { formatErpNos } from '@/utils/userFieldDisplay'
-import { subSystemRoleOptionLabel, isSubSystemRoleOptionDisabled } from '@/utils/subSystemRoleOption'
+import { subSystemRoleOptionLabel, isSubSystemRoleOptionDisabled, filterSubSystemRoleOptions } from '@/utils/subSystemRoleOption'
 
 export default {
   name: 'SystemUserDetail',
@@ -313,21 +362,114 @@ export default {
         userCode: undefined,
         usernameWithWorkshop: false,
         rosterSubSystemId: undefined
+      },
+      syncOpen: false,
+      syncSubmitting: false,
+      syncForm: {
+        rosterId: undefined,
+        apiSubSystemId: undefined,
+        syncErp: false,
+        erpNo: undefined
       }
     }
   },
   computed: {
+    /** 角色下拉只展示当前车间可选的角色（其它车间未选中的隐藏，已选中的保留回显） */
+    visibleRoleOptions() {
+      return filterSubSystemRoleOptions(this.roleOptions, this.roleForm.workshopId, this.roleForm.roleIds)
+    },
     hungLeaves() {
       return (this.subSystemList || []).map(item => ({
         subSystemId: item.subSystemId,
         workshopId: item.workshopId || ''
       }))
+    },
+    /** 该用户已挂接的业务系统 */
+    hungSystemOptions() {
+      return (this.subSystemList || []).map(item => ({
+        id: item.id,
+        label: this.displaySystemName(item) +
+          (item.workshopId ? ('（' + item.workshopId + '）') : '') +
+          ' / ' + (item.username || '-'),
+        row: item
+      }))
+    },
+    syncTarget() {
+      const hit = this.hungSystemOptions.find(item => item.id === this.syncForm.rosterId)
+      if (!hit) {
+        return null
+      }
+      const row = hit.row
+      const workshopCode = (row.workshopId || '').trim()
+      return {
+        row,
+        userCode: row.usernameWithWorkshop === '1' && workshopCode
+          ? (workshopCode + '_' + row.username)
+          : row.username
+      }
+    },
+    syncWorkshopCode() {
+      const row = this.syncTarget && this.syncTarget.row
+      return row ? (row.workshopId || '').trim() : ''
+    },
+    erpNoOptions() {
+      return (this.user && Array.isArray(this.user.erpNos) ? this.user.erpNos : []).filter(item => item)
+    },
+    /** 本次实际提交的字段。未勾选 ERP 时不包含 ERP 账号 */
+    syncFields() {
+      const fields = []
+      if ((this.user.domainNo || '').trim()) {
+        fields.push('域账号')
+      }
+      if ((this.user.cardNo || '').trim()) {
+        fields.push('刷卡卡号')
+      }
+      if (this.syncForm.syncErp && this.syncForm.erpNo) {
+        fields.push('ERP账号')
+      }
+      return fields
+    },
+    canSync() {
+      if (!this.syncForm.rosterId || !this.syncWorkshopCode) {
+        return false
+      }
+      if (this.syncForm.syncErp && !this.syncForm.erpNo) {
+        return false
+      }
+      return this.syncFields.length > 0
+    },
+    syncTip() {
+      if (!this.hungSystemOptions.length) {
+        return '请先挂接业务系统，再进行同步。'
+      }
+      if (!this.syncForm.rosterId) {
+        return '请选择已挂接的业务系统。'
+      }
+      if (!this.syncWorkshopCode) {
+        return '所选业务系统未填写车间编号，暂时不能同步。'
+      }
+      if (!(this.user.domainNo || '').trim() && !(this.user.cardNo || '').trim() && !this.syncForm.syncErp) {
+        return '域账号和刷卡卡号都未维护。请先在用户编辑中填写后再同步。'
+      }
+      if (this.syncForm.syncErp && !this.syncForm.erpNo) {
+        return '已勾选同步 ERP 账号，请选择一个 ERP 账号。'
+      }
+      if (!this.syncFields.length) {
+        return '没有可同步的内容。请先在用户编辑中维护域账号或刷卡卡号。'
+      }
+      const erpNote = this.syncForm.syncErp ? '' : '未勾选 ERP，本次不更新 ERP 账号。'
+      return '本次将同步：' + this.syncFields.join('、') + '。' + erpNote
     }
   },
   watch: {
     '$route'(route) {
       if (route.name === 'SystemUserDetail') {
         this.loadDetail()
+      }
+    },
+    'syncForm.rosterId'() {
+      if (this.syncOpen) {
+        this.refreshSyncBinding()
       }
     }
   },
@@ -427,6 +569,64 @@ export default {
       this.subSystemEditClientName = ''
       this.subSystemEditOpen = true
     },
+    /** 打开同步弹窗：域账号、刷卡卡号只展示，不在此处修改 */
+    handleSyncAccount() {
+      const systems = this.hungSystemOptions
+      this.syncForm = {
+        rosterId: systems.length === 1 ? systems[0].id : undefined,
+        apiSubSystemId: undefined,
+        apiLabel: '',
+        syncErp: false,
+        erpNo: undefined
+      }
+      this.syncOpen = true
+      this.refreshSyncBinding()
+    },
+    refreshSyncBinding() {
+      const row = this.syncTarget && this.syncTarget.row
+      this.applyLeafBinding(this.syncForm, row && row.subSystemId, row && row.workshopId, 'account_sync')
+    },
+    applyLeafBinding(target, subSystemId, workshopCode, scene) {
+      if (!target) {
+        return Promise.resolve()
+      }
+      target.apiSubSystemId = undefined
+      target.apiLabel = ''
+      if (!subSystemId) {
+        return Promise.resolve()
+      }
+      return getLeafApiBindings(subSystemId, workshopCode).then(res => {
+        const hit = ((res.data && res.data.bindings) || []).find(item => item.scene === scene)
+        if (!hit) {
+          return
+        }
+        target.apiSubSystemId = hit.apiSubSystemId
+        target.apiLabel = bindingLabel(hit)
+      }).catch(() => {})
+    },
+    onSyncErpChange(checked) {
+      if (!checked) {
+        this.syncForm.erpNo = undefined
+      }
+    },
+    async submitSyncAccount() {
+      if (!this.canSync) {
+        return
+      }
+      this.syncSubmitting = true
+      try {
+        const res = await syncSubSystemUserAccount({
+          id: this.syncForm.rosterId,
+          apiSubSystemId: this.syncForm.apiSubSystemId,
+          erpNo: this.syncForm.syncErp ? this.syncForm.erpNo : undefined
+        })
+        this.$modal.msgSuccess((res.data && res.data.message) || '同步成功')
+        this.syncOpen = false
+        await this.loadDetail()
+      } finally {
+        this.syncSubmitting = false
+      }
+    },
     handleDeleteSubSystemUser(row) {
       if (!row || !row.id) {
         return
@@ -450,9 +650,11 @@ export default {
         // 默认不同步外部，需要时手动勾选
         syncToExternal: false,
         apiSubSystemId: undefined,
+        apiLabel: '',
         rosterSubSystemId: row.subSystemId
       }
       this.openRole = true
+      this.applyLeafBinding(this.roleForm, row.subSystemId, row.workshopId, 'role_assign')
       Promise.all([
         getSubSystemRoleSimpleList(row.subSystemId).then(res => {
           this.roleOptions = res.data || []
@@ -461,11 +663,8 @@ export default {
           this.roleForm.roleIds = res.data || []
         }).catch(() => {
           this.$modal.msgError('加载已分配角色失败')
-        }),
-        this.registerApis.length ? Promise.resolve() : this.loadRegisterableApis()
-      ]).then(() => {
-        this.applyDefaultAssignApi(row.subSystemId)
-      })
+        })
+      ])
     },
     roleOptionLabel(item) {
       return subSystemRoleOptionLabel(item, { syncToExternal: this.roleForm.syncToExternal })
@@ -483,10 +682,6 @@ export default {
           this.$modal.msgError('请只选择当前车间下的角色')
           return
         }
-      }
-      if (this.roleForm.syncToExternal && !this.roleForm.apiSubSystemId) {
-        this.$modal.msgError('勾选同步外部时请选择接口目标')
-        return
       }
       this.roleSubmitting = true
       assignSubSystemUserRole({
@@ -523,30 +718,32 @@ export default {
         nickname: row.nickname,
         employeeRegistered: row.employeeRegistered || '0',
         apiSubSystemId: undefined,
+        apiLabel: '',
         workshopCode: row.workshopId || undefined,
         userCode: undefined,
         usernameWithWorkshop: row.usernameWithWorkshop === '1',
         rosterSubSystemId: row.subSystemId
       }
       this.bindOpen = true
-      const sid = row.subSystemId
-      ;(this.registerApis.length ? Promise.resolve() : this.loadRegisterableApis()).then(() => {
-        const hit = (this.registerApis || []).find(item => item.subSystemId === sid)
-        this.bindForm.apiSubSystemId = hit
-          ? hit.subSystemId
-          : ((this.registerApis || []).length === 1 ? this.registerApis[0].subSystemId : undefined)
-      })
+      this.applyLeafBinding(this.bindForm, row.subSystemId, row.workshopId, 'employee_query')
     },
     onBindFilterChange() {
       this.bindForm.userCode = undefined
       this.externalEmployees = []
       this.externalEmployeeTip = ''
+      this.applyLeafBinding(this.bindForm, this.bindForm.rosterSubSystemId, this.bindForm.workshopCode, 'employee_query')
     },
     loadExternalEmployees(silent) {
       if (!this.bindForm.apiSubSystemId) {
-        if (!silent) {
-          this.$modal.msgWarning('请先选择接口目标')
-        }
+        this.applyLeafBinding(this.bindForm, this.bindForm.rosterSubSystemId, this.bindForm.workshopCode, 'employee_query').then(() => {
+          if (!this.bindForm.apiSubSystemId) {
+            if (!silent) {
+              this.$modal.msgWarning('暂时无法查询外部人员')
+            }
+            return
+          }
+          this.loadExternalEmployees(silent)
+        })
         return
       }
       if (!this.bindForm.username) {
@@ -608,7 +805,6 @@ export default {
     pushRegisterFromBind() {
       this.bindRegistering = true
       registerSubSystemEmployee({
-        apiSubSystemId: this.bindForm.apiSubSystemId,
         workshopCode: this.bindForm.workshopCode,
         usernameWithWorkshop: !!this.bindForm.usernameWithWorkshop,
         ids: [this.bindForm.id]
@@ -659,5 +855,16 @@ export default {
   font-size: 12px;
   line-height: 1.4;
   margin-top: 4px;
+}
+.form-tip--warn {
+  color: #f56c6c;
+}
+.sync-erp-row {
+  display: flex;
+  align-items: center;
+}
+.sync-erp-row .el-checkbox {
+  margin-right: 12px;
+  flex: none;
 }
 </style>

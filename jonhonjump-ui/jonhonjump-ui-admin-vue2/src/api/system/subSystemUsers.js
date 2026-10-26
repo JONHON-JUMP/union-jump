@@ -127,6 +127,15 @@ export function updateSubSystemUserRegisterStatus(id, employeeRegistered) {
   })
 }
 
+// 同步域账号/刷卡卡号到业务系统。erpNo 不传则不同步 ERP。data: { id, apiSubSystemId, erpNo? }
+export function syncSubSystemUserAccount(data) {
+  return request({
+    url: '/system/sub-system-users/sync-user-account',
+    method: 'post',
+    data: data
+  })
+}
+
 export function getSubSystemRoleSimpleList(subSystemId) {
   return request({
     url: '/system/sub-system-users/role-simple-list',

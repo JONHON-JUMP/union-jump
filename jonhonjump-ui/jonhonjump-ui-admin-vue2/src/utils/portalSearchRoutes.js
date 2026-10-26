@@ -82,19 +82,6 @@ function resolveCurrentSystemSearchRoutes(state) {
   return []
 }
 
-function resolveCurrentSystemLabel(state) {
-  if (state.portal.currentSystem === 'main') {
-    return 'JUMP 主系统'
-  }
-  const current = state.portal.currentSystem
-  const matched = (state.portal.systemList || []).find(item => item.clientId === current)
-  if (matched) {
-    return matched.systemName || matched.clientId
-  }
-  return current
-}
-
 module.exports = {
-  resolveCurrentSystemSearchRoutes,
-  resolveCurrentSystemLabel
+  resolveCurrentSystemSearchRoutes
 }

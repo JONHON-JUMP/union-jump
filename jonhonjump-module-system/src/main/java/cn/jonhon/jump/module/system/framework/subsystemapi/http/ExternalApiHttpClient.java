@@ -71,8 +71,8 @@ public class ExternalApiHttpClient {
             HttpResponse response = request.execute();
             String respBody = response.body();
             if (!response.isOk()) {
-                throw new ExternalApiException(
-                        "HTTP " + response.getStatus() + "：" + truncate(respBody, 1000));
+                log.warn("[externalApi][HTTP {}] url={} body={}", response.getStatus(), url, truncate(respBody, 500));
+                throw new ExternalApiException(briefHttpError(response.getStatus(), respBody));
             }
             return respBody;
         } catch (ExternalApiException e) {
@@ -87,6 +87,43 @@ public class ExternalApiHttpClient {
             return "";
         }
         return s.length() > max ? s.substring(0, max) + "..." : s;
+    }
+
+    /**
+     * 对方站点没挂上接口时，常见返回是一整页 HTML（IIS「无法找到资源」）。
+     * 不要把网页源码塞进给用户的提示。
+     */
+    private String briefHttpError(int status, String body) {
+        if (isHtml(body)) {
+            String title = htmlTitle(body);
+            if (status == 404 || title.contains("无法找到资源")) {
+                return "对方系统没有这个接口（HTTP " + status + "），请核对接口地址是否已在对方系统发布";
+            }
+            return "对方系统返回了错误页面（HTTP " + status + "）"
+                    + (title.isEmpty() ? "" : "：" + title);
+        }
+        return "HTTP " + status + "：" + truncate(body, 200);
+    }
+
+    private boolean isHtml(String body) {
+        if (body == null) {
+            return false;
+        }
+        String text = body.trim().toLowerCase(java.util.Locale.ROOT);
+        return text.startsWith("<!doctype") || text.startsWith("<html") || text.contains("<head>");
+    }
+
+    private String htmlTitle(String body) {
+        if (body == null) {
+            return "";
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("(?i)<title>(.*?)</title>", java.util.regex.Pattern.DOTALL)
+                .matcher(body);
+        if (!matcher.find()) {
+            return "";
+        }
+        return matcher.group(1).replaceAll("<[^>]+>", "").replaceAll("\\s+", " ").trim();
     }
 
 }

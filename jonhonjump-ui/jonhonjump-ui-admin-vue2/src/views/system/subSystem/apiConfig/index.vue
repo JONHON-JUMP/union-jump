@@ -155,6 +155,7 @@
               <div class="form-tip">同一用途只能配置一个接口；设置用途后自动归入对应分组</div>
               <div class="form-tip" v-if="editApi.purpose === 'create'">用户管理 → 添加用户 → 同步业务系统，将调用本接口</div>
               <div class="form-tip" v-else-if="editApi.purpose === 'assign_role'">花名册 → 分配角色 → 勾选「同步外部」时调用本接口（自动按 查现状→合并角色→原样回写 构造请求体，只改角色不动其他字段）</div>
+              <div class="form-tip" v-else-if="editApi.purpose === 'update'">修改人员，也用于同步域账号、刷卡卡号、ERP号。请求参数与本页「修改」一致，含 domainName、cardNo、erpNo</div>
             </el-form-item>
             <el-form-item label="启用">
               <el-switch v-model="editApi.enabled" />
