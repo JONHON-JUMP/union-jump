@@ -583,9 +583,8 @@ export default {
         this.notifyLayoutChanged()
       }
     },
-    /** dock 上的「全部应用」：打开抽屉同时收起 dock，避免挡住页面 */
+    /** dock 上的「全部应用」：只开抽屉，不再收起 dock（抽屉是浮层不挡底栏，底栏常驻展开） */
     openAllAppsFromDock() {
-      this.collapseDock(false)
       this.drawerVisible = true
     },
     handleSubsystemChange(value) {
