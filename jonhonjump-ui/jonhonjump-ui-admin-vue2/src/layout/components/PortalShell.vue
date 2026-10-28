@@ -9,7 +9,7 @@
       <button v-if="headerCollapsed" class="header-collapsed-bar" type="button"
               aria-label="展开顶栏" @click="headerCollapsed = false">
         <img class="collapsed-mark" :src="avicBrandLogo" alt="">
-        <span class="collapsed-title">JUMP 中航光电统一制造管理平台</span>
+        <span class="collapsed-title">{{ collapsedHeaderTitle }}</span>
         <i class="el-icon-arrow-down" />
       </button>
       <template v-else>
@@ -166,7 +166,8 @@ export default {
       searchKeyword: '',
       searchFocused: false,
       drawerVisible: false,
-      dockExpanded: false,
+      // 底栏（首页/全部应用/已打开菜单）默认常驻展开：切页不收起，用户点空白处可手动收起（handleShellClick）
+      dockExpanded: true,
       dockAnimating: false,
       headerCollapsed: false,
       /** 路由驱动的收起瞬时完成，勿做 padding 过渡（否则进业务页页面闪一下） */
@@ -244,6 +245,22 @@ export default {
     isPortalBusinessRoute() {
       const path = this.$route.path || '/'
       return path !== '/index' && path !== '/'
+    },
+    /**
+     * 折叠态顶栏标题：拼上「 - 当前系统名」，用户才知道这个页面属于哪个系统；
+     * 主系统页面/解析不到系统名时保持原标题，展开态固定原标题（与之前一致）
+     */
+    collapsedHeaderTitle() {
+      const base = 'JUMP 中航光电统一制造管理平台'
+      if (this.currentSystem === 'main') {
+        return base
+      }
+      const label = this.currentSystemLabel
+      // 解析不到具体系统名（旧会话 clientId 失效等）时不拼「统一门户」误导，保持原标题
+      if (!label || label === '统一门户') {
+        return base
+      }
+      return base + ' - ' + label
     }
   },
   watch: {
@@ -285,10 +302,10 @@ export default {
     },
     '$route.path'(newPath) {
       // 不再在每次切页时切换 .no-anim（transition:none !important）：
-      // 这个类会让整个 shell 强制重算样式，iframe 多时就是切页抖一下的放大器。
-      // dock 收起本身走 collapseDock(false)，且业务页 --dock-space 恒定，不需要抑制过渡。
+      // 这个类会让整个 shell 强制重计样式，iframe 多时就是切页抖一下的放大器。
+      // 底栏常驻展开（业务页 --dock-space 恒定），切页不再收起；
+      // 收起只发生在用户手动操作（点工作区空白，见 handleShellClick）。
       this.clearDockSpaceInline()
-      this.collapseDock(false)
       this.resetWorkspaceScroll()
       this.loadTodoCount()
     },
@@ -437,9 +454,24 @@ export default {
     iconStyle(app) {
       return buildIconStyle(app)
     },
-    handleShellClick() {
+    handleShellClick(e) {
       this.searchFocused = false
-      if (this.dockExpanded) this.collapseDock(false)
+      const t = e.target
+      if (!t || !t.classList) {
+        return
+      }
+      // 底栏常驻展开后，点页面内容（卡片/菜单/表格/按钮等）绝不能误折叠底栏：
+      // 只有点击目标就是空白容器本身（壳背景/工作区/滚动容器/iframe 宿主的留白）
+      // 才算「点空白手动收起」；点在内容元素上时事件虽冒泡到这里，但不是收起操作
+      const isBlankArea = t === this.$el ||
+        t.classList.contains('portal-workspace') ||
+        t.classList.contains('workspace-content') ||
+        t.classList.contains('app-main') ||
+        t.classList.contains('app-main__body') ||
+        t.classList.contains('app-main__iframe-host')
+      if (isBlankArea && this.dockExpanded) {
+        this.collapseDock(false)
+      }
     },
     handleQuickNavChange(payload) {
       this.quickNavMenuIds = (payload && payload.menuIds) || []
@@ -610,9 +642,8 @@ export default {
     },
     navigateOpenApp(app) {
       if (!app || !app.path) return
-      // 导航前先把 dock/顶栏收到目标状态：新页面第一帧就按最终可视高度渲染，
-      // 不再出现“先按旧高度画一帧，再收起变高”的闪动。
-      this.collapseDock(false)
+      // 底栏常驻展开：打开新页面不再预收 dock（业务页占位恒 52px，高度变化来自路由类切换，与 dock 无关）。
+      // 顶栏仍按目标状态预置：新页面第一帧就按最终可视高度渲染，不闪动。
       if (app.path !== '/index' && app.path !== '/') {
         this.headerCollapsed = true
       }

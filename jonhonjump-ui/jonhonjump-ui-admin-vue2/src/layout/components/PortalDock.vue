@@ -66,6 +66,18 @@
           <i class="el-icon-menu" />
           <span>全部应用</span>
         </button>
+        <!-- 明确的手动折叠入口：底栏常驻展开后，用户随时可点这里收起 -->
+        <button
+          v-if="collapsible && expanded"
+          class="fold-dock"
+          type="button"
+          :tabindex="tabIndex"
+          aria-label="折叠底部导航栏"
+          title="折叠底部导航栏"
+          @click="$emit('collapse')"
+        >
+          <i class="el-icon-arrow-down" />
+        </button>
       </div>
     </div>
   </nav>
@@ -229,9 +241,7 @@ export default {
       if (this.isActive(tab)) {
         return
       }
-      // 业务页内容高度不再随底栏展开/收起变化（底栏浮层），
-      // 所以直接收起底栏并切路由即可，不需要等一帧，也不会再出现 1-5→1-6。
-      this.$emit('collapse')
+      // 底栏常驻展开：点页签切页不再收起（业务页底栏为浮层，不占内容高度）
       this.$router.push(tab.fullPath || tab.path)
     },
     closeTab(tab) {
@@ -531,6 +541,20 @@ $primary: #087ce5;
 .fixed-actions .all-apps:focus {
   color: #fff;
   background: #243447;
+}
+
+/* 折叠箭头：窄于功能按钮的图标按钮，hover 态沿用 .fixed-actions > button 通用规则 */
+.fixed-actions .fold-dock {
+  flex: 0 0 34px;
+  width: 34px;
+  color: #5d6f83;
+}
+.fixed-actions .fold-dock i {
+  font-size: 16px;
+}
+.fixed-actions .fold-dock:hover,
+.fixed-actions .fold-dock:focus {
+  color: $primary;
 }
 
 .taskbar-divider {
