@@ -152,8 +152,16 @@
             />
           </el-select>
           <div v-if="roleForm.workshopId" class="form-tip">
-            当前车间「{{ roleForm.workshopId }}」，仅展示该车间及未打车间的角色，其它车间角色不显示
+            <template v-if="!roleForm.crossWorkshop">
+              当前车间「{{ roleForm.workshopId }}」，默认仅展示该车间与未绑定车间的全局角色（如超管）；要选其它车间的角色，请勾选下方「跨车间选择角色」
+            </template>
+            <template v-else>
+              已开启跨车间选择：可选用该业务系统全部车间的角色（同一套 MES 管多车间时角色可跨车间分配）
+            </template>
           </div>
+          <el-checkbox v-if="roleForm.workshopId" v-model="roleForm.crossWorkshop" style="margin-top: 4px">
+            跨车间选择角色
+          </el-checkbox>
         </el-form-item>
         <el-form-item label="同步外部">
           <el-checkbox v-model="roleForm.syncToExternal">同步上挂或解除角色到业务系统</el-checkbox>
@@ -376,7 +384,8 @@ export default {
   computed: {
     /** 角色下拉只展示当前车间可选的角色（其它车间未选中的隐藏，已选中的保留回显） */
     visibleRoleOptions() {
-      return filterSubSystemRoleOptions(this.roleOptions, this.roleForm.workshopId, this.roleForm.roleIds)
+      return filterSubSystemRoleOptions(this.roleOptions, this.roleForm.workshopId, this.roleForm.roleIds,
+        !!this.roleForm.crossWorkshop)
     },
     hungLeaves() {
       return (this.subSystemList || []).map(item => ({
@@ -647,6 +656,8 @@ export default {
         targetLabel: this.displaySystemName(row) + (row.workshopId ? (' / ' + this.displayWorkshop(row)) : ''),
         workshopId: row.workshopId || '',
         roleIds: [],
+        // 跨车间选择：默认关闭，仅展示当前车间角色；开启后可选该业务系统全部车间角色
+        crossWorkshop: false,
         // 默认不同步外部，需要时手动勾选
         syncToExternal: false,
         apiSubSystemId: undefined,
@@ -670,10 +681,10 @@ export default {
       return subSystemRoleOptionLabel(item, { syncToExternal: this.roleForm.syncToExternal })
     },
     roleOptionDisabled(item) {
-      return isSubSystemRoleOptionDisabled(item, this.roleForm.workshopId)
+      return isSubSystemRoleOptionDisabled(item, this.roleForm.workshopId, !!this.roleForm.crossWorkshop)
     },
     submitRole() {
-      if (this.roleForm.workshopId) {
+      if (this.roleForm.workshopId && !this.roleForm.crossWorkshop) {
         const bad = (this.roleForm.roleIds || []).some(id => {
           const role = this.roleOptions.find(r => r.id === id)
           return role && role.workshopCode && String(role.workshopCode) !== String(this.roleForm.workshopId)

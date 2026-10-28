@@ -201,8 +201,10 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
     @Override
     public List<SubSystemUserRegisterRespVO> registerEmployees(SubSystemUserRegisterReqVO reqVO) {
         // 用户名拼接车间编号为可选项，对任意类型接口（camstar/http）均可用：
-        // 对接系统要求用户名全局唯一时，以 车间编号_工号 注册，同一工号可登录不同车间系统
-        boolean usernameWithWorkshop = Boolean.TRUE.equals(reqVO.getUsernameWithWorkshop());
+        // 对接系统要求用户名全局唯一时，以 车间编号_工号 注册，同一工号可登录不同车间系统。
+        // 未显式传值时按新用户规则默认拼接（花名册挂了车间叶子即 车间编号_工号）；
+        // 存量横线多账号（123-1 等）由页面按行上标记显式传 false 兼容
+        Boolean reqWithWorkshop = reqVO.getUsernameWithWorkshop();
         List<SubSystemUsersDO> rosters = subSystemUsersMapper.selectBatchIds(reqVO.getIds());
         Map<Long, SubSystemUsersDO> rosterMap = rosters.stream()
                 .collect(Collectors.toMap(SubSystemUsersDO::getId, r -> r, (a, b) -> a));
@@ -239,6 +241,9 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                 result.setSuccess(true).setMessage("已注册，跳过推送");
                 continue;
             }
+            // 未显式传值：挂了车间叶子的新用户默认按 车间编号_工号 注册
+            boolean usernameWithWorkshop = reqWithWorkshop != null
+                    ? reqWithWorkshop : StrUtil.isNotBlank(roster.getWorkshopId());
             try {
                 Long apiSubSystemId = resolveRegisterApi(reqVO, roster);
                 SubSystemEmployeeDTO dto = buildEmployeeDTO(roster, apiSubSystemId, reqVO.getWorkshopCode(),

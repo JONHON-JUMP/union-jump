@@ -226,8 +226,13 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (StrUtil.isEmpty(user.getEmployeeRegistered())) {
             user.setEmployeeRegistered("0");
         }
-        // 关联车间编号：1=对接用车间_工号，其它一律 0
-        user.setUsernameWithWorkshop("1".equals(StrUtil.trim(createReqVO.getUsernameWithWorkshop())) ? "1" : "0");
+        // 关联车间编号：1=对接用车间_工号。新用户默认按 JUMP 规则「车间编号_工号」：
+        // 挂在车间叶子下（多车间系统）且未显式传值时默认 1，无车间系统默认 0。
+        // 带横线的多账号（如 123-1）仅存量数据兼容，新建不再产生
+        String reqWithWorkshop = StrUtil.trimToNull(createReqVO.getUsernameWithWorkshop());
+        user.setUsernameWithWorkshop(reqWithWorkshop != null
+                ? ("1".equals(reqWithWorkshop) ? "1" : "0")
+                : (StrUtil.isNotBlank(createReqVO.getWorkshopId()) ? "1" : "0"));
         try {
             subSystemUsersMapper.insert(user);
         } catch (DuplicateKeyException ex) {
@@ -576,6 +581,14 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
     }
 
     private void upsertRosterFromMainUser(AdminUserDO mainUser, Long subSystemId, String workshopCode) {
+        // 业务用户名可能不等于工号（如环控 123-1）：先按「主用户+车间」查，
+        // 该人这个车间已有挂接行就复用（幂等），绝不按工号再建第二行——
+        // 否则同车间两行绑同一人，cookie 取行按 id 倒序会拿到业务系统里不存在的账号
+        SubSystemUsersDO hung = subSystemUsersMapper.selectBySubSystemIdAndMainUserIdAndWorkshopId(
+                subSystemId, mainUser.getId(), StrUtil.trim(workshopCode));
+        if (hung != null) {
+            return;
+        }
         String username = StrUtil.trim(mainUser.getUsername());
         SubSystemUsersDO roster = subSystemUsersMapper.selectBySubSystemIdAndUsernameAndWorkshopId(
                 subSystemId, username, StrUtil.trim(workshopCode));
@@ -598,6 +611,9 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         subUser.setNickname(mainUser.getNickname());
         subUser.setWorkshopId(workshopCode);
         subUser.setStatus("0");
+        // 新登记默认按 JUMP 规则：挂在车间叶子下即「车间编号_工号」，无车间系统用工号；
+        // 横线多账号（123-1 等）仅存量兼容，新用户不再产生
+        subUser.setUsernameWithWorkshop(StrUtil.isNotBlank(workshopCode) ? "1" : "0");
         // 新登记默认未注册（是否已调「新增人员」接口，后续手动推送时自动置 1）
         subUser.setEmployeeRegistered("0");
         subUser.setRemark("用户创建登记");
@@ -622,23 +638,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         validateHangLeaf(updateReqVO.getSubSystemId(), updateReqVO.getWorkshopId());
         String existingWorkshop = StrUtil.trim(existUser.getWorkshopId());
         String targetWorkshop = StrUtil.trim(updateReqVO.getWorkshopId());
-        // 已分配角色与车间绑定：改车间后旧角色仍会随子系统登录下发菜单，但门户入口会消失。
-        // 直接拦下，要求先调整角色，避免“改完车间入口没了/权限串到别的车间”。
-        if (!Objects.equals(existingWorkshop, targetWorkshop)) {
-            List<Long> currentRoleIds = listRoleIds(updateReqVO.getId());
-            if (CollUtil.isNotEmpty(currentRoleIds)) {
-                boolean mismatch = subSystemRoleMapper.selectListByIds(currentRoleIds).stream()
-                        .filter(Objects::nonNull)
-                        .map(SubSystemRoleDO::getWorkshopCode)
-                        .map(StrUtil::trim)
-                        .filter(StrUtil::isNotBlank)
-                        .anyMatch(code -> !code.equals(targetWorkshop));
-                if (mismatch) {
-                    throw exception0(BAD_REQUEST.getCode(),
-                            "该用户已分配其它车间的角色，请先在【分配角色】中调整，再修改车间");
-                }
-            }
-        }
+        // 跨车间角色放开后，人员持有其它车间的角色属正常分配，改车间不再受角色车间限制
         validateUsernameUnique(updateReqVO.getSubSystemId(), updateReqVO.getUsername(), updateReqVO.getId(),
                 updateReqVO.getWorkshopId());
         if (updateReqVO.getMainUserId() != null
@@ -1123,9 +1123,6 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (CollUtil.isEmpty(roleIds)) {
             return;
         }
-        // 车间叶子下只能挂「该车间」或未打车间（如超管）的角色，防止 4200 角色进 5500 会话
-        SubSystemUsersDO roster = subSystemUsersMapper.selectById(userId);
-        String rosterWorkshop = roster == null ? null : StrUtil.trim(roster.getWorkshopId());
         List<SubSystemRoleDO> roles = subSystemRoleMapper.selectListByIds(roleIds);
         Set<Long> requestedRoleIds = roleIds.stream().filter(Objects::nonNull).collect(Collectors.toSet());
         if (roles.size() != requestedRoleIds.size()) {
@@ -1140,12 +1137,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 throw exception0(BAD_REQUEST.getCode(),
                         "角色【" + role.getName() + "】已停用，请先启用或改选其它角色");
             }
-            if (StrUtil.isNotBlank(rosterWorkshop)) {
-                String roleWorkshop = StrUtil.trim(role.getWorkshopCode());
-                if (StrUtil.isNotBlank(roleWorkshop) && !rosterWorkshop.equals(roleWorkshop)) {
-                    throw exception(SUB_SYSTEM_USER_ROLE_WORKSHOP_MISMATCH, role.getName(), rosterWorkshop);
-                }
-            }
+            // 跨车间角色：同一套 MES 管多车间（如 5601~5606）时角色可跨车间分配，
+            // 只校验同 subSystemId，不再比对角色车间与人员车间
             SubSystemUserRoleDO userRole = new SubSystemUserRoleDO();
             userRole.setUserId(userId);
             userRole.setRoleId(role.getId());
