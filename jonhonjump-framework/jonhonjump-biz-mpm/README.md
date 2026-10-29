@@ -58,7 +58,7 @@ public class MesInspectionService {
 ```
 
 - `request` 类型：`cn.jonhon.jump.framework.mpm.dto.MpmInspectionRequestDTO`。
-- 请求字段：`ppNumber`（二级工艺计划编号，必填）、`opNumber`（二级工序编号；传 `null`、空字符串或空白字符串时，Jar 按 `""` 发送，查询整本工艺的所有工序）。
+- 请求字段：`ppNumber`（二级工艺计划编号）、`opNumber`（二级工序编号），两者不能同时为空；`opNumber` 为 `null`、空字符串或空白字符串时，Jar 按 `""` 发送，查询整本工艺的所有工序。
 - 返回类型：`cn.jonhon.jump.framework.mpm.dto.MpmInspectionReponseDTO`，已解析为 Java 对象。
 
 MPM Jar 通过 Spring Boot 自动配置创建 `MpmClient`。业务类需要由 Spring 管理，例如标注 `@Service`；仅声明 `private MpmClient mpmClient;` 不会自动注入，需像上面一样加 `@Autowired`。无需手动 `new`。
@@ -68,9 +68,13 @@ MPM Jar 通过 Spring Boot 自动配置创建 `MpmClient`。业务类需要由 S
 | 字段或结果 | 含义 | MES 处理方式 |
 | --- | --- | --- |
 | `success` | MPM 业务是否成功 | 按业务规则判断成功或失败 |
-| `code`、`message` | MPM 业务结果码和说明 | 失败时用于提示或记录 |
+| `code`、`message` | MPM 业务结果码和说明，均为字符串 | 失败时用于提示或记录 |
 | `result` | 工序列表；内含检验项、参数、列及参数行；参数行类型为 `List<Map<String, String>>` | 直接通过 DTO 的 getter 读取 |
-| `token`、`notifyIcon` | MPM 响应中的其他字段 | 按需读取 |
 | `MpmInvokeException` | 接口平台调用失败，或未取得有效的 MPM 响应 | 捕获异常；`getCode()` 可读取平台结果码 |
 
 接口平台调用成功只表示请求到达 MPM；MPM 业务是否成功以返回 DTO 的 `success`、`code` 为准。
+
+返回 DTO 已兼容新的响应字段：工序级检验类型、检验时机、检验要求和参数表，
+以及检验项、参数表、参数列的顺序字段。`iSequence` 和 `pSequence` 为字符串，
+`cSequence` 为整数。参数行仍为 `List<Map<String, String>>`；
+文档中的整数型 `rSequence` 在 Map 中转换为字符串读取。原请求对象与 `MpmClient` 调用方法不变。

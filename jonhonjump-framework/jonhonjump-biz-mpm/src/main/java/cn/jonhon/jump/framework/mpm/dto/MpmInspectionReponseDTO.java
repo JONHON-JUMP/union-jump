@@ -1,6 +1,7 @@
 package cn.jonhon.jump.framework.mpm.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.util.List;
@@ -24,7 +25,7 @@ public class MpmInspectionReponseDTO {
     /**
      * MPM 业务状态码；{@code 200} 表示 MPM 业务处理成功。
      */
-    private Integer code;
+    private String code;
     /**
      * MPM 返回的业务提示或错误信息。
      */
@@ -58,20 +59,24 @@ public class MpmInspectionReponseDTO {
          * 工序的小版本号，按 MPM 返回的字符串保留。
          */
         private String opIteration;
+        /** 工序检验类型，例如自检、专检。 */
+        private String opInspectionType;
+        /** 工序检验时机；接口未提供时为 null。 */
+        private String opInspectionTiming;
+        /** 工序检验要求。 */
+        private String opJyyq;
         /**
          * 属于当前工序的检验项列表。
          */
         private List<InspectionItem> inspectionItems;
+        /** 工序直接关联的参数表，与检验项内的参数表分开。 */
+        private List<Parameter> parameters;
     }
 
     /** 单个检验项及其关联的参数表。 */
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class InspectionItem {
-        /**
-         * 检验项在 MPM 中的唯一标识。
-         */
-        private String uniqueId;
         /**
          * 检验项目编号
          */
@@ -89,58 +94,6 @@ public class MpmInspectionReponseDTO {
          */
         private String iteration;
         /**
-         * 检验尺寸
-         */
-        private String inspectionDimension;
-        /**
-         * 尺寸类型
-         */
-        private String dimensionType;
-        /**
-         * 特征类型
-         */
-        private String featureType;
-        /**
-         * 检验工具
-         */
-        private String inspectionTool;
-        /**
-         * 检具编号
-         */
-        private String inspectionToolNumber;
-        /**
-         * 发布时间
-         */
-        private String publishTime;
-        /**
-         * 读取标记
-         */
-        private String readFlag;
-        /**
-         * 状态
-         */
-        private String state;
-        /**
-         * 容器库名称
-         */
-        private String containerName;
-        /**
-         * 创建者
-         */
-        private String createUser;
-        /**
-         * 创建者名称
-         */
-        private String createFullUser;
-        /**
-         * 修改者
-         */
-        private String modifyUser;
-        /**
-         * 修改者名称
-         */
-        private String modifyFullUser;
-        /**
          * MPM 返回的内容判定依据。
          */
         private String contentCriteria;
@@ -148,34 +101,6 @@ public class MpmInspectionReponseDTO {
          * MPM 返回的检验方法。
          */
         private String inspectionMethod;
-        /**
-         * 对象类型
-         */
-        private String objType;
-        /**
-         * 颜色
-         */
-        private String color;
-        /**
-         * 图区
-         */
-        private String figureArea;
-        /**
-         * 尺寸标识
-         */
-        private String dimensionMark;
-        /**
-         * 尺寸上限
-         */
-        private String upperDimensionLimit;
-        /**
-         * 尺寸下限
-         */
-        private String lowerDimensionLimit;
-        /**
-         * 尺寸精度
-         */
-        private String dimensionalAccuracy;
         /**
          * 备注
          */
@@ -185,13 +110,11 @@ public class MpmInspectionReponseDTO {
          */
         private String inspectionFrequency;
         /**
-         * 检验项目类型
-         */
-        private String inspectionItemType;
-        /**
          * 检验类型
          */
         private String inspectionType;
+        /** 检验项的检验时机；接口未提供时为 null。 */
+        private String inspectionTiming;
         /**
          * MPM 返回的检验要求描述。
          */
@@ -200,6 +123,9 @@ public class MpmInspectionReponseDTO {
          * 当前检验项关联的参数表列表。
          */
         private List<Parameter> parameters;
+        /** 检验项在当前工序中的顺序。 */
+        @JsonProperty("iSequence")
+        private Integer iSequence;
     }
 
     /** 检验项关联的一张参数表，包含列定义和数据行。 */
@@ -215,35 +141,24 @@ public class MpmInspectionReponseDTO {
          */
         private String numberParam;
         /**
-         * 发布时间
-         */
-        private String publishTime;
-        /**
-         * 参数状态
-         */
-        private String state;
-        /**
-         * 读取标记
-         */
-        private String readFlag;
-        /**
          * 参数表的列定义，用于解释 {@code rows} 中的字段。
          */
         private List<Column> columns;
         /**
-         * 参数表的数据行。每个 Map 表示一行，键是参数字段名，值是该字段的字符串值；
+         * 参数表的数据行。每个 Map 表示一行，键是参数字段名，值是该字段的字符串值。
+         * 接口文档将 {@code rSequence} 定义为整数；为满足 MES 对参数行统一使用字符串值的要求，
+         * 该值在此 Map 中以字符串形式读取。
          */
         private List<Map<String, String>> rows;
+        /** 参数表顺序。 */
+        @JsonProperty("pSequence")
+        private Integer pSequence;
     }
 
     /** 参数表中的单个列定义。 */
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class Column {
-        /**
-         * 列类型
-         */
-        private String attributeCategory;
         /**
          * 列显示名称
          */
@@ -260,9 +175,8 @@ public class MpmInspectionReponseDTO {
          * 参数单位
          */
         private String unit;
-        /**
-         * 参数列在表中的展示顺序。
-         */
-        private Integer sequence;
+        /** 新响应中的参数列顺序。 */
+        @JsonProperty("cSequence")
+        private Integer cSequence;
     }
 }

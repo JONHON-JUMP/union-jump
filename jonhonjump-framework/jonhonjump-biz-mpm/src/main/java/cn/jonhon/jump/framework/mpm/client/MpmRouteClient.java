@@ -44,8 +44,8 @@ public class MpmRouteClient implements MpmClient {
 
     @Override
     public MpmInspectionReponseDTO queryOpInspectionAndParams(MpmInspectionRequestDTO request) {
-        if (request == null || isBlank(request.getPpNumber())) {
-            throw new IllegalArgumentException("ppNumber 不能为空");
+        if (request == null || (isBlank(request.getPpNumber()) && isBlank(request.getOpNumber()))) {
+            throw new IllegalArgumentException("ppNumber 和 opNumber 不能同时为空");
         }
         // 平台接口要求传入 opNumber；未指定工序时发送空字符串以查询所有工序。
         MpmInspectionRequestDTO routeRequest = isBlank(request.getOpNumber())

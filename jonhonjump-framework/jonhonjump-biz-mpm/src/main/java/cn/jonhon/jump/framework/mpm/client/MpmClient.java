@@ -18,9 +18,9 @@ public interface MpmClient {
      * 调用前会转换为空字符串，表示查询整本工艺的所有工序。
      * 方法直接返回已解析的 MPM 完整业务响应，无需 MES 再解析 JSON。
      *
-     * @param request 查询条件；不能为空，且 {@code ppNumber} 不能为空白
+     * @param request 查询条件；不能为空，且 {@code ppNumber} 和 {@code opNumber} 不能同时为空
      * @return 包含工序、检验项和参数信息的 MPM 业务响应
-     * @throws IllegalArgumentException 查询条件或 {@code ppNumber} 无效时抛出
+     * @throws IllegalArgumentException 查询条件为空或两个编号同时为空时抛出
      * @throws MpmInvokeException 接口平台调用失败、返回数据为空或响应无法解析时抛出
      */
     MpmInspectionReponseDTO queryOpInspectionAndParams(MpmInspectionRequestDTO request);
