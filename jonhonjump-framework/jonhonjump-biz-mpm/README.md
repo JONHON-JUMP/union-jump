@@ -61,6 +61,12 @@ public class MesInspectionService {
 - 请求字段：`ppNumber`（二级工艺计划编号）、`opNumber`（二级工序编号），两者不能同时为空；`opNumber` 为 `null`、空字符串或空白字符串时，Jar 按 `""` 发送，查询整本工艺的所有工序。
 - 返回类型：`cn.jonhon.jump.framework.mpm.dto.MpmInspectionReponseDTO`，已解析为 Java 对象。
 
+历史版本查询使用 `MpmHistoryInspectionRequestDTO`，通过注入的同一个 `MpmClient` 调用
+`queryHistoryOpInspectionAndParams(request)`。该请求包含必填的 `ppNumber`、`version`
+和可选的 `opNumber`；返回类型仍为 `MpmInspectionReponseDTO`。
+历史接口需要接口平台 Jar 提供对应的 `InvokeId` 标识；当前标识名称尚待接口平台确认，
+在确认并更新 Jar 前，历史调用无法正常执行。
+
 MPM Jar 通过 Spring Boot 自动配置创建 `MpmClient`。业务类需要由 Spring 管理，例如标注 `@Service`；仅声明 `private MpmClient mpmClient;` 不会自动注入，需像上面一样加 `@Autowired`。无需手动 `new`。
 
 ## 四、调用结果

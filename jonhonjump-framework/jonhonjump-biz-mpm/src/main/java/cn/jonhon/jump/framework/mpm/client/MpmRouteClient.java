@@ -2,6 +2,7 @@ package cn.jonhon.jump.framework.mpm.client;
 
 import cn.jonhon.jump.framework.mpm.dto.MpmInspectionRequestDTO;
 import cn.jonhon.jump.framework.mpm.dto.MpmInspectionReponseDTO;
+import cn.jonhon.jump.framework.mpm.dto.MpmHistoryInspectionRequestDTO;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -16,6 +17,10 @@ import java.lang.reflect.Method;
  * 本类在编译期不引用接口平台类型，接口平台 Jar 由使用方 MES 单独提供。
  */
 public class MpmRouteClient implements MpmClient {
+
+    private static final String CURRENT_INVOKE_ID_FIELD = "QueryOpInspectionAndParamsV1";
+    // 接口平台 Jar 尚未发布此字段；发布后需与实际 InvokeId 字段名核对。
+    private static final String HISTORY_INVOKE_ID_FIELD = "QueryHistoryOpInspectionAndParamsV1";
 
     /** 解析接口平台返回的 MPM JSON 数据。 */
     private final ObjectMapper objectMapper;
@@ -51,7 +56,21 @@ public class MpmRouteClient implements MpmClient {
         MpmInspectionRequestDTO routeRequest = isBlank(request.getOpNumber())
                 ? new MpmInspectionRequestDTO(request.getPpNumber(), "") : request;
         // 先检查平台调用结果，再解析其中的 MPM 业务响应，避免把平台错误当作业务数据。
-        PlatformResult result = routeGateway.invoke(routeRequest);
+        return parseResponse(routeGateway.invoke(CURRENT_INVOKE_ID_FIELD, routeRequest));
+    }
+
+    @Override
+    public MpmInspectionReponseDTO queryHistoryOpInspectionAndParams(MpmHistoryInspectionRequestDTO request) {
+        if (request == null || isBlank(request.getPpNumber()) || isBlank(request.getVersion())) {
+            throw new IllegalArgumentException("ppNumber 和 version 不能为空");
+        }
+        MpmHistoryInspectionRequestDTO routeRequest = isBlank(request.getOpNumber())
+                ? new MpmHistoryInspectionRequestDTO(request.getPpNumber(), "", request.getVersion()) : request;
+        return parseResponse(routeGateway.invoke(HISTORY_INVOKE_ID_FIELD, routeRequest));
+    }
+
+    /** 统一检查平台结果并解析两个接口共用的响应结构。 */
+    private MpmInspectionReponseDTO parseResponse(PlatformResult result) {
         if (result == null) {
             throw new MpmInvokeException(null, "接口平台未返回调用结果");
         }
@@ -86,7 +105,7 @@ public class MpmRouteClient implements MpmClient {
          * @param request 已校验且补齐 {@code opNumber} 的请求
          * @return 平台调用结果；平台未返回对象时可能为 {@code null}
          */
-        PlatformResult invoke(MpmInspectionRequestDTO request);
+        PlatformResult invoke(String invokeIdField, Object request);
     }
 
     /** 接口平台结果中当前客户端使用的状态码、提示信息和业务数据。 */
@@ -122,10 +141,10 @@ public class MpmRouteClient implements MpmClient {
          * @throws MpmInvokeException 接口平台类或方法缺失、调用异常或无法访问时抛出
          */
         @Override
-        public PlatformResult invoke(MpmInspectionRequestDTO request) {
+        public PlatformResult invoke(String invokeIdField, Object request) {
             try {
                 Class<?> idType = Class.forName("cn.jonhon.route.InvokeId");
-                Object invokeId = idType.getField("QueryOpInspectionAndParamsV1").get(null);
+                Object invokeId = idType.getField(invokeIdField).get(null);
                 Class<?> serviceType = Class.forName("cn.jonhon.route.ThirdPartyRouteService");
                 Method invoke = serviceType.getMethod("invoke", idType, Object.class);
                 Object response = invoke.invoke(null, invokeId, request);
@@ -137,8 +156,13 @@ public class MpmRouteClient implements MpmClient {
                         (String) resultType.getMethod("getCode").invoke(response),
                         (String) resultType.getMethod("getMsg").invoke(response),
                         (String) resultType.getMethod("getData").invoke(response));
-            } catch (ClassNotFoundException | NoSuchFieldException | NoSuchMethodException e) {
-                throw new MpmInvokeException(null, "缺少接口平台 Jar，请先引入，引入方式请联系王豪威");
+            } catch (ClassNotFoundException e) {
+                throw new MpmInvokeException(null, "缺少接口平台 Jar，请先引入，引入方式请联系相关负责人员");
+            } catch (NoSuchFieldException e) {
+                throw new MpmInvokeException(null, "接口平台 Jar 中未找到调用标识 " + invokeIdField
+                        + "，请联系相关平台负责人员确认已在接口平台注册，并引入包含该标识的接口平台 Jar");
+            } catch (NoSuchMethodException e) {
+                throw new MpmInvokeException(null, "接口平台 Jar 缺少调用所需的方法，请确认接口平台 Jar 版本");
             } catch (InvocationTargetException e) {
                 throw new MpmInvokeException(null, "接口平台调用异常: " + e.getTargetException().getMessage());
             } catch (IllegalAccessException e) {

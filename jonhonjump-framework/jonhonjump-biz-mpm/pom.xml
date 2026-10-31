@@ -10,7 +10,7 @@
     </parent>
     <groupId>cn.jonhon.jump.boot</groupId>
     <artifactId>jonhonjump-biz-mpm</artifactId>
-    <version>2026.10.29.1</version>
+    <version>2026.10.30.3</version>
     <packaging>jar</packaging>
     <name>${project.artifactId}</name>
     <description>MES 调用 MPM 接口的业务客户端</description>

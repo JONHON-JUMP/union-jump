@@ -2,6 +2,7 @@ package cn.jonhon.jump.framework.mpm.client;
 
 import cn.jonhon.jump.framework.mpm.dto.MpmInspectionRequestDTO;
 import cn.jonhon.jump.framework.mpm.dto.MpmInspectionReponseDTO;
+import cn.jonhon.jump.framework.mpm.dto.MpmHistoryInspectionRequestDTO;
 
 /**
  * MES 调用 MPM 工序检验项及参数接口的业务入口。
@@ -24,4 +25,14 @@ public interface MpmClient {
      * @throws MpmInvokeException 接口平台调用失败、返回数据为空或响应无法解析时抛出
      */
     MpmInspectionReponseDTO queryOpInspectionAndParams(MpmInspectionRequestDTO request);
+
+    /**
+     * 按二级工艺计划编号和版本查询历史检验项及参数。
+     *
+     * @param request 历史查询条件；工艺计划编号和版本必填，工序编号可为空
+     * @return 与最新版本接口相同结构的完整 MPM 业务响应
+     * @throws IllegalArgumentException 请求为空或必填字段为空白时抛出
+     * @throws MpmInvokeException 接口平台调用失败或响应无法解析时抛出
+     */
+    MpmInspectionReponseDTO queryHistoryOpInspectionAndParams(MpmHistoryInspectionRequestDTO request);
 }
