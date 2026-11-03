@@ -11,7 +11,7 @@ Starter 使用独立的 RabbitMQ 连接和消息拓扑，不复用 MES 项目的
 3. JUMP 返回“无需处理”时，直接确认消息；
 4. 领取成功后调用 MES 提供的本地工艺变更处理器；
 5. 将处理成功或失败结果回调 JUMP；
-6. 处理失败时调用 MES 提供的钉钉告警处理器，并拒绝消息进入车间专属延迟重试队列；
+6. 处理失败时调用 MES 提供的钉钉告警处理器，消息进入车间专属延迟重试队列；
 7. 延迟队列消息到期后回流主队列，再次消费。
 
 MES 项目启用 Starter 后，必须提供 `RecipeChangeMessageProcessor` 和 `RecipeChangeDingTalkAlarmProcessor` 的 Bean；否则应用启动时会明确报错。
@@ -36,13 +36,12 @@ jonhonjump:
       enabled: true
 
       # 当前 MES 需要消费的车间；配置几个，就监听几个车间的专属主队列
-      # 不再支持 workshop-code 单数配置
       workshop-codes:
-        - "3500"
+        - "5601"
         - "5600"
 
       # JUMP 服务地址，不要以 / 结尾
-      jump-base-url: http://127.0.0.1:48080
+      jump-base-url: http://192.168.240.129:8777
       connect-timeout-millis: 10000
       read-timeout-millis: 20000
 
@@ -68,10 +67,10 @@ jonhonjump:
 
       # 工艺变更专用 RabbitMQ 连接；不读取 spring.rabbitmq
       rabbitmq:
-        host: 127.0.0.1
+        host: 192.168.240.160
         port: 5672
-        username: guest
-        password: guest
+        username: admin
+        password: admin*963.
         virtual-host: /
 ```
 
