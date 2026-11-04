@@ -1,6 +1,6 @@
 package cn.jonhon.jump.framework.recipechange.consumer.client;
 
-import cn.jonhon.jump.framework.recipechange.consumer.config.RecipeChangeConsumerProperties;
+import cn.jonhon.jump.framework.recipechange.consumer.config.RecipeChangeConsumerConstants;
 import cn.jonhon.jump.framework.recipechange.consumer.core.RecipeChangeDingTalkAlarmLogDTO;
 import cn.jonhon.jump.framework.recipechange.consumer.core.RecipeChangeMessageDTO;
 import org.springframework.http.ResponseEntity;
@@ -16,11 +16,8 @@ import java.util.Map;
 public class RecipeChangeJUMPHttpClient implements RecipeChangeJUMPClient {
 
     private final RestTemplate restTemplate;
-    private final RecipeChangeConsumerProperties recipeChangeConsumerProperties;
-
-    public RecipeChangeJUMPHttpClient(RestTemplate restTemplate, RecipeChangeConsumerProperties recipeChangeConsumerProperties) {
+    public RecipeChangeJUMPHttpClient(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
-        this.recipeChangeConsumerProperties = recipeChangeConsumerProperties;
     }
 
     /**
@@ -29,7 +26,7 @@ public class RecipeChangeJUMPHttpClient implements RecipeChangeJUMPClient {
     @Override
     @SuppressWarnings("unchecked")
     public RecipeChangeProcessingAcquireResult acquireProcessing(String notifyId, String workshopCode) {
-        String requestUrl = UriComponentsBuilder.fromHttpUrl(recipeChangeConsumerProperties.getJumpBaseUrl())
+        String requestUrl = UriComponentsBuilder.fromHttpUrl(RecipeChangeConsumerConstants.JUMP_BASE_URL)
                 .path("/api/mes-recipe-change/processing-acquire")
                 .queryParam("notifyId", notifyId)
                 .queryParam("workshopCode", workshopCode)
@@ -51,7 +48,7 @@ public class RecipeChangeJUMPHttpClient implements RecipeChangeJUMPClient {
      */
     @Override
     public void callbackProcessResult(RecipeChangeMessageDTO message, String processingToken, boolean success, String errorMsg) {
-        String requestUrl = recipeChangeConsumerProperties.getJumpBaseUrl() + "/api/mes-recipe-change/callback";
+        String requestUrl = RecipeChangeConsumerConstants.JUMP_BASE_URL + "/api/mes-recipe-change/callback";
         Map<String, Object> requestBody = new HashMap<>();
         requestBody.put("notifyId", message.getNotifyId());
         requestBody.put("workshopCode", message.getWorkshopCode());
@@ -68,7 +65,7 @@ public class RecipeChangeJUMPHttpClient implements RecipeChangeJUMPClient {
      */
     @Override
     public void recordDingTalkAlarmResult(RecipeChangeDingTalkAlarmLogDTO dingTalkAlarmLog) {
-        String requestUrl = recipeChangeConsumerProperties.getJumpBaseUrl() + "/api/mes-recipe-change/dingtalk-alarm-log";
+        String requestUrl = RecipeChangeConsumerConstants.JUMP_BASE_URL + "/api/mes-recipe-change/dingtalk-alarm-log";
         ResponseEntity<Map> responseEntity = restTemplate.postForEntity(requestUrl, dingTalkAlarmLog, Map.class);
         ensureSuccessResponse(responseEntity.getBody());
     }

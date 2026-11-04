@@ -4,15 +4,9 @@
 
 工艺变更消息消费者 Spring Boot Starter，供 MES 项目接收 JUMP 按车间分发的工艺变更消息。
 
-Starter 使用独立的 RabbitMQ 连接和消息拓扑，不复用 MES 项目的 `spring.rabbitmq` 配置。消息消费采用手动确认模式，处理流程如下：
+Starter 使用内置的 JUMP 通信参数、RabbitMQ 连接参数和主队列命名规则；这些基础设施参数随 Starter jar 统一发布。MES 项目只需声明本实例负责的车间，不需要配置 JUMP 地址、HTTP 超时、RabbitMQ 信息、交换机、主队列或延迟重试队列。
 
-1. 从配置的全部车间工艺变更主队列消费消息；
-2. 调用 JUMP 领取处理权；
-3. JUMP 返回“无需处理”时，直接确认消息；
-4. 领取成功后调用 MES 提供的本地工艺变更处理器；
-5. 将处理成功或失败结果回调 JUMP；
-6. 处理失败时调用 MES 提供的钉钉告警处理器，消息进入车间专属延迟重试队列；
-7. 延迟队列消息到期后回流主队列，再次消费。
+RabbitMQ 交换机、主队列、延迟重试队列、绑定和延迟时间均由 JUMP 注册和管理。Starter 只监听车间主队列；消费失败时执行 NACK，由 JUMP 已注册的死信和延迟队列拓扑完成后续重试。
 
 MES 项目启用 Starter 后，必须提供 `RecipeChangeMessageProcessor` 和 `RecipeChangeDingTalkAlarmProcessor` 的 Bean；否则应用启动时会明确报错。
 
@@ -39,43 +33,8 @@ jonhonjump:
       workshop-codes:
         - "5601"
         - "5600"
-
-      # JUMP 服务地址，不要以 / 结尾
-      jump-base-url: http://192.168.240.129:8777
-      connect-timeout-millis: 10000
-      read-timeout-millis: 20000
-
-      # 必须与 JUMP 使用的主交换机、队列和路由键保持一致
-      exchange: EXCHANGE_RECIPE_CHANGE
-      queue-name-prefix: QUEUE_RECIPE_CHANGE_
-      routing-key-prefix: RECIPE_CHANGE_ROUTE_
-
-      # 失败消息的延迟重试拓扑
-      retry-exchange: EXCHANGE_RECIPE_CHANGE_RETRY
-      retry-routing-key-prefix: RECIPE_CHANGE_RETRY_ROUTE_
-      retry-queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_
-      retry-delay-millis: 1200000
-
-      # 可选：按车间覆盖重试队列版本和延迟时间；未配置的车间使用上方全局前缀和 TTL
-      retry-queue-overrides:
-        "3500":
-          queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_V2_
-          delay-millis: 60000
-        "5600":
-          queue-name-prefix: QUEUE_RECIPE_CHANGE_RETRY_V3_
-          delay-millis: 300000
-
-      # 工艺变更专用 RabbitMQ 连接；不读取 spring.rabbitmq
-      rabbitmq:
-        host: 192.168.240.160
-        port: 5672
-        username: admin
-        password: admin*963.
-        virtual-host: /
 ```
 
-`workshop-codes` 为必填列表，Starter 会为每个车间声明主队列、延迟重试队列及对应绑定，并由同一个消息监听器消费全部主队列。MES 本地 `RecipeChangeMessageProcessor` 可根据消息内的 `workshopCode` 继续路由不同车间业务。
+`workshop-codes` 为必填列表。Starter 会根据内置的主队列命名规则监听对应车间的队列，MES 本地 `RecipeChangeMessageProcessor` 可根据消息内的 `workshopCode` 继续路由不同车间业务。
 
-全局 `retry-queue-name-prefix` 和 `retry-delay-millis` 是默认值；`retry-queue-overrides` 可为已配置的单个车间覆盖延迟队列前缀和 TTL。JUMP 与 MES Starter 对同一车间的最终队列名称和 TTL 必须一致。若 JUMP 为某车间切换到版本化延迟队列，例如 `QUEUE_RECIPE_CHANGE_RETRY_V2_`，MES 也必须同步使用相同前缀和延迟时间。
-
-延迟重试队列使用 `x-message-ttl`。RabbitMQ 不允许修改已有队列的该参数；调整某车间的延迟时间时，应为该车间切换新的延迟队列前缀版本。旧延迟队列只解除旧绑定、不删除，让其中已有消息自然 TTL 回流。
+JUMP 或 RabbitMQ 基础设施参数发生变化时，需要重新发布 Starter jar 并由 MES 替换依赖；无需修改 MES 项目的 YAML。
