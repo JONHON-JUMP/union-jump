@@ -1,6 +1,7 @@
 package cn.jonhon.jump.module.system.service.user;
 
 import cn.hutool.core.collection.CollUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
 import cn.jonhon.jump.module.system.controller.admin.permission.vo.quicknav.RoleQuickNavRespVO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemMenuDO;
@@ -114,12 +115,41 @@ public class SubSystemRoleQuickNavServiceImpl implements SubSystemRoleQuickNavSe
 
     @Override
     public List<Long> getUserDefaultMenuIds(Long userId, Long subSystemId) {
-        SubSystemUsersDO subSystemUser = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, userId);
-        if (subSystemUser == null || "1".equals(subSystemUser.getStatus())) {
-            return Collections.emptyList();
+        return getUserDefaultMenuIds(userId, subSystemId, null);
+    }
+
+    @Override
+    public List<Long> getUserDefaultMenuIds(Long userId, Long subSystemId, String workshopCode) {
+        // 指定车间：只取该叶子挂接行上的角色；未指定：系统级（车间空）挂接行
+        LinkedHashSet<Long> roleIdSet = new LinkedHashSet<>();
+        String workshop = StrUtil.trim(workshopCode);
+        for (SubSystemUsersDO row : CollUtil.emptyIfNull(subSystemUsersMapper.selectListByMainUserId(userId))) {
+            if (!Objects.equals(subSystemId, row.getSubSystemId()) || "1".equals(row.getStatus())) {
+                continue;
+            }
+            String rowWorkshop = StrUtil.trim(row.getWorkshopId());
+            if (StrUtil.isNotBlank(workshop)) {
+                if (!workshop.equals(rowWorkshop)) {
+                    continue;
+                }
+            } else if (StrUtil.isNotBlank(rowWorkshop)) {
+                // 未带车间时不合并各叶子角色，避免 5500 默认渗到「系统级」视图
+                continue;
+            }
+            roleIdSet.addAll(convertList(subSystemUserRoleMapper.selectListByUserId(row.getId()),
+                    SubSystemUserRoleDO::getRoleId));
         }
-        List<Long> roleIds = convertList(subSystemUserRoleMapper.selectListByUserId(subSystemUser.getId()),
-                item -> item.getRoleId());
+        // 兼容：未带车间且无系统级挂接时，仍合并该系统下全部挂接角色（旧数据）
+        if (roleIdSet.isEmpty() && StrUtil.isBlank(workshop)) {
+            for (SubSystemUsersDO row : CollUtil.emptyIfNull(subSystemUsersMapper.selectListByMainUserId(userId))) {
+                if (!Objects.equals(subSystemId, row.getSubSystemId()) || "1".equals(row.getStatus())) {
+                    continue;
+                }
+                roleIdSet.addAll(convertList(subSystemUserRoleMapper.selectListByUserId(row.getId()),
+                        SubSystemUserRoleDO::getRoleId));
+            }
+        }
+        List<Long> roleIds = new ArrayList<>(roleIdSet);
         if (CollUtil.isEmpty(roleIds)) {
             return Collections.emptyList();
         }

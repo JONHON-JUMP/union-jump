@@ -14,6 +14,7 @@ DELETE FROM "sub_system_user_post";
 DELETE FROM "sub_system_user_role";
 DELETE FROM "sub_system_role_menu";
 DELETE FROM "sub_system_team";
+DELETE FROM "sub_system_api_binding";
 DELETE FROM "sub_system_workshop";
 DELETE FROM "sub_system_api_config";
 DELETE FROM "sub_system_menu";

@@ -338,8 +338,9 @@ function isMessageFromVisiblePortalIframe(event) {
   }
   for (let i = 0; i < nodes.length; i++) {
     const root = nodes[i]
-    const hidden = window.getComputedStyle(root).display === 'none'
-    if (hidden) {
+    // 只认当前前台帧。关掉的页会先变成空白再卸掉，若仍把它的跳转消息当成当前页，
+    // 会把刚切到的下一页整帧重建（先花屏再刷新）。
+    if (!root.classList.contains('is-front')) {
       continue
     }
     const iframe = root.querySelector('iframe')

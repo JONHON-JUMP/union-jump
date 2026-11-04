@@ -16,10 +16,13 @@ public class UserExternalSystemRespVO {
     @Schema(description = "外部系统访问地址")
     private String systemUrl;
 
-    @Schema(description = "子系统客户端编号")
+    @Schema(description = "门户切换用 clientId；MES 按车间拆入口时为 mes5500_5501，非 MES 仍为真实 oauth client_id")
     private String clientId;
 
-    @Schema(description = "子系统名称")
+    @Schema(description = "真实 MES/业务系统 oauth client_id；与 clientId 在车间拆分入口时可能不同", example = "mes5500")
+    private String mesClientId;
+
+    @Schema(description = "子系统名称（车间拆分入口时为车间名称）")
     private String clientName;
 
     @Schema(description = "应用图标")

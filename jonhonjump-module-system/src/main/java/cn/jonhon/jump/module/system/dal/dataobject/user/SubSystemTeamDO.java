@@ -24,5 +24,7 @@ public class SubSystemTeamDO extends BaseDO {
     private String description;
     private Long teamLeaderId;
     private String teamLeaderName;
+    /** 车间编号（可空；写在班组自身，不依赖系统车间对照） */
+    private String workshopCode;
 
 }

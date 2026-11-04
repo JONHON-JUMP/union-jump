@@ -9,13 +9,13 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 /**
- * 子系统人员接口配置 DO
+ * 子系统人员接口配置 DO（系统级配置，一行 = 一个接入系统）
  *
- * 每个外部系统一行；通过 apiType 选择适配器：
+ * 通过 apiType 选择适配器：
  * - camstar：Camstar 专用适配器（Cookie 会话登录 SSOLoginIn）
  * - http：通用 HTTP 适配器（按 param_mapping / response_mapping 纯配置驱动）
  *
- * 各接口 JSON 格式：{"path":"/BasicData/Employee/getEmployeeInfo","method":"POST"}
+ * 各接口端点存 {@link SubSystemApiEndpointDO}（一行一接口，按 purpose 区分用途）。
  */
 @TableName("sub_system_api_config")
 @KeySequence("sub_system_api_config_seq")
@@ -36,28 +36,6 @@ public class SubSystemApiConfigDO extends BaseDO {
     private String authType;
     /** 鉴权配置 JSON：{"loginPath":"...","token":"...","cookieName":"..."} */
     private String authConfig;
-    /** 查询接口 */
-    private String apiQuery;
-    /** 新增接口（人员 upsert） */
-    private String apiCreate;
-    /** 修改接口（人员 upsert，可同新增） */
-    private String apiUpdate;
-    /** 删除接口 */
-    private String apiDelete;
-    /** 班组下拉接口 */
-    private String apiTeamCombo;
-    /** 角色查询接口 */
-    private String apiRoleQuery;
-    /** 角色新增接口 */
-    private String apiRoleCreate;
-    /** 角色删除接口 */
-    private String apiRoleDelete;
-    /**
-     * 接口目录树 JSON（菜单式：目录 + 叶子）。
-     * 叶子含 purpose：auth/query/create/update/delete/role_query/role_create/role_delete；
-     * 用户同步业务系统时调 purpose=create 的叶子；role_* 仅在线测试调用（角色裸增删查，不挂页面）。
-     */
-    private String apiCatalog;
     /** 参数映射 JSON：JUMP标准参数名→对方参数名 */
     private String paramMapping;
     /** 响应映射 JSON（http 适配器用）：successField/successValue/listPath/totalPath */

@@ -9,6 +9,7 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 子系统人员接口配置 Service
@@ -36,6 +37,11 @@ public interface SubSystemApiConfigService {
     SubSystemApiConfigDO getEnabledConfigBySubSystemId(Long subSystemId);
 
     /**
+     * 「新增人员」接口是否已配置且启用（接口目标下拉 / 花名册注册入口用）
+     */
+    boolean isCreateEndpointEnabled(Long subSystemId);
+
+    /**
      * 测试连接：按配置调一次查询接口（page=1,rows=1），返回耗时与结果摘要
      */
     String testConnection(Long id);
@@ -60,5 +66,12 @@ public interface SubSystemApiConfigService {
      * 已启用「角色新增」接口的接入系统列表（与门户角色所属系统解耦，如 Camstar人员管理）
      */
     List<SubSystemRegisterableApiRespVO> listRoleCreateApis();
+
+    /**
+     * 查对方角色：roleName → Camstar roleId（role_query / getRoleInfo）。
+     * workshopCode、roleName 都可空；空字符串不传，避免对方按空条件滤成 0 条。
+     * 带 roleName 时按角色名查，避免只按车间拉列表时新建角色被截断漏掉。
+     */
+    Map<String, String> queryExternalRoleIds(Long subSystemId, String workshopCode, String roleName);
 
 }

@@ -11,7 +11,9 @@ export function getSubSystemUsersByMainUserId(mainUserId) {
 export function getMyExternalSystemList() {
   return request({
     url: '/system/sub-system-users/my-list',
-    method: 'get'
+    method: 'get',
+    // 全局请求：门户入口列表，路由切换不取消
+    isGlobal: true
   })
 }
 
@@ -19,23 +21,32 @@ export function getMyExternalSystemList() {
 export function getMyCamstarUsername() {
   return request({
     url: '/system/sub-system-users/my-camstar-username',
-    method: 'get'
+    method: 'get',
+    isGlobal: true
   })
 }
 
-export function getMyPortalMenus(subSystemId) {
+export function getMyPortalMenus(subSystemId, workshopCode) {
   return request({
     url: '/system/sub-system-users/my-menus',
     method: 'get',
-    params: { subSystemId }
+    isGlobal: true,
+    params: {
+      subSystemId,
+      workshopCode: workshopCode || undefined
+    }
   })
 }
 
-/** 子系统 RBAC 版本（菜单/角色变更递增）；与本地缓存比对，有变化才重拉 my-menus */
+/** 子系统 RBAC 版本（菜单/角色变更递增）；与本地缓存比对，有变化才重拉 my-menus。
+ *  独立短超时：JUMP 后端与各子系统共机部署，子系统一慢此接口跟着慢，
+ *  它只服务"要不要刷新缓存"的判断，慢了就按本地缓存走，绝不能拖住打开菜单 */
 export function getMyPortalMenusVersion(subSystemId) {
   return request({
     url: '/system/sub-system-users/my-menus-version',
     method: 'get',
+    isGlobal: true,
+    timeout: 8000,
     params: { subSystemId }
   })
 }
@@ -101,10 +112,27 @@ export function updateSubSystemUserStatus(id, status) {
 }
 
 // 修改人员接口注册状态（0未注册 1已注册）
+export function bindExternalEmployee(id, userCode, workshopCode, apiSubSystemId) {
+  return request({
+    url: '/system/sub-system-users/bind-external-employee',
+    method: 'put',
+    params: { id, userCode, workshopCode, apiSubSystemId }
+  })
+}
+
 export function updateSubSystemUserRegisterStatus(id, employeeRegistered) {
   return request({
     url: '/system/sub-system-users/update-register-status?id=' + id + '&employeeRegistered=' + employeeRegistered,
     method: 'put'
+  })
+}
+
+// 同步域账号/刷卡卡号到业务系统。erpNo 不传则不同步 ERP。data: { id, apiSubSystemId, erpNo? }
+export function syncSubSystemUserAccount(data) {
+  return request({
+    url: '/system/sub-system-users/sync-user-account',
+    method: 'post',
+    data: data
   })
 }
 
@@ -167,21 +195,16 @@ export function importSubSystemUserTemplate() {
   })
 }
 
-/** 按用户名查询子系统用户 */
-export function getSubSystemUserByUsername(subSystemId, username) {
+/** 按用户名查询子系统用户（可选车间叶子） */
+export function getSubSystemUserByUsername(subSystemId, username, workshopId) {
   return request({
     url: '/system/sub-system-users/get-by-username',
     method: 'get',
-    params: { subSystemId, username }
-  })
-}
-
-/** 挂接主系统用户到子系统同名用户 */
-export function bindSubSystemMainUser(subSystemId, mainUserId) {
-  return request({
-    url: '/system/sub-system-users/bind-main-user',
-    method: 'post',
-    params: { subSystemId, mainUserId }
+    params: {
+      subSystemId,
+      username,
+      workshopId: workshopId || undefined
+    }
   })
 }
 

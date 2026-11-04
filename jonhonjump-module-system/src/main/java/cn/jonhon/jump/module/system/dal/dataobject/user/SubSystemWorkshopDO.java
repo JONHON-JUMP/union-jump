@@ -9,10 +9,12 @@ import lombok.Data;
 import lombok.EqualsAndHashCode;
 
 /**
- * 子系统车间 DO（JUMP 部门与子系统车间的映射）
- *
- * 说明：JUMP 的"部门"与子系统的"车间"（如 Camstar 的 Factory）是同一组织实体的两套标识，
- * 本表维护两者对应关系；多个部门可映射同一车间；人员同步时按 deptId 在此换算 workshopCode。
+ * 业务系统子表叶子：一行 = 父系统下的一套可挂角色作用域。
+ * <ul>
+ *   <li>主表 sub_system：菜单 / OAuth</li>
+ *   <li>本表：多叶子共用父菜单；每个叶子一套角色</li>
+ *   <li>一对一也落一条；人员只挂本表记录（workshopCode → users.workshop_id）</li>
+ * </ul>
  */
 @TableName("sub_system_workshop")
 @KeySequence("sub_system_workshop_seq")
@@ -23,15 +25,18 @@ public class SubSystemWorkshopDO extends BaseDO {
 
     @TableId
     private Long id;
-    /** 外部系统 ID（sub_system.id） */
-    private Long subSystemId;
-    /** JUMP 部门 ID（system_dept.id） */
-    private Long deptId;
-    /** 子系统车间编码（如 Camstar 的 4200） */
+    /** 叶子编号，如 5501、4200；对齐花名册/角色上的车间字段 */
     private String workshopCode;
-    /** 子系统车间名称 */
     private String workshopName;
-    /** 描述 */
-    private String description;
+    /** 所属业务系统 ID（权威关联） */
+    private Long subSystemId;
+    /** 所属系统 client_id（冗余；以 subSystemId 为准） */
+    private String clientId;
+    /** 产品线分组名，如 环控 / 液冷 */
+    private String productLine;
+    private Integer sort;
+    /** 0 正常 1 停用 */
+    private Integer status;
+    private String remark;
 
 }

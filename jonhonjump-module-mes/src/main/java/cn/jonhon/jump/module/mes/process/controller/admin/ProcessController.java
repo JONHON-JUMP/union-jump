@@ -12,6 +12,8 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import javax.annotation.Resource;
@@ -31,6 +33,20 @@ public class ProcessController {
 
     @Resource
     private ProcessService processService;
+
+    @GetMapping("/query/document-pdf")
+    @PermitAll
+    @TenantIgnore
+    @Operation(summary = "预览MPM的010工艺PDF")
+    public ResponseEntity<byte[]> queryDocumentPdf(@RequestParam("accno") String accno) {
+        byte[] pdf = processService.queryDocumentPdf(accno);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header("Content-Disposition", "inline; filename=process.pdf")
+                .header("Cache-Control", "no-store")
+                .header("X-Content-Type-Options", "nosniff")
+                .body(pdf);
+    }
 
     @PostMapping("/query/card")
     @PermitAll

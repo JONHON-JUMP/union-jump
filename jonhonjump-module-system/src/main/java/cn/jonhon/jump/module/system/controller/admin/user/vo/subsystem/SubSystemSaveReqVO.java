@@ -45,4 +45,7 @@ public class SubSystemSaveReqVO {
     @InEnum(value = CommonStatusEnum.class, message = "状态必须是 {value}")
     private Integer status;
 
+    @Schema(description = "是否启用车间作用域（多叶子系统开）", example = "false")
+    private Boolean workshopScopeEnabled;
+
 }

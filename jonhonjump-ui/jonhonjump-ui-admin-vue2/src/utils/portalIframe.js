@@ -9,7 +9,7 @@ import {
   extractPortalMenuRest,
   slashIpPortRestToHttp
 } from '@/utils/portalRoute'
-import { ensureLocalCamstarCookie } from '@/utils/camstarCookie'
+import { ensureLocalCamstarCookie, refreshCamstarCookieForSystem } from '@/utils/camstarCookie'
 
 /**
  * 把路由收成可写的普通对象。vue-router 的 to / matched 常不可扩展，
@@ -135,7 +135,16 @@ export function syncPortalIframeView(store, route) {
   }
 
   if (hasLink && isCamstarLink(view.meta && view.meta.link)) {
-    ensureLocalCamstarCookie()
+    const currentSystem = store.state.portal && store.state.portal.currentSystem
+    const list = (store.state.portal && store.state.portal.systemList) || []
+    const portalSys = currentSystem && currentSystem !== 'main'
+      ? list.find(s => s && s.clientId === currentSystem)
+      : null
+    if (portalSys) {
+      refreshCamstarCookieForSystem(portalSys)
+    } else {
+      ensureLocalCamstarCookie(view.meta.link, currentSystem && currentSystem !== 'main' ? currentSystem : undefined)
+    }
   }
 
   store.dispatch('tagsView/addView', view)

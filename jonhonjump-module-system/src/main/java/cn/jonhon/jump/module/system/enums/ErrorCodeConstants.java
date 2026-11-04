@@ -20,7 +20,7 @@ public interface ErrorCodeConstants {
     // ========== 菜单模块 1-002-001-000 ==========
     ErrorCode MENU_NAME_DUPLICATE = new ErrorCode(1_002_001_000, "主系统已存在同名菜单");
     ErrorCode MENU_PARENT_NOT_EXISTS = new ErrorCode(1_002_001_001, "父菜单不存在");
-    ErrorCode MENU_PARENT_ERROR = new ErrorCode(1_002_001_002, "不能设置自己为父菜单");
+    ErrorCode MENU_PARENT_ERROR = new ErrorCode(1_002_001_002, "不能把上级菜单设成自己或自己的下级");
     ErrorCode MENU_NOT_EXISTS = new ErrorCode(1_002_001_003, "菜单不存在");
     ErrorCode MENU_EXISTS_CHILDREN = new ErrorCode(1_002_001_004, "存在子菜单，无法删除");
     ErrorCode MENU_PARENT_NOT_DIR_OR_MENU = new ErrorCode(1_002_001_005, "父菜单的类型必须是目录或者菜单");
@@ -54,11 +54,13 @@ public interface ErrorCodeConstants {
     ErrorCode USER_MOBILE_NOT_EXISTS = new ErrorCode(1_002_003_010, "该手机号尚未注册");
     ErrorCode USER_REGISTER_DISABLED = new ErrorCode(1_002_003_011, "注册功能已关闭");
     ErrorCode USER_UID_GENERATE_FAILED = new ErrorCode(1_002_003_031, "生成用户唯一标识失败，请稍后重试");
+    ErrorCode USER_DOMAIN_NO_DUPLICATE = new ErrorCode(1_002_003_095, "域账号【{}】已被用户【{}】占用，一个域账号只能属于一个人");
+    ErrorCode USER_CARD_NO_DUPLICATE = new ErrorCode(1_002_003_096, "刷卡卡号【{}】已被用户【{}】占用，一个卡号只能属于一个人");
     ErrorCode SUB_SYSTEM_IMPORT_NOT_BOUND = new ErrorCode(1_002_003_032, "请先选择并关联已登记的业务系统，确认后再导入");
     ErrorCode SUB_SYSTEM_IMPORT_LIST_EMPTY = new ErrorCode(1_002_003_033, "导入数据不能为空");
     ErrorCode SUB_SYSTEM_USER_NOT_EXISTS = new ErrorCode(1_002_003_012, "业务系统用户不存在");
-    ErrorCode SUB_SYSTEM_USER_EXISTS = new ErrorCode(1_002_003_013, "该用户已关联此业务系统");
-    ErrorCode SUB_SYSTEM_USER_USERNAME_EXISTS = new ErrorCode(1_002_003_035, "该业务系统下用户名已存在");
+    ErrorCode SUB_SYSTEM_USER_EXISTS = new ErrorCode(1_002_003_013, "该用户已关联此业务系统（系统级挂接）");
+    ErrorCode SUB_SYSTEM_USER_USERNAME_EXISTS = new ErrorCode(1_002_003_035, "该业务系统叶子下用户名已存在（不同车间可挂同一工号；同一车间不可重复）");
     ErrorCode SUB_SYSTEM_USER_USERNAME_NOT_FOUND = new ErrorCode(1_002_003_036, "业务系统中不存在同名用户，请先在业务系统用户中导入或新增");
     ErrorCode SUB_SYSTEM_USER_MAIN_BOUND = new ErrorCode(1_002_003_037, "该业务系统用户已关联其他主系统用户");
     ErrorCode SUB_SYSTEM_NOT_EXISTS = new ErrorCode(1_002_003_014, "业务系统不存在");
@@ -68,44 +70,56 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_ROLE_HAS_USERS = new ErrorCode(1_002_003_018, "业务系统角色已分配用户，无法删除");
     ErrorCode SUB_SYSTEM_ROLE_ALREADY_REGISTERED = new ErrorCode(1_002_003_045, "该角色已接口注册，无需重复推送");
     ErrorCode SUB_SYSTEM_ROLE_WORKSHOP_REQUIRED = new ErrorCode(1_002_003_046, "同步到业务系统时请选择车间");
+    ErrorCode SUB_SYSTEM_USER_ROLE_WORKSHOP_MISMATCH = new ErrorCode(1_002_003_069, "角色【{0}】的车间与该人员挂接的车间（{1}）不一致，请选择该车间的角色");
+    ErrorCode SUB_SYSTEM_USER_WORKSHOP_LEAF_REQUIRED = new ErrorCode(1_002_003_070, "请选择业务系统子表中的叶子，不能直接挂主表系统");
+    ErrorCode SUB_SYSTEM_USER_WORKSHOP_LEAF_INVALID = new ErrorCode(1_002_003_071, "所选叶子不在 sub_system_workshop 子表中");
+    ErrorCode SUB_SYSTEM_USER_WORKSHOP_EXISTS = new ErrorCode(1_002_003_072, "该用户已关联此业务系统下的该叶子");
+    ErrorCode SUB_SYSTEM_USER_WORKSHOP_LEAF_MISSING = new ErrorCode(1_002_003_073, "该业务系统尚未配置子表叶子，请先在「业务系统叶子」中维护");
+    ErrorCode SUB_SYSTEM_WORKSHOP_NOT_EXISTS = new ErrorCode(1_002_003_074, "业务系统叶子不存在");
+    ErrorCode SUB_SYSTEM_WORKSHOP_CODE_DUPLICATE = new ErrorCode(1_002_003_075, "叶子编号【{}】已存在");
+    ErrorCode SUB_SYSTEM_WORKSHOP_HAS_USERS = new ErrorCode(1_002_003_076, "该叶子下仍有业务用户，无法删除或改编号");
+    ErrorCode SUB_SYSTEM_WORKSHOP_HAS_ROLES = new ErrorCode(1_002_003_077, "该叶子下仍有业务角色，无法删除或改编号");
     ErrorCode SUB_SYSTEM_ROLE_NAME_WORKSHOP_INVALID = new ErrorCode(1_002_003_047, "角色名称无法解析车间前缀，请选择车间后再注册");
     ErrorCode SUB_SYSTEM_MENU_NOT_EXISTS = new ErrorCode(1_002_003_019, "业务系统菜单不存在");
     ErrorCode SUB_SYSTEM_MENU_EXISTS_CHILDREN = new ErrorCode(1_002_003_020, "存在子菜单，无法删除");
     ErrorCode SUB_SYSTEM_MENU_HAS_ROLES = new ErrorCode(1_002_003_021, "业务系统菜单已分配角色，无法删除");
     ErrorCode SUB_SYSTEM_MENU_HAS_QUICK_NAV = new ErrorCode(1_002_003_042, "业务系统菜单已配置快捷导航，请先取消快捷导航后再删除");
     ErrorCode SUB_SYSTEM_ROLE_MENU_HAS_QUICK_NAV = new ErrorCode(1_002_003_043, "取消的菜单中包含角色快捷导航，请先取消快捷导航后再调整菜单权限");
+    ErrorCode SUB_SYSTEM_USER_QUICK_NAV_SAVE_FAIL = new ErrorCode(1_002_003_078,
+            "快捷导航保存失败：请确认已执行 sql/postgresql/sub_system_user_quick_nav_workshop.sql（workshop_code 列与按叶子唯一索引）");
     ErrorCode SUB_SYSTEM_COMMON_MENU_COPY_HAS_CHILDREN = new ErrorCode(1_002_003_044, "业务系统「{}」下有菜单挂在通用菜单副本之下，请先移走后再调整挂载");
     ErrorCode SUB_SYSTEM_MENU_NAME_DUPLICATE = new ErrorCode(1_002_003_022, "已经存在该名字的菜单");
     ErrorCode SUB_SYSTEM_MENU_PARENT_NOT_EXISTS = new ErrorCode(1_002_003_023, "父菜单不存在");
-    ErrorCode SUB_SYSTEM_MENU_PARENT_ERROR = new ErrorCode(1_002_003_024, "不能设置自己为父菜单");
+    ErrorCode SUB_SYSTEM_MENU_PARENT_ERROR = new ErrorCode(1_002_003_024, "不能把上级菜单设成自己或自己的下级");
+    ErrorCode SUB_SYSTEM_MENU_PARENT_TYPE_INVALID = new ErrorCode(1_002_003_091, "上级菜单只能是目录或菜单，不能选择按钮");
+    ErrorCode SUB_SYSTEM_MENU_TYPE_BUTTON_HAS_CHILDREN = new ErrorCode(1_002_003_092, "该菜单下还有子菜单，不能把类型改成按钮");
+    ErrorCode USER_DEPT_OUT_OF_SCOPE = new ErrorCode(1_002_003_093, "无权将用户归属到该部门，只能选择当前数据权限范围内的部门");
+    ErrorCode USER_OUT_OF_DATA_SCOPE = new ErrorCode(1_002_003_094, "该用户不在当前数据权限范围内，无权修改");
     ErrorCode SUB_SYSTEM_POST_NOT_EXISTS = new ErrorCode(1_002_003_025, "业务系统岗位不存在");
     ErrorCode SUB_SYSTEM_POST_NAME_DUPLICATE = new ErrorCode(1_002_003_026, "已经存在名为【{}】的业务系统岗位");
     ErrorCode SUB_SYSTEM_POST_CODE_DUPLICATE = new ErrorCode(1_002_003_027, "已经存在编码为【{}】的业务系统岗位");
     ErrorCode SUB_SYSTEM_POST_HAS_USERS = new ErrorCode(1_002_003_028, "业务系统岗位已分配用户，无法删除");
     ErrorCode SUB_SYSTEM_USER_HOME_MENU_INVALID = new ErrorCode(1_002_003_029, "主页面必须是当前业务系统下的菜单页面");
     ErrorCode USER_PORTAL_DEFAULT_SYSTEM_INVALID = new ErrorCode(1_002_003_030, "无效的默认打开业务系统");
-    ErrorCode SUB_SYSTEM_TEAM_NOT_EXISTS = new ErrorCode(1_002_003_030, "业务系统班组不存在");
-    ErrorCode SUB_SYSTEM_TEAM_NAME_DUPLICATE = new ErrorCode(1_002_003_031, "已经存在名为【{}】的业务系统班组");
-    ErrorCode SUB_SYSTEM_TEAM_CODE_DUPLICATE = new ErrorCode(1_002_003_032, "已经存在编码为【{}】的业务系统班组");
-    ErrorCode SUB_SYSTEM_TEAM_HAS_USERS = new ErrorCode(1_002_003_033, "业务系统班组已分配用户，无法删除");
+    // 030/031/032 历史上与用户模块（USER_PORTAL_DEFAULT/USER_UID/SUB_SYSTEM_IMPORT）撞号，班组改用 080+ 空闲段
+    ErrorCode SUB_SYSTEM_TEAM_NOT_EXISTS = new ErrorCode(1_002_003_080, "业务系统班组不存在");
+    ErrorCode SUB_SYSTEM_TEAM_NAME_DUPLICATE = new ErrorCode(1_002_003_081, "已经存在名为【{}】的业务系统班组");
+    ErrorCode SUB_SYSTEM_TEAM_CODE_DUPLICATE = new ErrorCode(1_002_003_082, "已经存在编码为【{}】的业务系统班组");
+    ErrorCode SUB_SYSTEM_TEAM_HAS_USERS = new ErrorCode(1_002_003_083, "业务系统班组已分配用户，无法删除");
     ErrorCode SUB_SYSTEM_TEAM_LEADER_INVALID = new ErrorCode(1_002_003_034, "班组长必须是当前业务系统下的用户");
     ErrorCode SUB_SYSTEM_TEAM_DEPT_NOT_MAPPED = new ErrorCode(1_002_003_061, "所选部门未维护车间对照，请先在车间对照中维护");
-    ErrorCode SUB_SYSTEM_OAUTH2_CLIENT_NOT_EXISTS = new ErrorCode(1_002_003_035, "OAuth2 客户端不存在，请先在 OAuth2 客户端管理中创建");
-    ErrorCode SUB_SYSTEM_CLIENT_ID_DUPLICATE = new ErrorCode(1_002_003_036, "OAuth2 客户端【{}】已关联其他业务系统");
-    ErrorCode SUB_SYSTEM_HAS_RELATED_DATA = new ErrorCode(1_002_003_037, "业务系统已存在业务数据，无法删除");
+    ErrorCode SUB_SYSTEM_OAUTH2_CLIENT_NOT_EXISTS = new ErrorCode(1_002_003_084, "OAuth2 客户端不存在，请先在 OAuth2 客户端管理中创建");
+    ErrorCode SUB_SYSTEM_CLIENT_ID_DUPLICATE = new ErrorCode(1_002_003_085, "OAuth2 客户端【{}】已关联其他业务系统");
+    ErrorCode SUB_SYSTEM_HAS_RELATED_DATA = new ErrorCode(1_002_003_086, "业务系统已存在业务数据，无法删除");
     ErrorCode PORTAL_PERM_CLIENT_MISMATCH = new ErrorCode(1_002_003_038, "OAuth client_id 与请求不匹配");
     ErrorCode PORTAL_EXT_NAMESPACE_FORBIDDEN = new ErrorCode(1_002_003_039, "扩展缓存 namespace 不在白名单");
     ErrorCode PORTAL_EXT_KEY_INVALID = new ErrorCode(1_002_003_040, "扩展缓存 key 非法");
     ErrorCode PORTAL_EXT_VALUE_TOO_LARGE = new ErrorCode(1_002_003_041, "扩展缓存 value 超过大小限制");
-    ErrorCode PORTAL_EXT_TTL_INVALID = new ErrorCode(1_002_003_042, "扩展缓存 TTL 非法或超过上限");
-    ErrorCode SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS = new ErrorCode(1_002_003_043, "用户不存在");
-    ErrorCode SUB_SYSTEM_CARD_LOGIN_USER_DISABLED = new ErrorCode(1_002_003_044, "用户已停用");
-    ErrorCode SUB_SYSTEM_CARD_LOGIN_CLIENT_MISMATCH = new ErrorCode(1_002_003_045, "clientId 与 Basic 认证不一致");
-    // ========== 外部车间模块 1-002-003-046 ==========
-    ErrorCode SUB_SYSTEM_WORKSHOP_NOT_EXISTS = new ErrorCode(1_002_003_046, "业务系统车间不存在");
-    ErrorCode SUB_SYSTEM_WORKSHOP_CODE_DUPLICATE = new ErrorCode(1_002_003_047, "已经存在编码为【{}】的业务系统车间");
-    ErrorCode SUB_SYSTEM_WORKSHOP_NAME_DUPLICATE = new ErrorCode(1_002_003_048, "已经存在名为【{}】的业务系统车间");
-    ErrorCode SUB_SYSTEM_WORKSHOP_HAS_USERS = new ErrorCode(1_002_003_049, "业务系统车间已分配用户，无法删除");
+    ErrorCode PORTAL_EXT_TTL_INVALID = new ErrorCode(1_002_003_087, "扩展缓存 TTL 非法或超过上限");
+    ErrorCode SUB_SYSTEM_CARD_LOGIN_USER_NOT_EXISTS = new ErrorCode(1_002_003_088, "用户不存在");
+    ErrorCode SUB_SYSTEM_CARD_LOGIN_USER_DISABLED = new ErrorCode(1_002_003_089, "用户已停用");
+    ErrorCode SUB_SYSTEM_CARD_LOGIN_CLIENT_MISMATCH = new ErrorCode(1_002_003_090, "clientId 与 Basic 认证不一致");
+    // ========== 业务班组等部门校验（原车间对照模块已废弃） ==========
     ErrorCode SUB_SYSTEM_WORKSHOP_DEPT_INVALID = new ErrorCode(1_002_003_050, "关联部门不存在");
     // ========== 业务系统人员接口配置模块 1-002-003-051 ==========
     ErrorCode SUB_SYSTEM_API_CONFIG_NOT_EXISTS = new ErrorCode(1_002_003_051, "业务系统人员接口配置不存在");
@@ -118,6 +132,10 @@ public interface ErrorCodeConstants {
     ErrorCode SUB_SYSTEM_CLIENT_ID_INVALID = new ErrorCode(1_002_003_065, "系统编号只能以字母开头，且仅含字母、数字、下划线或中划线");
     ErrorCode SUB_SYSTEM_CLIENT_ID_EXISTS = new ErrorCode(1_002_003_066, "系统编号【{}】已存在");
     ErrorCode SUB_SYSTEM_SAVE_FAILED = new ErrorCode(1_002_003_067, "业务系统保存失败，请检查系统编号是否重复");
+    // 注意：069/070 已被人员模块占用（SUB_SYSTEM_USER_ROLE_WORKSHOP_MISMATCH 等），此处用 079
+    ErrorCode SUB_SYSTEM_SCHEMA_OUTDATED = new ErrorCode(1_002_003_079,
+            "业务系统相关表结构未升级：请先执行 sql/postgresql/upgrade_20261016_sub_system_review_fix.sql（详见后端日志确认缺哪个字段）");
+    ErrorCode SUB_SYSTEM_NO_PERMISSION = new ErrorCode(1_002_003_068, "无权管理该业务系统，请联系管理员调整角色的可管业务系统");
     // ========== 业务系统人员接口模块 1-002-003-055 ==========
     ErrorCode SUB_SYSTEM_EMPLOYEE_API_NOT_CONFIGURED = new ErrorCode(1_002_003_055, "该业务系统未配置（或未启用）人员接口");
     ErrorCode SUB_SYSTEM_EMPLOYEE_API_ERROR = new ErrorCode(1_002_003_056, "业务系统接口调用失败：【{}】");
@@ -257,5 +275,9 @@ public interface ErrorCodeConstants {
     // ========== 站内信发送 1-002-028-000 ==========
     ErrorCode NOTIFY_SEND_TEMPLATE_PARAM_MISS = new ErrorCode(1_002_028_000, "模板参数({})缺失");
     ErrorCode NOTIFY_MESSAGE_NOT_EXISTS = new ErrorCode(1_002_028_001, "站内信不存在");
+
+    // ========== 系统明细 1-002-029-000 ==========
+    ErrorCode BIZ_SYSTEM_NOT_EXISTS = new ErrorCode(1_002_029_000, "系统明细不存在");
+    ErrorCode BIZ_SYSTEM_IP_PORT_DUPLICATE = new ErrorCode(1_002_029_001, "IP【{}】端口【{}】已存在");
 
 }

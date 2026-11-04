@@ -5,6 +5,7 @@ import cn.jonhon.jump.framework.mybatis.core.query.LambdaQueryWrapperX;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemApiConfigDO;
 import org.apache.ibatis.annotations.Mapper;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
@@ -13,6 +14,12 @@ public interface SubSystemApiConfigMapper extends BaseMapperX<SubSystemApiConfig
     default SubSystemApiConfigDO selectBySubSystemId(Long subSystemId) {
         return selectOne(new LambdaQueryWrapperX<SubSystemApiConfigDO>()
                 .eq(SubSystemApiConfigDO::getSubSystemId, subSystemId));
+    }
+
+    /** 按业务系统 ID 批量查接口配置（挂接列表回显接口类型用） */
+    default List<SubSystemApiConfigDO> selectListBySubSystemIds(Collection<Long> subSystemIds) {
+        return selectList(new LambdaQueryWrapperX<SubSystemApiConfigDO>()
+                .in(SubSystemApiConfigDO::getSubSystemId, subSystemIds));
     }
 
     /**

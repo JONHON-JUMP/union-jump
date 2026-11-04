@@ -89,7 +89,7 @@ import { getTodoTaskPage } from '@/api/bpm/task'
 import { listNoticeWorkbench } from '@/api/system/notice'
 import { listFaqWorkbench } from '@/api/system/faq'
 import { checkPermi } from '@/utils/permission'
-import { parsePortalClientId, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath, httpUrlToPortalLocation } from '@/utils/portalRoute'
+import { parsePortalClientId, alignPortalPathToCurrentLeaf, isMainBusinessPath, lookupPathLinkEntry, slashIpPortRestToHttp, encodeHttpToMesPath, httpUrlToPortalLocation } from '@/utils/portalRoute'
 import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
 import PortalQuickNavPanel from './components/PortalQuickNavPanel.vue'
 import { buildPortalHomeApps } from '@/utils/portalQuickNavApps'
@@ -585,12 +585,14 @@ export default {
         if (asHttp0) {
           targetPath = `/portal/${clientId}/` + encodeHttpToMesPath(asHttp0)
         }
+        targetPath = alignPortalPathToCurrentLeaf(targetPath, this.portalSystemList, this.currentSystem)
+        const openClientId = parsePortalClientId(targetPath) || clientId
         if (this.$route.path === targetPath) {
           return
         }
-        const menusReady = !!(this.$store.state.portal.loadedSubSystems || {})[clientId]
+        const menusReady = !!(this.$store.state.portal.loadedSubSystems || {})[openClientId]
         const activeMap = this.$store.state.portal.pathLinkMap || {}
-        const cachedMap = (this.$store.state.portal.subSystemPathLinkCache || {})[clientId] || {}
+        const cachedMap = (this.$store.state.portal.subSystemPathLinkCache || {})[openClientId] || {}
         const entry = activeMap[targetPath] || lookupPathLinkEntry(targetPath, activeMap)
           || cachedMap[targetPath] || lookupPathLinkEntry(targetPath, cachedMap)
           || activeMap[app.path] || lookupPathLinkEntry(app.path, activeMap)
@@ -598,35 +600,35 @@ export default {
         const link = (entry && entry.link) || (app && app.link) || ''
         // 旧快捷导航可能只有 .../d3/needle；有完整 http(含 #) 时重写成带 __hash__ 的壳 path
         if (link && /^https?:\/\//i.test(link) && String(link).indexOf('#') >= 0) {
-          const loc = httpUrlToPortalLocation(clientId, link)
+          const loc = httpUrlToPortalLocation(openClientId, link)
           if (loc && loc.path) {
-            targetPath = loc.path
+            targetPath = alignPortalPathToCurrentLeaf(loc.path, this.portalSystemList, this.currentSystem)
           }
         }
-        const rest = String(targetPath).replace(new RegExp('^/portal/' + clientId + '/'), '').replace(/\/index$/, '')
+        const rest = String(targetPath).replace(new RegExp('^/portal/' + openClientId + '/'), '').replace(/\/index$/, '')
         const restHttp = /^menu\d+/i.test(rest) ? '' : (slashIpPortRestToHttp(rest.replace(/:/g, '/')) || '')
         // 任意完整 http(s)（含 /#/xxx）都直开；禁止用壳 path 回退成丢 hash 的 host 根
         const isDirect = /^https?:\/\//i.test(link) || !!restHttp
         const resolvedLink = link || restHttp || ''
 
         const openDirect = () => {
-          ensureLocalCamstarCookie(resolvedLink, clientId)
+          ensureLocalCamstarCookie(resolvedLink, openClientId)
           if (resolvedLink) {
-            seedCamstarCookieForUrlInBackground(resolvedLink, clientId)
+            seedCamstarCookieForUrlInBackground(resolvedLink, openClientId)
           }
           const afterPush = () => {
             if (!menusReady) {
               this.$store.dispatch('portal/ensureSubSystemLoaded', {
-                clientId,
+                clientId: openClientId,
                 activate: false,
                 force: false
               }).catch(() => {})
             }
           }
-          const needShell = this.$store.state.portal.currentSystem !== clientId
+          const needShell = this.$store.state.portal.currentSystem !== openClientId
             || !(this.$store.state.portal.pathLinkMap && Object.keys(this.$store.state.portal.pathLinkMap).length)
           if (needShell) {
-            return this.$store.dispatch('portal/activateSubSystemShell', { clientId })
+            return this.$store.dispatch('portal/activateSubSystemShell', { clientId: openClientId })
               .then(() => this.$router.push(targetPath))
               .then(afterPush)
           }
@@ -643,11 +645,11 @@ export default {
           this.$message({ message: '正在准备业务系统菜单…', type: 'info', duration: 1500 })
         }
         this.$store.dispatch('portal/ensureSubSystemReady', {
-          clientId,
+          clientId: openClientId,
           skipSso: false
         })
           .then(() => {
-            if (this.$store.state.portal.currentSystem !== clientId) {
+            if (this.$store.state.portal.currentSystem !== openClientId) {
               return
             }
             return this.$router.push(targetPath)

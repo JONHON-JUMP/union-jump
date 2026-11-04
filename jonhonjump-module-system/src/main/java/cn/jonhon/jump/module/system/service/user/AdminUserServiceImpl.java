@@ -7,11 +7,13 @@ import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
 import cn.jonhon.jump.framework.common.enums.UserTypeEnum;
 import cn.jonhon.jump.framework.common.exception.ServiceException;
+import cn.jonhon.jump.framework.common.biz.system.permission.dto.DeptDataPermissionRespDTO;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.collection.CollectionUtils;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
 import cn.jonhon.jump.framework.common.util.validation.ValidationUtils;
 import cn.jonhon.jump.framework.datapermission.core.util.DataPermissionUtils;
+import cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils;
 import cn.jonhon.jump.module.infra.api.config.ConfigApi;
 import cn.jonhon.jump.module.system.controller.admin.auth.vo.AuthRegisterReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.profile.UserProfileUpdatePasswordReqVO;
@@ -20,11 +22,15 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserImportExce
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserImportRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserPageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSaveReqVO;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSubSystemRosterReqVO;
 import cn.jonhon.jump.module.system.dal.dataobject.dept.DeptDO;
 import cn.jonhon.jump.module.system.dal.dataobject.dept.UserPostDO;
+import cn.jonhon.jump.module.system.dal.dataobject.permission.RoleDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
 import cn.jonhon.jump.module.system.dal.mysql.dept.UserPostMapper;
+import cn.jonhon.jump.module.system.dal.mysql.permission.RoleMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.AdminUserMapper;
+import cn.jonhon.jump.module.system.enums.permission.RoleCodeEnum;
 import cn.jonhon.jump.module.system.service.dept.DeptService;
 import cn.jonhon.jump.module.system.service.dept.PostService;
 import cn.jonhon.jump.module.system.service.oauth2.OAuth2TokenService;
@@ -74,6 +80,8 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Resource
     private PermissionService permissionService;
     @Resource
+    private RoleMapper roleMapper;
+    @Resource
     private PasswordEncoder passwordEncoder;
     @Resource
     @Lazy // 延迟，避免循环依赖报错
@@ -111,9 +119,14 @@ public class AdminUserServiceImpl implements AdminUserService {
                 throw exception(USER_COUNT_MAX, tenant.getAccountCount());
             }
         });
-        // 1.2 校验正确性
+        // 1.2 校验正确性。用户名称先去掉首尾空格，避免和花名册对不上
+        createReqVO.setUsername(StrUtil.trim(createReqVO.getUsername()));
         validateUserForCreateOrUpdate(null, createReqVO.getUsername(),
                 createReqVO.getMobile(), createReqVO.getEmail(), createReqVO.getDeptId(), createReqVO.getPostIds());
+        // 1.2.1 域账号/刷卡卡号唯一（JUMP 为唯一维护源，业务系统靠同步获取）
+        validateDomainNoAndCardNoUnique(null, createReqVO.getDomainNo(), createReqVO.getCardNo());
+        // 1.3 只能把用户建在自己数据权限范围内的部门
+        validateDeptDataScope(createReqVO.getDeptId(), null);
         // 2.1 插入用户（user_uid 由生成器保证全局唯一，禁止外部指定）
         AdminUserDO user = BeanUtils.toBean(createReqVO, AdminUserDO.class);
         user.setStatus(CommonStatusEnum.ENABLE.getStatus()); // 默认开启
@@ -126,7 +139,19 @@ public class AdminUserServiceImpl implements AdminUserService {
                     postId -> new UserPostDO().setUserId(user.getId()).setPostId(postId)));
         }
         // 2.3 登记子系统花名册（纯本地事务，不调外部接口；外部系统推送后续单独处理）
-        subSystemUsersService.registerFromMainUser(user, createReqVO.getSubSystemIds());
+        List<UserSubSystemRosterReqVO> rosterTargets = createReqVO.getSubSystemTargets();
+        if (CollUtil.isNotEmpty(rosterTargets)) {
+            // 新页面显式选到「业务系统 / 车间叶子」：多车间系统未选叶子直接报错，
+            // 避免登记出不会出现在门户的空车间行
+            subSystemUsersService.registerFromMainUser(user, rosterTargets, true);
+        } else {
+            // 兼容旧调用：只给系统编号，多车间系统会被跳过
+            subSystemUsersService.registerFromMainUser(user, createReqVO.getSubSystemIds());
+        }
+        // 其它业务系统里已有同名花名册用户时，直接挂上，不用再手动关联
+        subSystemUsersService.bindMatchingRosters(user.getId(), user.getUsername());
+        // 2.4 分配默认角色，保证新建用户开箱即有基础权限
+        assignDefaultRole(user);
 
         // 3. 记录操作日志上下文
         LogRecordContext.putVariable("user", user);
@@ -134,6 +159,7 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public Long registerUser(AuthRegisterReqVO registerReqVO) {
         // 1.1 校验是否开启注册
         if (ObjUtil.notEqual(configApi.getConfigValueByKey(USER_REGISTER_ENABLED_KEY), "true")) {
@@ -147,6 +173,7 @@ public class AdminUserServiceImpl implements AdminUserService {
             }
         });
         // 1.3 校验正确性
+        registerReqVO.setUsername(StrUtil.trim(registerReqVO.getUsername()));
         validateUserForCreateOrUpdate(null, registerReqVO.getUsername(), null, null, null, null);
 
         // 2. 插入用户
@@ -155,7 +182,30 @@ public class AdminUserServiceImpl implements AdminUserService {
         user.setPassword(encodePassword(registerReqVO.getPassword())); // 加密密码
         user.setUserUid(null);
         userUidGenerator.insertWithUniqueUid(user, () -> userMapper.insert(user));
+        // 3. 分配默认角色，保证注册用户开箱即有基础权限
+        assignDefaultRole(user);
         return user.getId();
+    }
+
+    /**
+     * 给注册用户分配默认角色（普通角色）
+     * <p>
+     * 优先按编码匹配初始化脚本中的普通角色，匹配不到再按名称匹配库里已有的同名角色；
+     * 角色不存在或被停用时仅记录告警、不阻断注册，由管理员后续手动分配
+     *
+     * @param user 注册成功后的用户
+     */
+    private void assignDefaultRole(AdminUserDO user) {
+        RoleDO role = roleMapper.selectByCode(RoleCodeEnum.COMMON.getCode());
+        if (role == null) {
+            role = roleMapper.selectByName(RoleCodeEnum.COMMON.getName());
+        }
+        if (role == null || ObjUtil.notEqual(role.getStatus(), CommonStatusEnum.ENABLE.getStatus())) {
+            log.warn("[assignDefaultRole][注册用户({}) 找不到启用的默认角色({})，跳过分配]",
+                    user.getId(), RoleCodeEnum.COMMON.getName());
+            return;
+        }
+        permissionService.assignUserRole(user.getId(), Collections.singleton(role.getId()));
     }
 
     @Override
@@ -164,9 +214,14 @@ public class AdminUserServiceImpl implements AdminUserService {
             success = SYSTEM_USER_UPDATE_SUCCESS)
     public void updateUser(UserSaveReqVO updateReqVO) {
         updateReqVO.setPassword(null); // 特殊：此处不更新密码
+        updateReqVO.setUsername(StrUtil.trim(updateReqVO.getUsername()));
         // 1. 校验正确性
         AdminUserDO oldUser = validateUserForCreateOrUpdate(updateReqVO.getId(), updateReqVO.getUsername(),
                 updateReqVO.getMobile(), updateReqVO.getEmail(), updateReqVO.getDeptId(), updateReqVO.getPostIds());
+        // 1.0.1 域账号/刷卡卡号唯一（JUMP 为唯一维护源，业务系统靠同步获取）
+        validateDomainNoAndCardNoUnique(updateReqVO.getId(), updateReqVO.getDomainNo(), updateReqVO.getCardNo());
+        // 1.1 原用户 / 目标部门都必须在当前数据权限范围内
+        validateDeptDataScope(updateReqVO.getDeptId(), updateReqVO.getId());
 
         // 2.1 更新用户
         AdminUserDO updateObj = BeanUtils.toBean(updateReqVO, AdminUserDO.class);
@@ -174,9 +229,15 @@ public class AdminUserServiceImpl implements AdminUserService {
         userMapper.updateById(updateObj);
         // 2.2 更新岗位
         updateUserPost(updateReqVO, updateObj);
-        // 用户名变更会影响权限包里的 username 字段
+        if (oldUser != null && updateReqVO.getNickname() != null
+                && !updateReqVO.getNickname().equals(StrUtil.trim(oldUser.getNickname()))) {
+            subSystemUsersService.syncDisplayNickname(updateReqVO.getId(), oldUser.getNickname(), updateReqVO.getNickname());
+        }
+        // 登录名变更只清权限包。花名册账号名保持不动，避免业务系统对不上号。
         if (oldUser != null && updateReqVO.getUsername() != null
                 && !updateReqVO.getUsername().equals(oldUser.getUsername())) {
+            log.warn("[updateUser] 主系统登录名由 {} 改为 {}，已挂接的业务系统账号名不跟随",
+                    oldUser.getUsername(), updateReqVO.getUsername());
             subSystemPermissionContextService.evictAllByMainUserId(updateReqVO.getId());
         }
 
@@ -210,13 +271,16 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     public void updateUserProfile(Long id, UserProfileUpdateReqVO reqVO) {
         // 校验正确性
-        validateUserExists(id);
+        AdminUserDO oldUser = validateUserExists(id);
         validateEmailUnique(id, reqVO.getEmail());
         validateMobileUnique(id, reqVO.getMobile());
         // 执行更新（仅更新个人中心允许修改的字段，避免空值覆盖邮箱/手机）
         AdminUserDO updateObj = new AdminUserDO().setId(id);
         if (reqVO.getNickname() != null) {
             updateObj.setNickname(reqVO.getNickname());
+            if (oldUser != null && !reqVO.getNickname().equals(StrUtil.trim(oldUser.getNickname()))) {
+                subSystemUsersService.syncDisplayNickname(id, oldUser.getNickname(), reqVO.getNickname());
+            }
         }
         if (reqVO.getSex() != null) {
             updateObj.setSex(reqVO.getSex());
@@ -452,6 +516,59 @@ public class AdminUserServiceImpl implements AdminUserService {
         });
     }
 
+    /**
+     * 校验当前登录用户是否有权把用户放到目标部门。
+     * 规则：目标部门必须在其角色数据权限的部门集合内；修改时原用户部门也必须在范围内。
+     * SELF 等没有部门范围的角色不能创建/调整部门用户。
+     */
+    private void validateDeptDataScope(Long deptId, Long userId) {
+        Long loginUserId = SecurityFrameworkUtils.getLoginUserId();
+        if (loginUserId == null) {
+            return; // 无登录上下文（如租户初始化）不按部门权限拦截
+        }
+        if (deptId == null) {
+            throw exception(USER_DEPT_OUT_OF_SCOPE);
+        }
+        // 超管/租户管理员不受部门数据权限限制
+        if (permissionService.hasAnyRoles(loginUserId,
+                RoleCodeEnum.SUPER_ADMIN.getCode(), RoleCodeEnum.TENANT_ADMIN.getCode())) {
+            return;
+        }
+        DeptDataPermissionRespDTO permission = permissionService.getDeptDataPermission(loginUserId);
+        if (Boolean.TRUE.equals(permission.getAll())) {
+            return;
+        }
+        Set<Long> deptIds = permission.getDeptIds();
+        if (CollUtil.isEmpty(deptIds)) {
+            // 角色数据范围未配置/为空时，至少允许把用户建在自己部门及以下，
+            // 避免部门树整棵变灰、完全无法创建用户。
+            AdminUserDO loginUser = DataPermissionUtils.executeIgnore(() -> userMapper.selectById(loginUserId));
+            if (loginUser != null && loginUser.getDeptId() != null) {
+                deptIds = new HashSet<>(Collections.singleton(loginUser.getDeptId()));
+            }
+        }
+        if (CollUtil.isEmpty(deptIds)) {
+            throw exception(USER_DEPT_OUT_OF_SCOPE);
+        }
+        // lambda 只能引用 effectively final 变量，这里固定一份
+        final Set<Long> scopeDeptIds = deptIds;
+        // “部门权限及以下部门”：把权限部门的子部门也纳入可创建范围
+        Set<Long> assignable = new HashSet<>(scopeDeptIds);
+        DataPermissionUtils.executeIgnore(() -> {
+            deptService.getChildDeptList(scopeDeptIds).forEach(dept -> assignable.add(dept.getId()));
+            return null;
+        });
+        if (!assignable.contains(deptId)) {
+            throw exception(USER_DEPT_OUT_OF_SCOPE);
+        }
+        if (userId != null) {
+            AdminUserDO existing = DataPermissionUtils.executeIgnore(() -> userMapper.selectById(userId));
+            if (existing != null && existing.getDeptId() != null && !assignable.contains(existing.getDeptId())) {
+                throw exception(USER_OUT_OF_DATA_SCOPE);
+            }
+        }
+    }
+
     @VisibleForTesting
     AdminUserDO validateUserExists(Long id) {
         if (id == null) {
@@ -519,6 +636,26 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     /**
+     * 域账号/刷卡卡号唯一性校验：一个域账号、一个卡号只能属于一个人（JUMP 为唯一维护源，
+     * 同步到业务系统前先在这里保证不重复）。空值跳过，id 非空时排除自身。
+     */
+    @VisibleForTesting
+    void validateDomainNoAndCardNoUnique(Long id, String domainNo, String cardNo) {
+        if (StrUtil.isNotBlank(domainNo)) {
+            AdminUserDO user = userMapper.selectByDomainNo(domainNo.trim());
+            if (user != null && !user.getId().equals(id)) {
+                throw exception(USER_DOMAIN_NO_DUPLICATE, domainNo, user.getUsername());
+            }
+        }
+        if (StrUtil.isNotBlank(cardNo)) {
+            AdminUserDO user = userMapper.selectByCardNo(cardNo.trim());
+            if (user != null && !user.getId().equals(id)) {
+                throw exception(USER_CARD_NO_DUPLICATE, cardNo, user.getUsername());
+            }
+        }
+    }
+
+    /**
      * 校验旧密码
      * @param id          用户 id
      * @param oldPassword 旧密码
@@ -553,6 +690,7 @@ public class AdminUserServiceImpl implements AdminUserService {
         AtomicInteger index = new AtomicInteger(1);
         importUsers.forEach(importUser -> {
             int currentIndex = index.getAndIncrement();
+            importUser.setUsername(StrUtil.trim(importUser.getUsername()));
             // 2.1.1 校验字段是否符合要求
             try {
                 UserSaveReqVO saveReqVO = BeanUtils.toBean(importUser, UserSaveReqVO.class);
@@ -565,16 +703,21 @@ public class AdminUserServiceImpl implements AdminUserService {
                 return;
             }
             // 2.1.2 校验，判断是否有不符合的原因
+            AdminUserDO existUser = userMapper.selectByUsername(importUser.getUsername());
             try {
                 validateUserForCreateOrUpdate(null, null, importUser.getMobile(), importUser.getEmail(),
                         importUser.getDeptId(), null);
+                // 域账号/刷卡卡号唯一：导入同样受约束（更新行排除自身）
+                validateDomainNoAndCardNoUnique(existUser == null ? null : existUser.getId(),
+                        importUser.getDomainNo(), importUser.getCardNo());
+                // 导入同样受部门数据权限约束，不能借 Excel 绕过
+                validateDeptDataScope(importUser.getDeptId(), null);
             } catch (ServiceException ex) {
                 respVO.getFailureUsernames().put(importUser.getUsername(), ex.getMessage());
                 return;
             }
 
             // 2.2.1 判断如果不存在，在进行插入
-            AdminUserDO existUser = userMapper.selectByUsername(importUser.getUsername());
             if (existUser == null) {
                 AdminUserDO newUser = BeanUtils.toBean(importUser, AdminUserDO.class)
                         .setPassword(encodePassword(initPassword))
@@ -589,11 +732,25 @@ public class AdminUserServiceImpl implements AdminUserService {
                     return;
                 }
                 respVO.getCreateUsernames().add(importUser.getUsername());
+                subSystemUsersService.bindMatchingRosters(newUser.getId(), newUser.getUsername());
+                // 导入新建的用户同样分配默认角色（普通角色）；失败不阻断导入，可事后在【分配角色】手动补
+                try {
+                    assignDefaultRole(newUser);
+                } catch (Exception ex) {
+                    log.warn("[importUserList][导入用户({})分配默认角色失败，请手动分配]", newUser.getId(), ex);
+                }
                 return;
             }
             // 2.2.2 如果存在，判断是否允许更新
             if (!isUpdateSupport) {
                 respVO.getFailureUsernames().put(importUser.getUsername(), USER_USERNAME_EXISTS.getMsg());
+                return;
+            }
+            // 更新已有用户时，原用户部门也必须在当前数据权限内
+            try {
+                validateDeptDataScope(importUser.getDeptId(), existUser.getId());
+            } catch (ServiceException ex) {
+                respVO.getFailureUsernames().put(importUser.getUsername(), ex.getMessage());
                 return;
             }
             AdminUserDO updateUser = BeanUtils.toBean(importUser, AdminUserDO.class);

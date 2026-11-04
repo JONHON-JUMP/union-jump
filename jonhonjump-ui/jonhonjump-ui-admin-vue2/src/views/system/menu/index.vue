@@ -339,7 +339,7 @@ export default {
         this.menuList = Array.isArray(list) && list.length ? this.handleTree(list, 'id') : []
       }).catch(() => {
         this.menuList = []
-        this.$message.error('加载菜单列表失败，请检查权限或稍后重试')
+        // 加载失败（含切页主动取消）由请求拦截器统一处理
       }).finally(() => {
         this.loading = false
       })
@@ -352,8 +352,35 @@ export default {
       return {
         id: node.id,
         label: node.name,
-        children: node.children
+        children: node.children,
+        isDisabled: this.isParentOptionDisabled(node.id)
       };
+    },
+    isParentOptionDisabled(id) {
+      if (!this.form || !this.form.id || id === 0 || id === '0') {
+        return false
+      }
+      if (id === this.form.id) {
+        return true
+      }
+      return this.descendantMenuIds(this.form.id).has(id)
+    },
+    descendantMenuIds(rootId) {
+      const found = new Set()
+      const roots = (this.menuOptions[0] && this.menuOptions[0].children) || []
+      const walk = (nodes, under) => {
+        (nodes || []).forEach(node => {
+          const hit = under || node.id === rootId
+          if (hit && node.id !== rootId) {
+            found.add(node.id)
+          }
+          if (node.children && node.children.length) {
+            walk(node.children, hit)
+          }
+        })
+      }
+      walk(roots, false)
+      return found
     },
     /** 查询菜单下拉树结构 */
     getTreeselect() {
@@ -419,9 +446,11 @@ export default {
     /** 修改按钮操作 */
     handleUpdate(row) {
       this.reset();
+      this.form.id = row.id;
       this.getTreeselect();
       getMenu(row.id).then(response => {
         this.form = response.data;
+        this.menuOptions = this.menuOptions.slice();
         this.open = true;
         this.title = "修改菜单";
       });

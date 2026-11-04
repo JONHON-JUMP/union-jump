@@ -2,7 +2,8 @@
   <nav
     :class="{
       collapsed: collapsible && !expanded,
-      'has-tabs': businessTabs.length
+      'has-tabs': businessTabs.length,
+      'is-animating': animate
     }"
     class="portal-taskbar"
     :aria-label="expanded ? '门户应用任务栏' : '展开门户应用任务栏'"
@@ -65,6 +66,18 @@
           <i class="el-icon-menu" />
           <span>全部应用</span>
         </button>
+        <!-- 明确的手动折叠入口：底栏常驻展开后，用户随时可点这里收起 -->
+        <button
+          v-if="collapsible && expanded"
+          class="fold-dock"
+          type="button"
+          :tabindex="tabIndex"
+          aria-label="折叠底部导航栏"
+          title="折叠底部导航栏"
+          @click="$emit('collapse')"
+        >
+          <i class="el-icon-arrow-down" />
+        </button>
       </div>
     </div>
   </nav>
@@ -94,6 +107,10 @@ export default {
       default: true
     },
     collapsible: {
+      type: Boolean,
+      default: false
+    },
+    animate: {
       type: Boolean,
       default: false
     }
@@ -194,7 +211,8 @@ export default {
       immediate: true,
       handler() {
         this.registerCurrentRoute()
-        this.$nextTick(this.scrollActiveTabIntoView)
+        // 不在每次切页时 scrollIntoView：它会滚动标签条（表现为菜单名称自动缩进），
+        // 还可能连带滚动页面容器，造成“闪一下、页面往下伸”。只在手动展开 dock 时对齐。
       }
     },
     expanded(isExpanded) {
@@ -220,14 +238,11 @@ export default {
       return (tab.meta && tab.meta.icon) || 'component'
     },
     activateTab(tab) {
-      // 切换 tab 只切路由：iframe 帧由 IframeToggle 用 v-show 保活，保持现场不重载；
-      // 需要刷新时用户按浏览器 F5（打开/关闭详情子页时既有逻辑仍会刷新父列表）
-      if (!this.isActive(tab)) {
-        this.$router.push(tab.fullPath || tab.path)
+      if (this.isActive(tab)) {
+        return
       }
-      // 用完即收：iframe 页内点击不会冒泡回父页，展开的 dock 会一直挡住页面，
-      // 点击标签切换后主动收起
-      this.$emit('collapse')
+      // 底栏常驻展开：点页签切页不再收起（业务页底栏为浮层，不占内容高度）
+      this.$router.push(tab.fullPath || tab.path)
     },
     closeTab(tab) {
       // 路径别名/子路径也算当前页：否则 isActive=false 时只 delView 再 sync，页签会被加回来（叉不掉）
@@ -248,6 +263,10 @@ export default {
       })
     },
     scrollActiveTabIntoView() {
+      // 底栏默认收起时，菜单名在隐藏层里。对它们 scrollIntoView 会把整条任务栏撑开再缩回
+      if (this.collapsible && !this.expanded) {
+        return
+      }
       const scroller = this.$refs.tabScroller
       if (!scroller) return
       const activeTab = scroller.querySelector('.business-tab.active')
@@ -283,6 +302,9 @@ $primary: #087ce5;
   background: rgba(255, 255, 255, .97);
   box-shadow: 0 12px 28px rgba(36, 76, 111, .18);
   transform: translateX(-50%);
+}
+
+.portal-taskbar.is-animating {
   transition:
     width .26s cubic-bezier(.16, 1, .3, 1),
     height .26s cubic-bezier(.16, 1, .3, 1),
@@ -295,6 +317,7 @@ $primary: #087ce5;
   width: 152px;
   height: 24px;
   padding: 0;
+  overflow: hidden;
   border-radius: 12px 12px 0 0;
   box-shadow: 0 5px 14px rgba(36, 76, 111, .16);
 }
@@ -322,6 +345,12 @@ $primary: #087ce5;
   opacity: 0;
   pointer-events: none;
   transition-delay: 0s;
+}
+
+/* 路由驱动的瞬时收起不做内容淡出：dock 已经瞬间变矮，内容再淡出 0.14s
+   会在切页时留下一下残影/闪烁 */
+.portal-taskbar:not(.is-animating) .taskbar-content {
+  transition: none;
 }
 
 .portal-taskbar button {
@@ -512,6 +541,20 @@ $primary: #087ce5;
 .fixed-actions .all-apps:focus {
   color: #fff;
   background: #243447;
+}
+
+/* 折叠箭头：窄于功能按钮的图标按钮，hover 态沿用 .fixed-actions > button 通用规则 */
+.fixed-actions .fold-dock {
+  flex: 0 0 34px;
+  width: 34px;
+  color: #5d6f83;
+}
+.fixed-actions .fold-dock i {
+  font-size: 16px;
+}
+.fixed-actions .fold-dock:hover,
+.fixed-actions .fold-dock:focus {
+  color: $primary;
 }
 
 .taskbar-divider {

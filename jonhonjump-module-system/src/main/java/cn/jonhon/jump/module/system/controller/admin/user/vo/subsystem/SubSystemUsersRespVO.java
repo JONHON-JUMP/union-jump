@@ -25,14 +25,20 @@ public class SubSystemUsersRespVO {
     @Schema(description = "外部系统名称")
     private String clientName;
 
+    @Schema(description = "所属系统是否启用车间作用域")
+    private Boolean workshopScopeEnabled;
+
     @Schema(description = "子系统用户名")
     private String username;
 
     @Schema(description = "用户姓名")
     private String nickname;
 
-    @Schema(description = "车间编号")
+    @Schema(description = "叶子编号（挂 sub_system_workshop 时有值）")
     private String workshopId;
+
+    @Schema(description = "叶子名称（来自 sub_system_workshop）")
+    private String workshopName;
 
     @Schema(description = "班组编码（对应班组 teamCode，非主键 id）")
     private String teamId;
@@ -57,6 +63,9 @@ public class SubSystemUsersRespVO {
 
     @Schema(description = "注册成功时所调「新增人员」接口的适配器类型（camstar/http）")
     private String registeredApiType;
+
+    @Schema(description = "所属系统接口配置的适配器类型（camstar/http；未配置接口为 null）")
+    private String apiType;
 
     @Schema(description = "备注")
     private String remark;

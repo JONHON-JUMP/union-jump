@@ -27,6 +27,8 @@ public interface CaoeTableMapper {
 
     String queryProcessState(@Param("accno") String accno, @Param("version") String version);
 
+    String queryProcessSourceSystem(@Param("accno") String accno, @Param("version") String version);
+
     String queryProcessLink(@Param("accno") String accno, @Param("version") String version);
 
     String queryProcessOid(@Param("accno") String accno, @Param("version") String version);

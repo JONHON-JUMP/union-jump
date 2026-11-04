@@ -1,5 +1,6 @@
 package cn.jonhon.jump.module.system.controller.admin.user;
 
+import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.excel.core.util.ExcelUtils;
@@ -55,7 +56,12 @@ public class SubSystemRoleController {
     @Operation(summary = "创建外部系统角色")
     @PreAuthorize("@ss.hasPermission('sub-system:role:create')")
     public CommonResult<Long> createSubSystemRole(@Valid @RequestBody SubSystemRoleSaveReqVO createReqVO) {
-        return success(subSystemRoleService.createSubSystemRole(createReqVO));
+        SubSystemRoleCreateRespVO created = subSystemRoleService.createSubSystemRole(createReqVO);
+        CommonResult<Long> result = success(created.getId());
+        if (StrUtil.isNotBlank(created.getWarning())) {
+            result.setMsg(created.getWarning());
+        }
+        return result;
     }
 
     @PutMapping("/update")
@@ -103,11 +109,38 @@ public class SubSystemRoleController {
     }
 
     @PostMapping("/register")
-    @Operation(summary = "未注册角色调对方「角色新增」接口补注册（成功自动置已注册）")
+    @Operation(summary = "未注册角色调对方「角色新增」接口补注册（成功自动置已注册并回存外部 roleId）")
     @PreAuthorize("@ss.hasPermission('sub-system:role:update')")
     public CommonResult<Boolean> registerSubSystemRole(@RequestParam("id") Long id,
                                                        @Valid @RequestBody(required = false) SubSystemRoleRegisterReqVO reqVO) {
-        subSystemRoleService.registerSubSystemRole(id, reqVO != null ? reqVO : new SubSystemRoleRegisterReqVO());
+        String warning = subSystemRoleService.registerSubSystemRole(id,
+                reqVO != null ? reqVO : new SubSystemRoleRegisterReqVO());
+        CommonResult<Boolean> result = success(true);
+        if (StrUtil.isNotBlank(warning)) {
+            result.setMsg(warning);
+        }
+        return result;
+    }
+
+    @PostMapping("/external-role-list")
+    @Operation(summary = "列出外部系统已有角色（角色名 + roleId）；传角色名时按名全系统补查，避免车间列表截断")
+    @PreAuthorize("@ss.hasPermission('sub-system:role:list')")
+    public CommonResult<List<SubSystemExternalRoleRespVO>> getExternalRoleList(
+            @Valid @RequestBody SubSystemExternalRoleQueryReqVO reqVO) {
+        return success(subSystemRoleService.getExternalRoleList(
+                reqVO.getApiSubSystemId(), reqVO.getWorkshopCode(), reqVO.getRoleName()));
+    }
+
+    @PutMapping("/bind-external-role")
+    @Operation(summary = "关联/解除外部系统角色（绑定外部 roleId，分配角色同步按 ID 上挂；传空解除）")
+    @Parameters({
+            @Parameter(name = "id", description = "本地角色编号", required = true),
+            @Parameter(name = "externalRoleId", description = "外部角色 ID（空=解除关联）")
+    })
+    @PreAuthorize("@ss.hasPermission('sub-system:role:update')")
+    public CommonResult<Boolean> bindExternalRole(@RequestParam("id") Long id,
+                                                  @RequestParam(value = "externalRoleId", required = false) String externalRoleId) {
+        subSystemRoleService.bindExternalRole(id, externalRoleId);
         return success(true);
     }
 
@@ -146,7 +179,8 @@ public class SubSystemRoleController {
     @PreAuthorize("@ss.hasPermission('sub-system:role:create')")
     public void importTemplate(HttpServletResponse response) throws IOException {
         List<SubSystemRoleImportExcelVO> list = Arrays.asList(
-                SubSystemRoleImportExcelVO.builder().name("普通角色").code("common").sort(1).status(0).build()
+                SubSystemRoleImportExcelVO.builder().name("普通角色").code("common")
+                        .workshopCode("4200").sort(1).status(0).build()
         );
         ExcelUtils.write(response, "业务系统角色导入模板.xls", "角色", SubSystemRoleImportExcelVO.class, list);
     }

@@ -18,6 +18,9 @@ public class SubSystemTeamImportExcelVO {
     @ExcelProperty("班组名称")
     private String teamName;
 
+    @ExcelProperty("车间编号")
+    private String workshopCode;
+
     @ExcelProperty("班组描述")
     private String description;
 

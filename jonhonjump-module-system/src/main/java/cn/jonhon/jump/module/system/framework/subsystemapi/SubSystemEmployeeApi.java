@@ -31,6 +31,14 @@ public interface SubSystemEmployeeApi {
     /** 按车间拉班组下拉 */
     List<SubSystemTeamComboDTO> teamCombo(String workshopCode);
 
+    /**
+     * 只更新人员账号字段（域账号/卡号/ERP号，按工号定位）。
+     * 部分更新语义：只提交非空字段，传哪个字段就只更新哪个字段。
+     */
+    default void updateUserAccount(SubSystemEmployeeDTO employee) {
+        throw new UnsupportedOperationException("该系统类型暂不支持同步域账号/卡号");
+    }
+
     /** 连通性测试：返回耗时与结果摘要 */
     String ping();
 

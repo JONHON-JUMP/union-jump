@@ -49,6 +49,8 @@ public class SubSystemMetaImportService {
     private SubSystemTeamService subSystemTeamService;
     @Resource
     private SubSystemMenuService subSystemMenuService;
+    @Resource
+    private SubSystemAccessService subSystemAccessService;
 
     @Transactional(rollbackFor = Exception.class)
     public SubSystemUserImportRespVO importRoleList(Long subSystemId, List<SubSystemRoleImportExcelVO> rows, boolean updateSupport) {
@@ -68,6 +70,7 @@ public class SubSystemMetaImportService {
                 req.setSubSystemId(subSystemId);
                 req.setName(row.getName().trim());
                 req.setCode(row.getCode().trim());
+                req.setWorkshopCode(StrUtil.trimToNull(row.getWorkshopCode()));
                 req.setSort(row.getSort() != null ? row.getSort() : 0);
                 req.setStatus(normalizeStatusInt(row.getStatus()));
                 if (exist == null) {
@@ -105,6 +108,7 @@ public class SubSystemMetaImportService {
                 req.setSubSystemId(subSystemId);
                 req.setName(row.getName().trim());
                 req.setCode(row.getCode().trim());
+                req.setWorkshopCode(StrUtil.trimToNull(row.getWorkshopCode()));
                 req.setSort(row.getSort() != null ? row.getSort() : 0);
                 req.setStatus(normalizeStatusInt(row.getStatus()));
                 if (exist == null) {
@@ -128,9 +132,7 @@ public class SubSystemMetaImportService {
     public SubSystemUserImportRespVO importTeamList(Long subSystemId, Long deptId,
                                                     List<SubSystemTeamImportExcelVO> rows, boolean updateSupport) {
         validateBound(subSystemId, rows);
-        if (deptId == null) {
-            throw exception(SUB_SYSTEM_IMPORT_NOT_BOUND);
-        }
+        // 部门可选；车间编号写在 Excel / 班组自身，不再强制车间对照
         SubSystemUserImportRespVO resp = emptyResp();
         int i = 1;
         for (SubSystemTeamImportExcelVO row : rows) {
@@ -146,6 +148,7 @@ public class SubSystemMetaImportService {
                 SubSystemTeamSaveReqVO req = new SubSystemTeamSaveReqVO();
                 req.setSubSystemId(subSystemId);
                 req.setDeptId(deptId);
+                req.setWorkshopCode(StrUtil.trimToNull(row.getWorkshopCode()));
                 req.setTeamCode(row.getTeamCode().trim());
                 req.setTeamName(row.getTeamName().trim());
                 req.setDescription(row.getDescription());
@@ -259,6 +262,8 @@ public class SubSystemMetaImportService {
         if (subSystemMapper.selectById(subSystemId) == null) {
             throw exception(SUB_SYSTEM_NOT_EXISTS);
         }
+        // 可管系统范围校验：受限角色只能导入授权系统
+        subSystemAccessService.checkAccessible(subSystemId);
         if (CollUtil.isEmpty(rows)) {
             throw exception(SUB_SYSTEM_IMPORT_LIST_EMPTY);
         }

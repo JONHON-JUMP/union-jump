@@ -3,6 +3,7 @@ import store from './store'
 import { Message } from 'element-ui'
 import {
   parsePortalClientId,
+  alignPortalPathToCurrentLeaf,
   parseLegacyPortalSubSystemId,
   resolvePortalFrameRoute,
   isPortalSubSystemHomePath,
@@ -21,7 +22,7 @@ import { loadMenuStyleDefault } from '@/utils/menuIconStyle'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
 import { getAccessToken } from '@/utils/auth'
-import { isRelogin } from '@/utils/request'
+import { isRelogin, cancelPendingPageRequests } from '@/utils/request'
 import { redirectToLogin, getTopWindow } from '@/utils/switchUser'
 
 NProgress.configure({ showSpinner: false })
@@ -163,6 +164,26 @@ function isDirectExternalPortalTarget(to) {
   return true
 }
 
+/** 父 MES 路径改写到当前车间叶子后再放行，避免关菜单掉回统一门户 */
+function redirectPortalPathToCurrentLeaf(to, next) {
+  const aligned = alignPortalPathToCurrentLeaf(
+    to && to.path,
+    store.state.portal.systemList,
+    store.state.portal.currentSystem
+  )
+  if (!aligned || aligned === to.path) {
+    return false
+  }
+  next({
+    path: aligned,
+    query: to.query,
+    hash: to.hash,
+    replace: true
+  })
+  NProgress.done()
+  return true
+}
+
 function ensurePortalAccess(to, next) {
   const clientId = parsePortalClientId(to.path)
   if (!clientId) {
@@ -295,6 +316,9 @@ function ensurePortalBootstrap() {
 function continueNavigation(to, from, next) {
   // 必须等 bootstrap 切壳完成后再放行，避免先按错误系统渲染再跳
   ensurePortalBootstrap().then(() => {
+    if (redirectPortalPathToCurrentLeaf(to, next)) {
+      return
+    }
     clearDockOnPortalHome(to, from).then(() => {
       return enforceSystemScope(to, next)
     }).then(scopeHandled => {
@@ -316,6 +340,9 @@ function continueNavigation(to, from, next) {
 }
 
 router.beforeEach((to, from, next) => {
+  // 取消上一页仍在跑的页面级 GET：卡住的页面关掉后不再继续占用同域连接，
+  // 避免「打开一个很慢的页面 → 关掉 → 其它页面也打不开」
+  cancelPendingPageRequests()
   // 公共页面无需用户信息和门户初始化，残留的过期 token 也不影响访问。
   if (to.meta && to.meta.publicPage) {
     NProgress.done()
@@ -346,6 +373,9 @@ router.beforeEach((to, from, next) => {
           // permWatch 已停用：菜单/权限变更靠后端 cache-aside（改数据删 Redis）+ 用户刷新页面获取
 
           const finishNavigation = () => {
+            if (redirectPortalPathToCurrentLeaf(to, next)) {
+              return
+            }
             enforceSystemScope(to, next).then(scopeHandled => {
               if (scopeHandled) {
                 return

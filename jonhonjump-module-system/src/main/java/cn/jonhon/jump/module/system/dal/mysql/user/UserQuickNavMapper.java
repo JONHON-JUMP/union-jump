@@ -26,6 +26,10 @@ public interface UserQuickNavMapper extends BaseMapperX<UserQuickNavDO> {
     @Delete("DELETE FROM system_user_quick_nav WHERE user_id = #{userId}")
     void deleteByUserId(@Param("userId") Long userId);
 
+    /** 单项移除：增量增删快捷导航，禁止为改一项而全量重写（会覆盖丢项） */
+    @Delete("DELETE FROM system_user_quick_nav WHERE user_id = #{userId} AND menu_id = #{menuId}")
+    void deleteByUserIdAndMenuId(@Param("userId") Long userId, @Param("menuId") Long menuId);
+
     default List<UserQuickNavDO> selectListByMenuId(Long menuId) {
         return selectList(UserQuickNavDO::getMenuId, menuId);
     }

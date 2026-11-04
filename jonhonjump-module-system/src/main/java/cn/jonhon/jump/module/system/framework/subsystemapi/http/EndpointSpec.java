@@ -27,6 +27,24 @@ public class EndpointSpec {
     /** 是否携带系统会话 Cookie（cookie_sso 会话用）；null=携带（兼容存量配置） */
     private Boolean withSession;
 
+    /**
+     * 按接口行字段直接构建（竖向表用，不经 JSON）。
+     * 地址为 http(s) 绝对地址时走 url，否则按相对 path 处理。
+     */
+    public static EndpointSpec of(String urlOrPath, String method, boolean enabled, boolean withSession) {
+        EndpointSpec spec = new EndpointSpec();
+        String address = StrUtil.nullToEmpty(urlOrPath).trim();
+        if (address.startsWith("http://") || address.startsWith("https://")) {
+            spec.setUrl(address);
+        } else {
+            spec.setPath(address);
+        }
+        spec.setMethod(StrUtil.blankToDefault(method, "POST"));
+        spec.setEnabled(enabled);
+        spec.setWithSession(withSession);
+        return spec;
+    }
+
     public static EndpointSpec parse(String json, String fieldName) {
         if (StrUtil.isBlank(json)) {
             throw new ExternalApiException(fieldName + " 未配置");

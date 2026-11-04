@@ -45,8 +45,8 @@ public class SubSystemRoleSaveReqVO {
     @Schema(description = "接口目标系统 ID（同步时必填；与本地角色所属系统可不同，如 Camstar人员管理）", example = "9")
     private Long apiSubSystemId;
 
-    @Schema(description = "车间编号（同步到外部系统时必填，同时作为角色名前缀）", example = "4200")
-    @Size(max = 32, message = "车间编号长度不能超过 32 个字符")
+    @Schema(description = "车间编号（可空；同步到外部时必填，并作为角色名前缀）", example = "4200")
+    @Size(max = 50, message = "车间编号长度不能超过 50 个字符")
     private String workshopCode;
 
     @Schema(description = "接口注册状态（仅修改；0未注册 1已注册）", example = "0")

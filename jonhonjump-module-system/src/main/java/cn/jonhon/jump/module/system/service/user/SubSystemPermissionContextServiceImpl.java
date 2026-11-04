@@ -92,7 +92,7 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
             if (cached != null) {
                 // 滑动续期：多机同用户登录时，以最近一次访问为准重置 TTL，
                 // 避免 B 机还在用、权限包却按 A 登录时间先过期
-                portalPermContextRedisDAO.refreshTtl(username, clientId);
+                portalPermContextRedisDAO.refreshTtl(username, clientId, cached);
                 return cached;
             }
         }
@@ -129,6 +129,7 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
         if (StrUtil.isNotBlank(username) && StrUtil.isNotBlank(clientId)) {
             portalPermContextRedisDAO.delete(username, clientId);
         }
+        portalPermContextRedisDAO.deleteLegacy(resolveTenantId(tenantId), mainUserId, subSystemId);
         if (mainUserId != null && subSystemId != null) {
             portalMyMenusRedisDAO.delete(mainUserId, subSystemId);
         }
@@ -172,6 +173,7 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
             Set<String> usernames = resolveUsernames(mainUserIds);
             portalPermContextRedisDAO.deleteBatch(clientId, usernames);
         }
+        portalPermContextRedisDAO.deleteLegacyBatch(resolveTenantId(null), role.getSubSystemId(), mainUserIds);
         // 角色菜单变更会影响该子系统所有用户的 my-menus（含超管全量树）
         portalMyMenusRedisDAO.deleteBySubSystemId(role.getSubSystemId(), mainUserIds);
         subSystemUserQuickNavRedisDAO.deleteBySubSystemId(role.getSubSystemId(), mainUserIds);
@@ -212,6 +214,7 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
             Set<String> usernames = resolveUsernames(mainUserIds);
             portalPermContextRedisDAO.deleteBatch(clientId, usernames);
         }
+        portalPermContextRedisDAO.deleteLegacyBatch(resolveTenantId(null), subSystemId, mainUserIds);
         // my-menus 只清受影响用户
         portalMyMenusRedisDAO.deleteBySubSystemId(subSystemId, mainUserIds);
         subSystemUserQuickNavRedisDAO.deleteBySubSystemId(subSystemId, mainUserIds);
@@ -228,6 +231,12 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
         String username = resolveUsername(mainUserId);
         if (StrUtil.isNotBlank(username)) {
             portalPermContextRedisDAO.deleteByUsername(username);
+        }
+        if (CollUtil.isNotEmpty(users)) {
+            Long tenantId = resolveTenantId(null);
+            for (SubSystemUsersDO user : users) {
+                portalPermContextRedisDAO.deleteLegacy(tenantId, mainUserId, user.getSubSystemId());
+            }
         }
         // my-menus 用 pattern 扫描兜底，清掉该用户在所有子系统下的缓存（含已解绑的孤儿缓存）
         portalMyMenusRedisDAO.deleteByMainUserId(mainUserId);
@@ -256,6 +265,7 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
         if (StrUtil.isNotBlank(clientId)) {
             portalPermContextRedisDAO.deleteByClientId(clientId);
         }
+        portalPermContextRedisDAO.deleteLegacyBySubSystemId(subSystemId);
         // 精确删每个用户的 my-menus + SCAN 兜底（勿只靠 KEYS）
         portalMyMenusRedisDAO.deleteBySubSystemId(subSystemId, mainUserIds);
         // 快捷导航与全量菜单同一套失效：下次进系统 Redis 空 → DB → 写回
@@ -321,8 +331,12 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
     }
 
     private PortalPermContextRespVO buildFromDb(Long tenantId, Long mainUserId, Long subSystemId) {
-        SubSystemUsersDO subSystemUser = subSystemUsersMapper.selectBySubSystemIdAndMainUserId(subSystemId, mainUserId);
-        if (subSystemUser == null || "1".equals(subSystemUser.getStatus())) {
+        // 同系统多叶子：合并该人所有有效挂接行上的角色（权限包按系统 clientId 缓存，不能只取一行）
+        List<SubSystemUsersDO> hungRows = subSystemUsersMapper.selectListByMainUserId(mainUserId).stream()
+                .filter(row -> Objects.equals(subSystemId, row.getSubSystemId()))
+                .filter(row -> !"1".equals(row.getStatus()))
+                .collect(Collectors.toList());
+        if (CollUtil.isEmpty(hungRows)) {
             throw exception(SUB_SYSTEM_USER_NOT_EXISTS);
         }
         SubSystemDO subSystem = subSystemMapper.selectById(subSystemId);
@@ -343,15 +357,20 @@ public class SubSystemPermissionContextServiceImpl implements SubSystemPermissio
             }
         }
 
-        List<Long> roleIds = convertList(
-                subSystemUserRoleMapper.selectListByUserId(subSystemUser.getId()),
-                SubSystemUserRoleDO::getRoleId);
+        LinkedHashSet<Long> roleIdSet = new LinkedHashSet<>();
+        for (SubSystemUsersDO row : hungRows) {
+            roleIdSet.addAll(convertList(
+                    subSystemUserRoleMapper.selectListByUserId(row.getId()),
+                    SubSystemUserRoleDO::getRoleId));
+        }
+        List<Long> roleIds = new ArrayList<>(roleIdSet);
 
         // 权限包缓存角色 + 按钮 permissions；数据范围不下发
         List<PortalPermContextRespVO.Role> roles = new ArrayList<>();
         Set<String> permissions = new LinkedHashSet<>();
         if (CollUtil.isNotEmpty(roleIds)) {
             List<SubSystemRoleDO> roleList = subSystemRoleMapper.selectBatchIds(roleIds).stream()
+                    .filter(role -> Objects.equals(subSystemId, role.getSubSystemId()))
                     .filter(role -> role.getStatus() == null || Objects.equals(role.getStatus(), 0))
                     .collect(Collectors.toList());
             for (SubSystemRoleDO role : roleList) {

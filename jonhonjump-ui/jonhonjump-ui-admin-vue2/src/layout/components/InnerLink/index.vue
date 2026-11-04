@@ -1,10 +1,18 @@
 <template>
-  <div class="inner-link-root">
+  <div
+    class="inner-link-root"
+    :class="{
+      'is-front': active,
+      'is-frame-hidden': !active && !releaseOnHide,
+      'is-parked-hidden': !active && releaseOnHide
+    }"
+  >
     <!-- Camstar 直链：简单 src + loading；切走不 reload；超时可重试 -->
     <div v-if="isDirectHttp" class="inner-link is-direct">
       <iframe
         :id="iframeId"
         class="inner-link__frame"
+        :class="{ 'is-hidden-doc': hideDirectDoc }"
         :src="directSrc"
         frameborder="no"
         scrolling="auto"
@@ -89,7 +97,11 @@
 </template>
 
 <script>
-import { ensureLocalCamstarCookie, seedCamstarCookieForUrlInBackground } from '@/utils/camstarCookie'
+import {
+  ensureLocalCamstarCookie,
+  seedCamstarCookieForUrlInBackground,
+  refreshCamstarCookieForSystem
+} from '@/utils/camstarCookie'
 import { applyIframeHrefToJump } from '@/utils/portalIframeNav'
 import { parsePortalClientId } from '@/utils/portalRoute'
 
@@ -102,6 +114,16 @@ const OVERLAY_HOLD_MS = 80
 function isPureHttpSrc(url) {
   const s = String(url || '')
   return /^https?:\/\//i.test(s) && s.indexOf('/#/') < 0 && s.indexOf('#') < 0
+}
+
+const DIRECT_ACQUIRE_EVENT = 'jump-direct-frame-acquire'
+
+function frameOrigin(url) {
+  try {
+    return new URL(String(url || ''), window.location.href).origin
+  } catch (e) {
+    return ''
+  }
 }
 
 function sameCamstarDocument(a, b) {
@@ -128,6 +150,7 @@ export default {
     src: { type: String, default: '/' },
     iframeId: { type: String, default: '' },
     active: { type: Boolean, default: false },
+    releaseOnHide: { type: Boolean, default: false },
     clientId: { type: String, default: null },
     directExternal: { type: Boolean, default: false }
   },
@@ -137,6 +160,7 @@ export default {
       directLoaded: false,
       directPhase: 'idle',
       directSlowDismissed: false,
+      directHardDismissed: false,
       directSoftTimer: null,
       directHardTimer: null,
       frameSrc: this.src || '/',
@@ -146,15 +170,42 @@ export default {
       hardTimer: null,
       holdTimer: null,
       slowDismissed: false,
+      hardDismissed: false,
       _reloadSeq: 0,
       _navPollTimer: null,
       _lastReportedHref: '',
-      _lastReportedTitle: ''
+      _lastReportedTitle: '',
+      _heldSrc: '',
+      _bindSeq: 0,
+      _acquireToken: ''
     }
+  },
+  created() {
+    this._acquireToken = `direct-${Date.now()}-${Math.random()}`
+    this._onDirectAcquire = (event) => {
+      const detail = event && event.detail
+      if (!detail || detail.token === this._acquireToken || this.active) {
+        return
+      }
+      // 已经打开成功的页面留在内存里，切走再切回不重新加载。
+      // 只卸掉还在转圈的帧，避免慢请求占住同一主机的连接。
+      if (this.directLoaded) {
+        return
+      }
+      const mine = frameOrigin(this._heldSrc || this.directSrc)
+      if (!mine || mine !== detail.origin) {
+        return
+      }
+      this.suspendDirectFrame()
+    }
+    window.addEventListener(DIRECT_ACQUIRE_EVENT, this._onDirectAcquire)
   },
   computed: {
     isDirectHttp() {
       return this.directExternal || isPureHttpSrc(this.src)
+    },
+    hideDirectDoc() {
+      return this.active && !this.directLoaded
     },
     showDirectOverlay() {
       if (!this.active || this.directLoaded) {
@@ -196,23 +247,54 @@ export default {
         if (n === this.frameSrc) {
           return
         }
-        this.frameSrc = n
         this.resetLoadState()
         if (this.active) {
+          this.frameSrc = n
           this.beginDocumentLoad()
+        } else {
+          // 不可见时不发起加载（加载中帧切走即停）；切回由兜底按 src 重挂
+          this.frameSrc = 'about:blank'
         }
+      }
+    },
+    releaseOnHide(parked) {
+      if (!parked || this.active) {
+        return
+      }
+      // 页签已经关掉：清掉这份文档。再打开要是新页面，不能留着上次输入。
+      // 只改这一帧的地址，不挪动其它已打开页面的 iframe 节点。
+      if (this.isDirectHttp) {
+        this.suspendDirectFrame()
+        return
+      }
+      if (this.hasLoaded && this.frameSrc && this.frameSrc !== 'about:blank') {
+        this.hasLoaded = false
+        this.phase = 'idle'
+        this.frameSrc = 'about:blank'
       }
     },
     active(visible) {
       if (this.isDirectHttp) {
-        // 切走/再开：不改 src、不 reload；已加载则直接显示
-        if (visible && !this.directLoaded && this.directSrc && this.directSrc !== '/') {
+        // 关掉的页面再打开：按原地址重新加载。还开着的页面切走再切回，不 reload
+        if (visible && this._heldSrc && (this.directSrc === 'about:blank' || !this.directSrc)) {
+          const held = this._heldSrc
+          this._heldSrc = ''
+          this.bindDirectSrc(held)
+        } else if (visible && !this.directLoaded && this.directSrc && this.directSrc !== '/' && this.directSrc !== 'about:blank') {
           this.armDirectTimeouts()
+        } else if (visible && !this.directLoaded && (!this.directSrc || this.directSrc === 'about:blank') && !this._heldSrc && this.src && this.src !== '/') {
+          // 挂起时从未加载成功（_heldSrc 已清空）：重开按 src 全新加载，
+          // 否则两个分支都不走，帧停在 about:blank 上白屏
+          this.bindDirectSrc(this.src)
         }
         if (visible) {
           this.startNavSync()
         } else {
           this.stopNavSync()
+          // 页签还在：已打开的页面保持。页签已关，或还在转圈：清掉，避免占住连接、也避免下次带着旧输入打开
+          if (this.releaseOnHide || !this.directLoaded) {
+            this.suspendDirectFrame()
+          }
         }
         return
       }
@@ -221,16 +303,35 @@ export default {
           this.phase = 'idle'
           return
         }
+        // 失败停帧（about:blank）后切回：重新挂载原地址，否则停在空白
+        // bump _reloadSeq 使 reloadIframe 残留的 nextTick 回调失效，避免双重挂载
+        if (this.frameSrc === 'about:blank' && this.src && this.src !== '/') {
+          this._reloadSeq += 1
+          const base = this.src
+          const sep = base.indexOf('?') >= 0 ? '&' : '?'
+          this.frameSrc = `${base}${sep}_portal_t=${Date.now()}`
+        }
         this.beginDocumentLoad()
       } else {
         this.clearTimers()
         if (!this.hasLoaded && this.phase !== 'failed') {
           this.phase = 'idle'
         }
+        // 加载中切走，或页签已关掉：停帧。还开着的已加载页面保持，切回来不刷新
+        if ((this.releaseOnHide || !this.hasLoaded) && this.frameSrc && this.frameSrc !== 'about:blank') {
+          if (this.releaseOnHide) {
+            this.hasLoaded = false
+          }
+          this.frameSrc = 'about:blank'
+        }
       }
     }
   },
   mounted() {
+    // 兜底：保温帧重建时若已带上真实 src，补挂起，确保隐藏帧不发起加载
+    if (this.releaseOnHide && !this.active && this.isDirectHttp) {
+      this.suspendDirectFrame()
+    }
     if (this.active) {
       this.startNavSync()
     }
@@ -248,6 +349,10 @@ export default {
     }
   },
   beforeDestroy() {
+    this._bindSeq += 1
+    if (this._onDirectAcquire) {
+      window.removeEventListener(DIRECT_ACQUIRE_EVENT, this._onDirectAcquire)
+    }
     this.clearTimers()
     this.clearDirectTimers()
     this.stopNavSync()
@@ -256,25 +361,72 @@ export default {
     bindDirectSrc(url) {
       const n = url || '/'
       if (!n || n === '/') {
-        this.directSrc = ''
-        this.directPhase = 'idle'
+        if (!this.directLoaded) {
+          this.directSrc = ''
+          this.directPhase = 'idle'
+        }
+        return
+      }
+      // 页签已关掉：即使这份页面曾经打开成功，也清掉。再打开不能带着上次输入。
+      // 页签还在、只是当前不可见：已打开成功且地址没变，则保持文档。
+      if (!this.active && this.releaseOnHide) {
+        this.suspendDirectFrame()
         return
       }
       if (this.directLoaded && sameCamstarDocument(this.directSrc, n)) {
         return
       }
+      // 保温帧、或加载中且不可见的帧一律不真实加载：入口直接挂起（about:blank 释放
+      // 连接/CPU），不依赖 watch 时序。加载未完成的帧只有当前页签可见时才允许占资源——
+      // 切走/关闭即取消请求，杜绝坏页面、慢页面拖住同主机其它菜单
+      if (!this.active && !this.directLoaded) {
+        this.suspendDirectFrame()
+        return
+      }
       if (this.directSrc && sameCamstarDocument(this.directSrc, n) && this.directPhase === 'loading') {
         return
       }
-      // 按"当前选择的系统"取该用户的对接身份（clientId 精确匹配，优于 URL 推断）
+      // 按"当前选择的系统"取该用户的对接身份；优先用 my-list 花名册整项 refresh，避免只 ensure 时 map 未齐
       const portalClientId = parsePortalClientId(this.$route.path)
-      ensureLocalCamstarCookie(n, portalClientId)
+      const portalSys = (this.$store.state.portal.systemList || []).find(s => s && s.clientId === portalClientId)
+      if (portalSys) {
+        refreshCamstarCookieForSystem(portalSys)
+      } else {
+        ensureLocalCamstarCookie(n, portalClientId)
+      }
       seedCamstarCookieForUrlInBackground(n, portalClientId)
+      const origin = frameOrigin(n)
+      if (origin) {
+        window.dispatchEvent(new CustomEvent(DIRECT_ACQUIRE_EVENT, {
+          detail: { origin, token: this._acquireToken }
+        }))
+      }
+      this._heldSrc = ''
       this.directLoaded = false
       this.directSlowDismissed = false
+      this.directHardDismissed = false
       this.directPhase = 'loading'
+      // 地址立刻挂上。延迟赋值会赶不上 load，遮罩就一直停在「正在打开业务页面」。
       this.directSrc = n
       this.armDirectTimeouts()
+    },
+    suspendDirectFrame() {
+      const held = this._heldSrc || (this.directSrc && this.directSrc !== 'about:blank' ? this.directSrc : '')
+      if (!held) {
+        return
+      }
+      this._bindSeq += 1
+      // 打开成功过的帧记下地址，下次打开按这个地址重新加载（不保留表单输入）。
+      // 从未加载成功的不保留，避免把挂死请求带回来。重复挂起时不要把已记下的地址清掉。
+      if (this.directLoaded) {
+        this._heldSrc = held
+      }
+      this.clearDirectTimers()
+      this.directLoaded = false
+      this.directPhase = 'idle'
+      if (this.directSrc !== 'about:blank') {
+        this.directSrc = 'about:blank'
+      }
     },
     armDirectTimeouts() {
       this.clearDirectTimers()
@@ -290,11 +442,16 @@ export default {
         }
       }, DIRECT_SOFT_TIMEOUT_MS)
       this.directHardTimer = setTimeout(() => {
-        if (this.directLoaded) {
+        if (this.directLoaded || this.directHardDismissed) {
           return
         }
         this.directPhase = 'failed'
         this.clearDirectTimers()
+        // 判失败同时停帧：挂着的文档请求会继续占该主机连接配额，把同源新菜单挤进
+        // 队列（表现为别的页面也一直转圈）。停到 about:blank 立即释放，重试按钮会重新挂载
+        if (this.directSrc && this.directSrc !== 'about:blank') {
+          this.directSrc = 'about:blank'
+        }
       }, DIRECT_HARD_TIMEOUT_MS)
     },
     clearDirectTimers() {
@@ -320,6 +477,8 @@ export default {
     },
     continueDirectWaiting() {
       this.directSlowDismissed = true
+      // 用户明确接受慢（页面确实能开、只是要几分钟）：豁免硬超时，不得再判死/停帧
+      this.directHardDismissed = true
       if (!this.directLoaded && this.directPhase === 'slow') {
         this.directPhase = 'loading'
       }
@@ -340,11 +499,15 @@ export default {
         }
       }, SOFT_TIMEOUT_MS)
       this.hardTimer = setTimeout(() => {
-        if (!this.active || this.hasLoaded) {
+        if (!this.active || this.hasLoaded || this.hardDismissed) {
           return
         }
         this.phase = 'failed'
         this.clearTimers()
+        // 同 direct：判失败即停帧释放连接，勿让挂死请求占坑拖慢同源新页面
+        if (this.frameSrc && this.frameSrc !== 'about:blank') {
+          this.frameSrc = 'about:blank'
+        }
       }, HARD_TIMEOUT_MS)
     },
     onFrameLoad() {
@@ -364,6 +527,8 @@ export default {
     },
     continueWaiting() {
       this.slowDismissed = true
+      // 同 direct：继续等待 = 用户接受慢，豁免硬超时
+      this.hardDismissed = true
       if (!this.hasLoaded && this.phase === 'slow') {
         this.phase = 'loading'
       }
@@ -372,10 +537,16 @@ export default {
       if (this.isDirectHttp) {
         const base = this.src || '/'
         const portalClientId = parsePortalClientId(this.$route.path)
-        ensureLocalCamstarCookie(base, portalClientId)
+        const portalSys = (this.$store.state.portal.systemList || []).find(s => s && s.clientId === portalClientId)
+        if (portalSys) {
+          refreshCamstarCookieForSystem(portalSys)
+        } else {
+          ensureLocalCamstarCookie(base, portalClientId)
+        }
         seedCamstarCookieForUrlInBackground(base, portalClientId)
         this.directLoaded = false
         this.directSlowDismissed = false
+        this.directHardDismissed = false
         this.directPhase = 'loading'
         const sep = base.indexOf('?') >= 0 ? '&' : '?'
         this.directSrc = `${base}${sep}_portal_t=${Date.now()}`
@@ -386,11 +557,13 @@ export default {
       const seq = ++this._reloadSeq
       this.hasLoaded = false
       this.slowDismissed = false
+      this.hardDismissed = false
       this.clearTimers()
       this.phase = 'loading'
       this.frameSrc = 'about:blank'
       this.$nextTick(() => {
-        if (seq !== this._reloadSeq) {
+        // 重试后已切走：不再挂载，切回时由兜底重挂，避免不可见帧又发请求
+        if (seq !== this._reloadSeq || !this.active) {
           return
         }
         const sep = base.indexOf('?') >= 0 ? '&' : '?'
@@ -510,6 +683,7 @@ export default {
     resetLoadState() {
       this.hasLoaded = false
       this.slowDismissed = false
+      this.hardDismissed = false
       this.clearTimers()
       this.phase = this.active ? 'loading' : 'idle'
     },
@@ -538,6 +712,21 @@ export default {
   height: 100%;
   min-height: 0;
   background: #f5f7fb;
+}
+.inner-link-root.is-front {
+  z-index: 1;
+}
+/* 已打开、但不在前台的帧：不切显隐，只压到下层，保留其滚动/焦点/布局现场。
+   显隐切换会让 Camstar 在重新可见时恢复焦点/滚动，造成“数据在但抖一下”。 */
+.inner-link-root.is-frame-hidden {
+  pointer-events: none;
+  z-index: 0;
+}
+/* 已关闭/保温帧透明隐藏，避免打开新页面时闪出旧页面残影 */
+.inner-link-root.is-parked-hidden {
+  opacity: 0;
+  pointer-events: none;
+  z-index: 0;
 }
 .inner-link-root > .inner-link {
   height: 100%;

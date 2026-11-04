@@ -6,6 +6,7 @@ import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.excel.core.util.ExcelUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.*;
+import cn.jonhon.jump.module.system.service.user.SubSystemEmployeeService;
 import cn.jonhon.jump.module.system.service.user.SubSystemUserImportService;
 import cn.jonhon.jump.module.system.service.user.SubSystemUsersService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -48,13 +49,16 @@ public class SubSystemUsersController {
     private SubSystemUserImportService subSystemUserImportService;
 
     @Resource
+    private SubSystemEmployeeService subSystemEmployeeService;
+
+    @Resource
     private cn.jonhon.jump.module.system.service.user.SubSystemPermissionContextService subSystemPermissionContextService;
 
 
 
     @GetMapping("/client-simple-list")
     @Operation(summary = "获得外部系统精简列表（portalOnly=true 仅 JUMP 门户业务系统）")
-    @PreAuthorize("@ss.hasAnyPermissions('sub-system:user:list', 'sub-system:apiconfig:list', 'system:user:query', 'system:user:create')")
+    @PreAuthorize("@ss.hasAnyPermissions('sub-system:user:list', 'sub-system:apiconfig:list', 'system:user:query', 'system:user:create', 'system:role:query', 'system:role:create')")
     public CommonResult<List<SubSystemClientSimpleRespVO>> getClientSimpleList(
             @RequestParam(value = "portalOnly", required = false) Boolean portalOnly) {
         return success(subSystemUsersService.getClientSimpleList(portalOnly));
@@ -100,41 +104,21 @@ public class SubSystemUsersController {
 
             @Parameter(name = "subSystemId", description = "外部系统编号", required = true),
 
-            @Parameter(name = "username", description = "子系统用户名", required = true)
+            @Parameter(name = "username", description = "子系统用户名", required = true),
+
+            @Parameter(name = "workshopId", description = "叶子编号（可选）")
 
     })
 
-    @PreAuthorize("@ss.hasPermission('sub-system:user:list')")
+    @PreAuthorize("@ss.hasPermission('sub-system:user:list') or @ss.hasPermission('system:user:query')")
 
     public CommonResult<SubSystemUsersRespVO> getByUsername(@RequestParam("subSystemId") Long subSystemId,
 
-                                                            @RequestParam("username") String username) {
+                                                            @RequestParam("username") String username,
 
-        return success(subSystemUsersService.getBySubSystemIdAndUsername(subSystemId, username));
+                                                            @RequestParam(value = "workshopId", required = false) String workshopId) {
 
-    }
-
-
-
-    @PostMapping("/bind-main-user")
-
-    @Operation(summary = "挂接主系统用户到外部系统同名用户")
-
-    @Parameters({
-
-            @Parameter(name = "subSystemId", description = "外部系统编号", required = true),
-
-            @Parameter(name = "mainUserId", description = "主系统用户编号", required = true)
-
-    })
-
-    @PreAuthorize("@ss.hasPermission('sub-system:user:create')")
-
-    public CommonResult<Long> bindMainUser(@RequestParam("subSystemId") Long subSystemId,
-
-                                           @RequestParam("mainUserId") Long mainUserId) {
-
-        return success(subSystemUsersService.bindMainUser(subSystemId, mainUserId));
+        return success(subSystemUsersService.getBySubSystemIdAndUsername(subSystemId, username, workshopId));
 
     }
 
@@ -224,6 +208,17 @@ public class SubSystemUsersController {
 
 
 
+    @PutMapping("/bind-external-employee")
+    @Operation(summary = "关联或解除外部人员（userCode 为空表示解除）")
+    @PreAuthorize("@ss.hasPermission('sub-system:user:update')")
+    public CommonResult<Boolean> bindExternalEmployee(@RequestParam("id") Long id,
+                                                      @RequestParam(value = "userCode", required = false) String userCode,
+                                                      @RequestParam(value = "workshopCode", required = false) String workshopCode,
+                                                      @RequestParam(value = "apiSubSystemId", required = false) Long apiSubSystemId) {
+        subSystemUsersService.bindExternalEmployee(id, userCode, workshopCode, apiSubSystemId);
+        return success(true);
+    }
+
     @PutMapping("/update-register-status")
 
     @Operation(summary = "修改人员接口注册状态（0未注册 1已注册；人工在对方系统建过人可标已注册，改回未注册可重推）")
@@ -297,15 +292,27 @@ public class SubSystemUsersController {
 
     @PutMapping("/assign-role")
 
-    @Operation(summary = "分配外部系统用户角色")
+    @Operation(summary = "分配外部系统用户角色（勾选同步时返回外部同步结果，失败不回滚本地）")
 
     @PreAuthorize("@ss.hasPermission('sub-system:user:update')")
 
-    public CommonResult<Boolean> assignSubSystemUserRole(@Valid @RequestBody SubSystemUsersAssignRoleReqVO reqVO) {
+    public CommonResult<SubSystemUsersAssignRoleRespVO> assignSubSystemUserRole(@Valid @RequestBody SubSystemUsersAssignRoleReqVO reqVO) {
 
-        subSystemUsersService.assignSubSystemUserRole(reqVO);
+        return success(subSystemUsersService.assignSubSystemUserRole(reqVO));
 
-        return success(true);
+    }
+
+
+
+    @PostMapping("/sync-user-account")
+
+    @Operation(summary = "同步域账号/刷卡卡号到业务系统；仅在传入 ERP 账号时才同步 ERP")
+
+    @PreAuthorize("@ss.hasPermission('sub-system:user:update')")
+
+    public CommonResult<SubSystemUserAccountSyncRespVO> syncUserAccount(@Valid @RequestBody SubSystemUserAccountSyncReqVO reqVO) {
+
+        return success(subSystemEmployeeService.syncUserAccount(reqVO));
 
     }
 
@@ -346,8 +353,10 @@ public class SubSystemUsersController {
     @GetMapping("/my-menus")
     @Operation(summary = "获得当前用户在指定外部系统下的门户菜单")
     public CommonResult<List<SubSystemPortalMenuRespVO>> getMyPortalMenus(
-            @RequestParam("subSystemId") Long subSystemId) {
-        return success(subSystemUsersService.getMyPortalMenus(getLoginUserId(), subSystemId));
+            @RequestParam("subSystemId") Long subSystemId,
+            @Parameter(name = "workshopCode", description = "叶子车间编号（可选；多车间入口时必传）")
+            @RequestParam(value = "workshopCode", required = false) String workshopCode) {
+        return success(subSystemUsersService.getMyPortalMenus(getLoginUserId(), subSystemId, workshopCode));
     }
 
     @GetMapping("/my-menus-version")

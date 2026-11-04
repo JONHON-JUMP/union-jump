@@ -21,7 +21,7 @@
         <div class="drawer-heading">
           <span class="drawer-heading__mark"><i class="el-icon-menu" /></span>
           <div>
-            <h2>全部应用</h2>
+            <h2 :title="systemLabel || '全部应用'">{{ systemLabel || '全部应用' }}</h2>
           </div>
         </div>
 
@@ -356,6 +356,10 @@ export default {
       type: Number,
       default: 0
     },
+    workshopCode: {
+      type: String,
+      default: ''
+    },
     systemKey: {
       type: String,
       default: 'main'
@@ -574,10 +578,12 @@ export default {
           this.subSystemId,
           lockedMenuIds,
           configured,
-          baseMenuIds
+          baseMenuIds,
+          this.workshopCode
         )
         this.$store.dispatch('portal/applyQuickNavConfig', {
           subSystemId: this.subSystemId,
+          workshopCode: this.workshopCode,
           config
         })
         const menuIds = (config && config.menuIds) || []
@@ -826,6 +832,11 @@ button {
 .drawer-heading h2 {
   font-size: 23px;
   line-height: 1.3;
+  /* 标题展示当前系统名：过长时省略号，避免挤压右侧搜索框 */
+  max-width: 40vw;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .drawer-heading p,

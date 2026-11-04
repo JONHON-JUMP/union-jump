@@ -5,6 +5,9 @@ import lombok.Data;
 @Data
 public class CaoeDocInfoDTO {
 
+    /** 文档来源系统，MPM以外均按PDM处理。 */
+    private String sourceSys;
+
     /** 文档原始链接。 */
     private String docLink;
 

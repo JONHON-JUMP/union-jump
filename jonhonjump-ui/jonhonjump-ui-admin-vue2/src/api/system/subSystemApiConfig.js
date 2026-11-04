@@ -17,7 +17,7 @@ export function getSubSystemApiConfigBySubSystem(subSystemId) {
 }
 /** 已启用「角色新增」接口的接入系统（与门户角色系统解耦） */
 export function getSubSystemRoleCreateApis() {
-  return request({ url: '/system/sub-system-api-config/role-create-apis', method: 'get' })
+  return request({ url: '/system/sub-system-api-config/role-create-apis', method: 'post' })
 }
 // 新增配置
 export function createSubSystemApiConfig(data) {

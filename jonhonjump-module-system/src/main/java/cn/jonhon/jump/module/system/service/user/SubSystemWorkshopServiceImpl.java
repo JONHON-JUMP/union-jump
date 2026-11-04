@@ -5,318 +5,437 @@ import cn.hutool.core.util.ObjectUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
+import cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils;
+import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemHangableNodeRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopPageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopSaveReqVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemWorkshopSimpleRespVO;
-import cn.jonhon.jump.module.system.dal.dataobject.dept.DeptDO;
 import cn.jonhon.jump.module.system.dal.dataobject.oauth2.OAuth2ClientDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemWorkshopDO;
-import cn.jonhon.jump.module.system.dal.mysql.dept.DeptMapper;
 import cn.jonhon.jump.module.system.dal.mysql.oauth2.OAuth2ClientMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
+import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemRoleMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUsersMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemWorkshopMapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
 
 import javax.annotation.Resource;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
-import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertMap;
-import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.convertSet;
 import static cn.jonhon.jump.module.system.enums.ErrorCodeConstants.*;
 
 /**
- * 外部系统车间 Service 实现（JUMP 部门 ↔ 子系统车间映射）
+ *  sub_system_workshop
  */
 @Service
 @Validated
+@Slf4j
 public class SubSystemWorkshopServiceImpl implements SubSystemWorkshopService {
 
     @Resource
-    private SubSystemWorkshopMapper subSystemWorkshopMapper;
+    private SubSystemWorkshopMapper workshopMapper;
     @Resource
     private SubSystemMapper subSystemMapper;
     @Resource
+    private OAuth2ClientMapper oauth2ClientMapper;
+    @Resource
     private SubSystemUsersMapper subSystemUsersMapper;
     @Resource
-    private DeptMapper deptMapper;
+    private SubSystemRoleMapper subSystemRoleMapper;
     @Resource
-    private OAuth2ClientMapper oauth2ClientMapper;
+    private SubSystemAccessService subSystemAccessService;
+    @Resource
+    private SubSystemPermissionContextService subSystemPermissionContextService;
 
     @Override
-    public PageResult<SubSystemWorkshopRespVO> getSubSystemWorkshopPage(SubSystemWorkshopPageReqVO pageReqVO) {
-        if (pageReqVO.getSubSystemId() != null) {
-            validateSubSystemExists(pageReqVO.getSubSystemId());
-        }
-        PageResult<SubSystemWorkshopDO> pageResult = subSystemWorkshopMapper.selectPage(pageReqVO);
-        return new PageResult<>(buildRespList(pageResult.getList()), pageResult.getTotal());
-    }
-
-    @Override
-    public SubSystemWorkshopRespVO getSubSystemWorkshop(Long id) {
-        SubSystemWorkshopDO workshop = validateSubSystemWorkshopExists(id);
-        return buildResp(workshop);
-    }
-
-    @Override
-    public Long createSubSystemWorkshop(SubSystemWorkshopSaveReqVO createReqVO) {
-        validateSubSystemExists(createReqVO.getSubSystemId());
-        validateDept(createReqVO.getDeptId());
-        validateWorkshopDuplicate(createReqVO.getSubSystemId(), createReqVO.getWorkshopName(),
-                createReqVO.getWorkshopCode(), null);
-
-        SubSystemWorkshopDO workshop = BeanUtils.toBean(createReqVO, SubSystemWorkshopDO.class);
-        subSystemWorkshopMapper.insert(workshop);
-        return workshop.getId();
-    }
-
-    @Override
-    public void updateSubSystemWorkshop(SubSystemWorkshopSaveReqVO updateReqVO) {
-        SubSystemWorkshopDO workshop = validateSubSystemWorkshopExists(updateReqVO.getId());
-        validateSubSystemExists(updateReqVO.getSubSystemId());
-        validateDept(updateReqVO.getDeptId());
-        validateWorkshopDuplicate(updateReqVO.getSubSystemId(), updateReqVO.getWorkshopName(),
-                updateReqVO.getWorkshopCode(), updateReqVO.getId());
-
-        SubSystemWorkshopDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemWorkshopDO.class);
-        updateObj.setSubSystemId(workshop.getSubSystemId());
-        subSystemWorkshopMapper.updateById(updateObj);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void deleteSubSystemWorkshop(Long id) {
-        SubSystemWorkshopDO workshop = validateSubSystemWorkshopExists(id);
-        validateWorkshopNotAssigned(workshop);
-        subSystemWorkshopMapper.deleteById(id);
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class)
-    public void deleteSubSystemWorkshopList(List<Long> ids) {
-        ids.forEach(id -> {
-            SubSystemWorkshopDO workshop = validateSubSystemWorkshopExists(id);
-            validateWorkshopNotAssigned(workshop);
-        });
-        subSystemWorkshopMapper.deleteByIds(ids);
-    }
-
-    @Override
-    public List<SubSystemWorkshopSimpleRespVO> getWorkshopSimpleList(Long subSystemId, Long deptId) {
-        List<SubSystemWorkshopDO> list = Collections.emptyList();
-        if (subSystemId != null) {
-            if (subSystemMapper.selectById(subSystemId) == null) {
-                throw exception(SUB_SYSTEM_NOT_EXISTS);
-            }
-            if (deptId != null) {
-                list = subSystemWorkshopMapper.selectListBySubSystemIdAndDeptId(subSystemId, deptId);
-            }
-            if (CollUtil.isEmpty(list)) {
-                list = subSystemWorkshopMapper.selectListBySubSystemId(subSystemId);
-            }
-        }
-        if (CollUtil.isEmpty(list) && deptId != null) {
-            list = subSystemWorkshopMapper.selectListByDeptId(deptId);
-        }
-        if (CollUtil.isEmpty(list)) {
-            list = subSystemWorkshopMapper.selectList();
-        }
-        return distinctByCode(list);
-    }
-
-    private List<SubSystemWorkshopSimpleRespVO> distinctByCode(List<SubSystemWorkshopDO> list) {
-        if (CollUtil.isEmpty(list)) {
+    public List<SubSystemWorkshopRespVO> getEnabledWorkshopList() {
+        Map<Long, SubSystemDO> byId = buildSubSystemByIdMap();
+        Map<String, SubSystemDO> byClientId = buildClientIdSubSystemMap(byId.values());
+        List<SubSystemWorkshopDO> rows = loadConfigRows();
+        if (CollUtil.isEmpty(rows)) {
             return Collections.emptyList();
         }
-        java.util.Set<Long> deptIds = list.stream()
-                .map(SubSystemWorkshopDO::getDeptId)
-                .filter(java.util.Objects::nonNull)
-                .collect(Collectors.toSet());
-        Map<Long, DeptDO> deptMap = CollUtil.isEmpty(deptIds)
-                ? Collections.emptyMap()
-                : convertMap(deptMapper.selectBatchIds(deptIds), DeptDO::getId);
-        return list.stream()
-                .filter(item -> item.getWorkshopCode() != null)
-                .collect(Collectors.toMap(SubSystemWorkshopDO::getWorkshopCode,
-                        w -> buildSimple(w, deptMap), (a, b) -> a,
-                        java.util.LinkedHashMap::new))
-                .values().stream().collect(Collectors.toList());
-    }
-
-    @Override
-    public SubSystemWorkshopSimpleRespVO getWorkshopByDept(Long subSystemId, Long deptId) {
-        if (deptId == null) {
-            return null;
-        }
-        // 先按 系统+部门；车间页常静默绑默认系统，再按部门兜底
-        if (subSystemId != null) {
-            List<SubSystemWorkshopDO> list = subSystemWorkshopMapper
-                    .selectListBySubSystemIdAndDeptId(subSystemId, deptId);
-            if (CollUtil.isNotEmpty(list)) {
-                return buildSimple(list.get(0));
-            }
-        }
-        List<SubSystemWorkshopDO> byDept = subSystemWorkshopMapper.selectListByDeptId(deptId);
-        return CollUtil.isEmpty(byDept) ? null : buildSimple(byDept.get(0));
-    }
-
-    @Override
-    public String inferWorkshopCode(Long subSystemId) {
-        if (subSystemId == null) {
-            return null;
-        }
-        List<String> codes = subSystemWorkshopMapper.selectListBySubSystemId(subSystemId).stream()
-                .map(SubSystemWorkshopDO::getWorkshopCode)
-                .filter(StrUtil::isNotBlank)
-                .map(String::trim)
-                .distinct()
+        return rows.stream()
+                .map(row -> toVoFromConfig(row, byId, byClientId, true))
                 .collect(Collectors.toList());
-        if (codes.size() == 1) {
-            return codes.get(0);
-        }
-        SubSystemDO sys = subSystemMapper.selectById(subSystemId);
-        String hint = extractWorkshopHint(sys);
-        if (StrUtil.isBlank(hint)) {
-            return null;
-        }
-        if (codes.contains(hint)) {
-            return hint;
-        }
-        // 无对照或对照未包含该编号时，仍用系统名里的编号：MES4200 → 4200
-        return hint;
     }
 
-    /** MES4200 / mes4200 / 4200车间 → 4200 */
-    private String extractWorkshopHint(SubSystemDO sys) {
-        if (sys == null) {
-            return null;
+    @Override
+    public List<SubSystemHangableNodeRespVO> getHangableTree() {
+        Map<Long, SubSystemDO> byId = buildSubSystemByIdMap();
+        List<SubSystemWorkshopDO> workshopRows = loadConfigRows();
+        Map<Long, List<SubSystemWorkshopDO>> workshopsBySubSystem = new LinkedHashMap<>();
+        Map<String, SubSystemDO> byClientId = buildClientIdSubSystemMap(byId.values());
+        for (SubSystemWorkshopDO row : workshopRows) {
+            Long ssId = resolveSubSystemId(row, byId, byClientId);
+            if (ssId == null || StrUtil.isBlank(row.getWorkshopCode())) {
+                continue;
+            }
+            workshopsBySubSystem.computeIfAbsent(ssId, k -> new ArrayList<>()).add(row);
         }
-        String fromName = lastDigitGroup(sys.getSystemName());
-        if (StrUtil.isNotBlank(fromName)) {
-            return fromName;
-        }
-        String clientId = sys.resolvePortalClientId(null);
-        if (StrUtil.isBlank(clientId) && sys.getOauth2ClientId() != null) {
-            OAuth2ClientDO client = oauth2ClientMapper.selectById(sys.getOauth2ClientId());
-            clientId = client == null ? null : client.getClientId();
-        }
-        return lastDigitGroup(clientId);
-    }
 
-    private static String lastDigitGroup(String text) {
-        if (StrUtil.isBlank(text)) {
-            return null;
-        }
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d{3,})").matcher(text);
-        String last = null;
-        while (matcher.find()) {
-            last = matcher.group(1);
-        }
-        return last;
-    }
+        List<SubSystemHangableNodeRespVO> tree = new ArrayList<>();
+        // 可管系统范围：与其它管理页一致，受限角色只看到授权系统
+        Set<Long> allowedSubSystemIds = subSystemAccessService.getAllowedSubSystemIds(
+                SecurityFrameworkUtils.getLoginUserId());
+        List<SubSystemDO> systems = byId.values().stream()
+                .filter(ss -> ss != null && ss.portalBound())
+                .filter(ss -> allowedSubSystemIds == null || allowedSubSystemIds.contains(ss.getId()))
+                .sorted(Comparator.comparing(SubSystemDO::getId, Comparator.nullsLast(Long::compareTo)))
+                .collect(Collectors.toList());
 
-    // ===================== 私有方法 =====================
-
-    private SubSystemWorkshopSimpleRespVO buildSimple(SubSystemWorkshopDO workshop) {
-        Map<Long, DeptDO> deptMap = Collections.emptyMap();
-        if (workshop.getDeptId() != null) {
-            DeptDO dept = deptMapper.selectById(workshop.getDeptId());
-            if (dept != null) {
-                deptMap = Collections.singletonMap(dept.getId(), dept);
+        for (SubSystemDO ss : systems) {
+            String clientId = resolveClientId(ss);
+            List<SubSystemWorkshopDO> leaves = workshopsBySubSystem.getOrDefault(ss.getId(), Collections.emptyList());
+            // 未配置车间叶子：业务系统本身作为一个可挂接节点
+            if (CollUtil.isEmpty(leaves)) {
+                tree.add(toHangableSystemOnly(ss, clientId));
+                continue;
+            }
+            List<SubSystemHangableNodeRespVO> children = leaves.stream()
+                    .sorted(Comparator
+                            .comparing((SubSystemWorkshopDO w) -> w.getSort() == null ? 0 : w.getSort())
+                            .thenComparing(w -> StrUtil.blankToDefault(w.getWorkshopCode(), "")))
+                    .map(w -> toHangableLeaf(ss, clientId, w, leaves.size() > 1))
+                    .collect(Collectors.toList());
+            if (children.size() == 1) {
+                tree.add(children.get(0));
+            } else {
+                SubSystemHangableNodeRespVO group = new SubSystemHangableNodeRespVO();
+                group.setNodeType("group");
+                group.setSubSystemId(ss.getId());
+                group.setClientId(clientId);
+                group.setSubSystemName(ss.getSystemName());
+                group.setWorkshopScopeEnabled(true);
+                group.setLabel(formatSystemLabel(ss.getSystemName(), clientId));
+                group.setChildren(children);
+                tree.add(group);
             }
         }
-        return buildSimple(workshop, deptMap);
+        return tree;
     }
 
-    private SubSystemWorkshopSimpleRespVO buildSimple(SubSystemWorkshopDO workshop, Map<Long, DeptDO> deptMap) {
-        SubSystemWorkshopSimpleRespVO vo = new SubSystemWorkshopSimpleRespVO();
-        vo.setId(workshop.getId());
-        vo.setDeptId(workshop.getDeptId());
-        vo.setWorkshopCode(workshop.getWorkshopCode());
-        vo.setWorkshopName(workshop.getWorkshopName());
-        if (workshop.getDeptId() != null && deptMap != null) {
-            DeptDO dept = deptMap.get(workshop.getDeptId());
-            if (dept != null) {
-                vo.setDeptName(dept.getName());
+    @Override
+    public PageResult<SubSystemWorkshopRespVO> getWorkshopPage(SubSystemWorkshopPageReqVO pageReqVO) {
+        Set<Long> allowed = subSystemAccessService.getAllowedSubSystemIds(SecurityFrameworkUtils.getLoginUserId());
+        if (pageReqVO.getSubSystemId() != null) {
+            validateSubSystemExists(pageReqVO.getSubSystemId());
+        } else if (allowed != null && allowed.isEmpty()) {
+            return new PageResult<>(Collections.emptyList(), 0L);
+        }
+        PageResult<SubSystemWorkshopDO> page = workshopMapper.selectPage(pageReqVO, allowed);
+        Map<Long, SubSystemDO> byId = buildSubSystemByIdMap();
+        Map<String, SubSystemDO> byClientId = buildClientIdSubSystemMap(byId.values());
+        List<SubSystemWorkshopRespVO> list = page.getList().stream()
+                .map(row -> toVoFromConfig(row, byId, byClientId, true))
+                .collect(Collectors.toList());
+        return new PageResult<>(list, page.getTotal());
+    }
+
+    @Override
+    public SubSystemWorkshopRespVO getWorkshop(Long id) {
+        SubSystemWorkshopDO row = validateWorkshopExists(id);
+        Map<Long, SubSystemDO> byId = buildSubSystemByIdMap();
+        Map<String, SubSystemDO> byClientId = buildClientIdSubSystemMap(byId.values());
+        return toVoFromConfig(row, byId, byClientId, true);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public Long createWorkshop(SubSystemWorkshopSaveReqVO createReqVO) {
+        SubSystemDO ss = validateSubSystemExists(createReqVO.getSubSystemId());
+        String code = normalizeCode(createReqVO.getWorkshopCode());
+        validateCodeDuplicate(code, null);
+
+        SubSystemWorkshopDO row = BeanUtils.toBean(createReqVO, SubSystemWorkshopDO.class);
+        row.setWorkshopCode(code);
+        row.setWorkshopName(StrUtil.trim(createReqVO.getWorkshopName()));
+        row.setProductLine(StrUtil.trimToNull(createReqVO.getProductLine()));
+        row.setRemark(StrUtil.trimToNull(createReqVO.getRemark()));
+        row.setSort(createReqVO.getSort() == null ? 0 : createReqVO.getSort());
+        row.setSubSystemId(ss.getId());
+        row.setClientId(resolveClientId(ss));
+        workshopMapper.insert(row);
+        return row.getId();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void updateWorkshop(SubSystemWorkshopSaveReqVO updateReqVO) {
+        SubSystemWorkshopDO exist = validateWorkshopExists(updateReqVO.getId());
+        if (exist.getSubSystemId() == null) {
+            throw exception(SUB_SYSTEM_NOT_EXISTS);
+        }
+        updateReqVO.setSubSystemId(exist.getSubSystemId());
+        SubSystemDO ss = validateSubSystemExists(exist.getSubSystemId());
+        String code = normalizeCode(updateReqVO.getWorkshopCode());
+        validateCodeDuplicate(code, updateReqVO.getId());
+        boolean leafIdentityChanged = false;
+        if (!code.equals(StrUtil.trim(exist.getWorkshopCode()))) {
+            assertNoUsersOrRoles(exist.getSubSystemId() != null ? exist.getSubSystemId() : ss.getId(),
+                    exist.getWorkshopCode());
+            leafIdentityChanged = true;
+        }
+
+        SubSystemWorkshopDO update = BeanUtils.toBean(updateReqVO, SubSystemWorkshopDO.class);
+        update.setWorkshopCode(code);
+        update.setWorkshopName(StrUtil.trim(updateReqVO.getWorkshopName()));
+        update.setProductLine(StrUtil.trimToNull(updateReqVO.getProductLine()));
+        update.setRemark(StrUtil.trimToNull(updateReqVO.getRemark()));
+        update.setSort(updateReqVO.getSort() == null ? 0 : updateReqVO.getSort());
+        update.setSubSystemId(ss.getId());
+        update.setClientId(resolveClientId(ss));
+        workshopMapper.updateById(update);
+        if (leafIdentityChanged) {
+            // 叶子编号变了：按车间缓存的 my-menus/快捷导航全部失效
+            subSystemPermissionContextService.evictBySubSystemId(ss.getId());
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteWorkshop(Long id) {
+        SubSystemWorkshopDO exist = validateWorkshopExists(id);
+        assertNoUsersOrRoles(exist.getSubSystemId(), exist.getWorkshopCode());
+        workshopMapper.deleteById(id);
+        if (exist.getSubSystemId() != null) {
+            // 叶子下线：清掉按该车间缓存的 my-menus / 快捷导航，避免已删车间继续可用
+            subSystemPermissionContextService.evictBySubSystemId(exist.getSubSystemId());
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public void deleteWorkshopList(List<Long> ids) {
+        if (CollUtil.isEmpty(ids)) {
+            return;
+        }
+        ids.forEach(this::deleteWorkshop);
+    }
+
+    private SubSystemHangableNodeRespVO toHangableSystemOnly(SubSystemDO ss, String clientId) {
+        SubSystemHangableNodeRespVO leaf = new SubSystemHangableNodeRespVO();
+        leaf.setNodeType("leaf");
+        leaf.setSubSystemId(ss.getId());
+        leaf.setClientId(clientId);
+        leaf.setSubSystemName(ss.getSystemName());
+        leaf.setWorkshopCode("");
+        leaf.setWorkshopName(ss.getSystemName());
+        leaf.setWorkshopScopeEnabled(false);
+        leaf.setLabel(formatSystemLabel(ss.getSystemName(), clientId));
+        return leaf;
+    }
+
+    private SubSystemHangableNodeRespVO toHangableLeaf(SubSystemDO ss, String clientId,
+                                                       SubSystemWorkshopDO w, boolean multiLeaf) {
+        SubSystemHangableNodeRespVO leaf = new SubSystemHangableNodeRespVO();
+        leaf.setNodeType("leaf");
+        leaf.setSubSystemId(ss.getId());
+        leaf.setClientId(clientId);
+        leaf.setSubSystemName(ss.getSystemName());
+        leaf.setWorkshopCode(w.getWorkshopCode().trim());
+        leaf.setWorkshopName(w.getWorkshopName());
+        leaf.setWorkshopScopeEnabled(multiLeaf || ss.workshopScopeOn());
+        if (multiLeaf) {
+            leaf.setLabel(formatWorkshopLabel(w.getWorkshopName(), w.getWorkshopCode()));
+        } else {
+            leaf.setLabel(formatSystemLabel(
+                    StrUtil.blankToDefault(w.getWorkshopName(), ss.getSystemName()), clientId));
+        }
+        return leaf;
+    }
+
+    private List<SubSystemWorkshopDO> loadConfigRows() {
+        try {
+            return CollUtil.emptyIfNull(workshopMapper.selectEnabledList());
+        } catch (Exception ex) {
+            log.warn("[loadConfigRows] sub_system_workshop unavailable: {}", ex.toString());
+            return Collections.emptyList();
+        }
+    }
+
+    private SubSystemWorkshopRespVO toVoFromConfig(SubSystemWorkshopDO row,
+                                                  Map<Long, SubSystemDO> byId,
+                                                  Map<String, SubSystemDO> byClientId,
+                                                  boolean withCounts) {
+        SubSystemWorkshopRespVO vo = BeanUtils.toBean(row, SubSystemWorkshopRespVO.class);
+        vo.setWorkshopCode(row.getWorkshopCode());
+        vo.setWorkshopName(row.getWorkshopName());
+        vo.setProductLine(row.getProductLine());
+        vo.setClientId(row.getClientId());
+        vo.setSort(row.getSort());
+        vo.setStatus(row.getStatus());
+        vo.setRemark(row.getRemark());
+        vo.setCreateTime(row.getCreateTime());
+
+        SubSystemDO ss = null;
+        if (row.getSubSystemId() != null) {
+            ss = byId.get(row.getSubSystemId());
+        }
+        if (ss == null && StrUtil.isNotBlank(row.getClientId())) {
+            ss = byClientId.get(normalizeClientId(row.getClientId()));
+        }
+        if (ss != null) {
+            vo.setSubSystemId(ss.getId());
+            vo.setSubSystemName(ss.getSystemName());
+            if (StrUtil.isBlank(vo.getClientId())) {
+                vo.setClientId(resolveClientId(ss));
             }
+            if (withCounts) {
+                fillCounts(vo, ss.getId(), row.getWorkshopCode());
+            }
+        } else {
+            vo.setSubSystemId(row.getSubSystemId());
+            vo.setUserCount(0L);
+            vo.setRoleCount(0L);
         }
         return vo;
     }
 
-    private List<SubSystemWorkshopRespVO> buildRespList(List<SubSystemWorkshopDO> list) {
-        if (CollUtil.isEmpty(list)) {
-            return Collections.emptyList();
+    private Long resolveSubSystemId(SubSystemWorkshopDO row,
+                                    Map<Long, SubSystemDO> byId,
+                                    Map<String, SubSystemDO> byClientId) {
+        if (row.getSubSystemId() != null && byId.containsKey(row.getSubSystemId())) {
+            return row.getSubSystemId();
         }
-        Map<Long, SubSystemDO> subSystemMap = convertMap(
-                subSystemMapper.selectListByIds(convertSet(list, SubSystemWorkshopDO::getSubSystemId)),
-                SubSystemDO::getId);
-        Map<Long, DeptDO> deptMap = convertMap(
-                deptMapper.selectBatchIds(convertSet(list, SubSystemWorkshopDO::getDeptId)),
-                DeptDO::getId);
-        return list.stream().map(workshop -> {
-            SubSystemWorkshopRespVO vo = BeanUtils.toBean(workshop, SubSystemWorkshopRespVO.class);
-            SubSystemDO subSystem = subSystemMap.get(workshop.getSubSystemId());
-            if (subSystem != null) {
-                vo.setClientName(subSystem.getSystemName());
-            }
-            DeptDO dept = deptMap.get(workshop.getDeptId());
-            if (dept != null) {
-                vo.setDeptName(dept.getName());
-            }
-            return vo;
-        }).collect(Collectors.toList());
+        if (StrUtil.isNotBlank(row.getClientId())) {
+            SubSystemDO ss = byClientId.get(normalizeClientId(row.getClientId()));
+            return ss != null ? ss.getId() : null;
+        }
+        return null;
     }
 
-    private SubSystemWorkshopRespVO buildResp(SubSystemWorkshopDO workshop) {
-        List<SubSystemWorkshopRespVO> list = buildRespList(Collections.singletonList(workshop));
-        return list.isEmpty() ? BeanUtils.toBean(workshop, SubSystemWorkshopRespVO.class) : list.get(0);
+    private void fillCounts(SubSystemWorkshopRespVO vo, Long subSystemId, String workshopCode) {
+        if (subSystemId == null || StrUtil.isBlank(workshopCode)) {
+            vo.setUserCount(0L);
+            vo.setRoleCount(0L);
+            return;
+        }
+        vo.setUserCount(subSystemUsersMapper.selectCountBySubSystemIdAndWorkshopId(subSystemId, workshopCode));
+        vo.setRoleCount(subSystemRoleMapper.selectCountBySubSystemIdAndWorkshopCode(subSystemId, workshopCode));
     }
 
-    private SubSystemWorkshopDO validateSubSystemWorkshopExists(Long id) {
-        SubSystemWorkshopDO workshop = subSystemWorkshopMapper.selectById(id);
-        if (workshop == null) {
-            throw exception(SUB_SYSTEM_WORKSHOP_NOT_EXISTS);
+    private void assertNoUsersOrRoles(Long subSystemId, String workshopCode) {
+        if (subSystemId == null || StrUtil.isBlank(workshopCode)) {
+            return;
         }
-        return workshop;
-    }
-
-    private void validateSubSystemExists(Long subSystemId) {
-        if (subSystemMapper.selectById(subSystemId) == null) {
-            throw exception(SUB_SYSTEM_NOT_EXISTS);
-        }
-    }
-
-    private void validateDept(Long deptId) {
-        if (deptId != null && deptMapper.selectById(deptId) == null) {
-            throw exception(SUB_SYSTEM_WORKSHOP_DEPT_INVALID);
-        }
-    }
-
-    private void validateWorkshopDuplicate(Long subSystemId, String workshopName, String workshopCode, Long excludeId) {
-        SubSystemWorkshopDO byCode = subSystemWorkshopMapper.selectBySubSystemIdAndWorkshopCode(subSystemId, workshopCode);
-        if (byCode != null && ObjectUtil.notEqual(byCode.getId(), excludeId)) {
-            throw exception(SUB_SYSTEM_WORKSHOP_CODE_DUPLICATE, workshopCode);
-        }
-        SubSystemWorkshopDO byName = subSystemWorkshopMapper.selectBySubSystemIdAndWorkshopName(subSystemId, workshopName);
-        if (byName != null && ObjectUtil.notEqual(byName.getId(), excludeId)) {
-            throw exception(SUB_SYSTEM_WORKSHOP_NAME_DUPLICATE, workshopName);
-        }
-    }
-
-    private void validateWorkshopNotAssigned(SubSystemWorkshopDO workshop) {
-        Long count = subSystemUsersMapper.selectCountBySubSystemIdAndWorkshopId(
-                workshop.getSubSystemId(), workshop.getWorkshopCode());
-        if (count != null && count > 0) {
+        Long users = subSystemUsersMapper.selectCountBySubSystemIdAndWorkshopId(subSystemId, workshopCode);
+        if (users != null && users > 0) {
             throw exception(SUB_SYSTEM_WORKSHOP_HAS_USERS);
         }
+        Long roles = subSystemRoleMapper.selectCountBySubSystemIdAndWorkshopCode(subSystemId, workshopCode);
+        if (roles != null && roles > 0) {
+            throw exception(SUB_SYSTEM_WORKSHOP_HAS_ROLES);
+        }
+    }
+
+    private SubSystemWorkshopDO validateWorkshopExists(Long id) {
+        SubSystemWorkshopDO row = workshopMapper.selectById(id);
+        if (row == null) {
+            throw exception(SUB_SYSTEM_WORKSHOP_NOT_EXISTS);
+        }
+        if (row.getSubSystemId() != null) {
+            subSystemAccessService.checkAccessible(row.getSubSystemId());
+        }
+        return row;
+    }
+
+    private SubSystemDO validateSubSystemExists(Long subSystemId) {
+        SubSystemDO ss = subSystemMapper.selectById(subSystemId);
+        if (ss == null) {
+            throw exception(SUB_SYSTEM_NOT_EXISTS);
+        }
+        subSystemAccessService.checkAccessible(subSystemId);
+        return ss;
+    }
+
+    private void validateCodeDuplicate(String workshopCode, Long id) {
+        SubSystemWorkshopDO exists = workshopMapper.selectByWorkshopCode(workshopCode);
+        if (exists != null && !ObjectUtil.equal(exists.getId(), id)) {
+            throw exception(SUB_SYSTEM_WORKSHOP_CODE_DUPLICATE, workshopCode);
+        }
+    }
+
+    private static String normalizeCode(String raw) {
+        return StrUtil.trim(raw);
+    }
+
+    private String resolveClientId(SubSystemDO ss) {
+        if (StrUtil.isNotBlank(ss.getClientId())) {
+            return ss.getClientId().trim();
+        }
+        if (ss.getOauth2ClientId() == null) {
+            return null;
+        }
+        OAuth2ClientDO client = oauth2ClientMapper.selectById(ss.getOauth2ClientId());
+        return client != null ? StrUtil.trim(client.getClientId()) : null;
+    }
+
+    private static String formatSystemLabel(String systemName, String clientId) {
+        String name = StrUtil.trim(systemName);
+        String cid = StrUtil.trim(clientId);
+        if (StrUtil.isNotBlank(name) && StrUtil.isNotBlank(cid)) {
+            return name.indexOf(cid) >= 0 ? name : (name + " (" + cid + ")");
+        }
+        return StrUtil.blankToDefault(name, cid);
+    }
+
+    private static String formatWorkshopLabel(String workshopName, String workshopCode) {
+        String name = StrUtil.trim(workshopName);
+        String code = StrUtil.trim(workshopCode);
+        if (StrUtil.isBlank(name)) {
+            return code;
+        }
+        if (StrUtil.isBlank(code)) {
+            return name;
+        }
+        if (name.indexOf('(' + code + ')') >= 0 || name.endsWith(code)) {
+            return name;
+        }
+        return name + "(" + code + ")";
+    }
+
+    private Map<Long, SubSystemDO> buildSubSystemByIdMap() {
+        List<SubSystemDO> systems = subSystemMapper.selectListOrderByOauth2ClientId();
+        if (CollUtil.isEmpty(systems)) {
+            return Collections.emptyMap();
+        }
+        Map<Long, SubSystemDO> map = new HashMap<>();
+        for (SubSystemDO ss : systems) {
+            if (ss.getId() != null) {
+                map.put(ss.getId(), ss);
+            }
+        }
+        return map;
+    }
+
+    private Map<String, SubSystemDO> buildClientIdSubSystemMap(Iterable<SubSystemDO> systems) {
+        Map<String, SubSystemDO> map = new HashMap<>();
+        for (SubSystemDO ss : systems) {
+            String clientId = resolveClientId(ss);
+            if (StrUtil.isNotBlank(clientId)) {
+                map.put(normalizeClientId(clientId), ss);
+            }
+        }
+        return map;
+    }
+
+    private static String normalizeClientId(String clientId) {
+        return clientId == null ? "" : clientId.trim().toLowerCase(Locale.ROOT);
     }
 
 }

@@ -15,4 +15,7 @@ public class SubSystemRegisterableApiRespVO {
     @Schema(description = "接口目标系统名称", example = "Camstar人员管理")
     private String systemName;
 
+    @Schema(description = "适配器类型，如 camstar、http", example = "camstar")
+    private String apiType;
+
 }

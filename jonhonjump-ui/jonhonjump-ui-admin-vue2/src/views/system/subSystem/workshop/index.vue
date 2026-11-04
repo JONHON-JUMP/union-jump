@@ -1,102 +1,250 @@
 <template>
   <div class="app-container">
-    <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="80px">
-      <el-form-item label="JUMP 部门" prop="deptId">
-        <el-select v-model="queryParams.deptId" placeholder="全部部门" clearable filterable style="width: 200px">
-          <el-option
-            v-for="item in deptOptions"
-            :key="item.id"
-            :label="item.name"
-            :value="item.id"
+    <el-row :gutter="20">
+      <el-col :span="4" :xs="24">
+        <div class="head-container">
+          <el-input
+            v-model="clientKeyword"
+            placeholder="请输入系统名称"
+            clearable
+            size="small"
+            prefix-icon="el-icon-search"
+            style="margin-bottom: 20px"
           />
-        </el-select>
-      </el-form-item>
-      <el-form-item label="车间编码" prop="workshopCode">
-        <el-input v-model="queryParams.workshopCode" placeholder="请输入车间编码" clearable style="width: 160px"
-                  @keyup.enter.native="handleQuery"/>
-      </el-form-item>
-      <el-form-item label="车间名称" prop="workshopName">
-        <el-input v-model="queryParams.workshopName" placeholder="请输入车间名称" clearable style="width: 160px"
-                  @keyup.enter.native="handleQuery"/>
-      </el-form-item>
-      <el-form-item>
-        <el-button type="primary" icon="el-icon-search" @click="handleQuery">搜索</el-button>
-        <el-button icon="el-icon-refresh" @click="resetQuery">重置</el-button>
-      </el-form-item>
-    </el-form>
+        </div>
+        <div class="head-container sub-system-list" v-loading="clientsLoading">
+          <div
+            v-for="item in filteredClientList"
+            :key="item.id"
+            class="sub-system-item"
+            :class="{ 'is-active': selectedClient && selectedClient.id === item.id }"
+            @click="handleClientClick(item)"
+          >
+            <div class="sub-system-item__name">{{ item.name }}</div>
+            <div class="sub-system-item__meta">
+              <span>{{ item.clientId }}</span>
+              <el-tag v-if="item.workshopScopeEnabled" size="mini" type="warning">多车间</el-tag>
+            </div>
+          </div>
+          <el-empty v-if="!clientsLoading && filteredClientList.length === 0" description="暂无业务系统" :image-size="60" />
+        </div>
+      </el-col>
 
-    <el-row :gutter="10" class="mb8">
-      <el-col :span="1.5">
-        <el-button type="primary" plain icon="el-icon-plus" size="mini" @click="handleAdd"
-                   v-hasPermi="['sub-system:workshop:create']">新增对照</el-button>
+      <el-col :span="20" :xs="24" v-loading="clientsLoading">
+        <el-alert
+          v-if="showSubSystemBindHint"
+          title="请先在左侧选择业务系统；本页维护该系统下可挂接的叶子（一对一也要维护一条）"
+          type="warning"
+          :closable="false"
+          show-icon
+          class="mb8"
+        />
+        <el-alert
+          v-else
+          title="叶子 = 人员挂接与角色作用域单位；多叶子系统请在「业务系统登记」开启车间维度。有用户/角色占用的叶子不能删、不能改编号。新上业务系统后，在对应叶子上点「接口绑定」，把各次调用接到已有接口系统，不用改代码。"
+          type="info"
+          :closable="false"
+          show-icon
+          class="mb8"
+        />
+        <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="80px">
+          <el-form-item label="叶子编号" prop="workshopCode">
+            <el-input v-model="queryParams.workshopCode" placeholder="车间编号" clearable style="width: 160px"
+                      @keyup.enter.native="handleQuery"/>
+          </el-form-item>
+          <el-form-item label="叶子名称" prop="workshopName">
+            <el-input v-model="queryParams.workshopName" placeholder="名称" clearable style="width: 180px"
+                      @keyup.enter.native="handleQuery"/>
+          </el-form-item>
+          <el-form-item label="状态" prop="status">
+            <el-select v-model="queryParams.status" placeholder="状态" clearable style="width: 120px">
+              <el-option v-for="dict in statusDictDatas" :key="parseInt(dict.value)" :label="dict.label" :value="parseInt(dict.value)"/>
+            </el-select>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="primary" icon="el-icon-search" @click="handleQuery">搜索</el-button>
+            <el-button icon="el-icon-refresh" @click="resetQuery">重置</el-button>
+          </el-form-item>
+        </el-form>
+        <el-row :gutter="10" class="mb8">
+          <el-col :span="1.5">
+            <el-button type="primary" plain icon="el-icon-plus" size="mini" @click="handleAdd"
+                       v-hasPermi="['sub-system:workshop:create']">新增</el-button>
+          </el-col>
+          <el-col :span="1.5">
+            <el-button
+              type="danger"
+              plain
+              icon="el-icon-delete"
+              size="mini"
+              :disabled="checkedIds.length === 0"
+              @click="handleDeleteBatch"
+              v-hasPermi="['sub-system:workshop:delete']"
+            >批量删除</el-button>
+          </el-col>
+          <right-toolbar :showSearch.sync="showSearch" @queryTable="getList" />
+        </el-row>
+        <el-table v-loading="loading" :data="workshopList" @selection-change="handleRowCheckboxChange">
+          <el-table-column type="selection" width="55"/>
+          <el-table-column label="编号" align="center" prop="id" width="80" />
+          <el-table-column label="叶子编号" align="center" prop="workshopCode" width="120" :show-overflow-tooltip="true" />
+          <el-table-column label="叶子名称" align="center" prop="workshopName" min-width="160" :show-overflow-tooltip="true" />
+          <el-table-column label="产品线" align="center" prop="productLine" width="100" :show-overflow-tooltip="true" />
+          <el-table-column label="排序" align="center" prop="sort" width="70" />
+          <el-table-column label="用户数" align="center" prop="userCount" width="80" />
+          <el-table-column label="角色数" align="center" prop="roleCount" width="80" />
+          <el-table-column label="状态" align="center" prop="status" width="90">
+            <template v-slot="scope">
+              <dict-tag :type="DICT_TYPE.COMMON_STATUS" :value="scope.row.status"/>
+            </template>
+          </el-table-column>
+          <el-table-column label="创建时间" align="center" prop="createTime" width="170">
+            <template v-slot="scope">
+              <span>{{ parseTime(scope.row.createTime) }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" align="center" width="220" fixed="right">
+            <template v-slot="scope">
+              <el-button size="mini" type="text" icon="el-icon-connection" @click="openApiBinding(scope.row)"
+                         v-hasPermi="['sub-system:workshop:update']">接口绑定</el-button>
+              <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
+                         v-hasPermi="['sub-system:workshop:update']">修改</el-button>
+              <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)"
+                         v-hasPermi="['sub-system:workshop:delete']">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <pagination v-show="total>0" :total="total" :page.sync="queryParams.pageNo" :limit.sync="queryParams.pageSize"
+                    @pagination="getList"/>
       </el-col>
-      <el-col :span="1.5">
-        <el-button
-          type="danger"
-          plain
-          icon="el-icon-delete"
-          size="mini"
-          :disabled="checkedIds.length === 0"
-          @click="handleDeleteBatch"
-          v-hasPermi="['sub-system:workshop:delete']"
-        >批量删除</el-button>
-      </el-col>
-      <right-toolbar :showSearch.sync="showSearch" @queryTable="getList" />
     </el-row>
 
-    <el-table v-loading="loading" :data="workshopList" @selection-change="handleRowCheckboxChange">
-      <el-table-column type="selection" width="55"/>
-      <el-table-column label="JUMP 部门" align="center" prop="deptName" min-width="160" :show-overflow-tooltip="true">
-        <template v-slot="scope">
-          <span>{{ scope.row.deptName || '—' }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="车间编码" align="center" prop="workshopCode" width="140" :show-overflow-tooltip="true" />
-      <el-table-column label="车间名称" align="center" prop="workshopName" min-width="140" :show-overflow-tooltip="true" />
-      <el-table-column label="说明" align="center" prop="description" min-width="160" :show-overflow-tooltip="true" />
-      <el-table-column label="创建时间" align="center" prop="createTime" width="180">
-        <template v-slot="scope">
-          <span>{{ parseTime(scope.row.createTime) }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" align="center" class-name="small-padding fixed-width" width="140">
-        <template v-slot="scope">
-          <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
-                     v-hasPermi="['sub-system:workshop:update']">修改</el-button>
-          <el-button size="mini" type="text" icon="el-icon-delete" @click="handleDelete(scope.row)"
-                     v-hasPermi="['sub-system:workshop:delete']">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
-    <pagination v-show="total>0" :total="total" :page.sync="queryParams.pageNo" :limit.sync="queryParams.pageSize"
-                @pagination="getList"/>
-
-    <el-dialog :title="title" :visible.sync="open" width="520px" append-to-body>
+    <el-dialog :title="title" :visible.sync="open" width="560px" append-to-body>
       <el-form ref="form" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="JUMP 部门" prop="deptId">
-          <el-select v-model="form.deptId" placeholder="请选择部门" filterable style="width: 100%">
-            <el-option
-              v-for="item in deptOptions"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-            />
-          </el-select>
-          <div class="el-form-item__tip">用户管理新增用户时按部门带出此车间编码</div>
+        <el-form-item label="业务系统">
+          <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
         </el-form-item>
-        <el-form-item label="车间编码" prop="workshopCode">
-          <el-input v-model="form.workshopCode" placeholder="如 4200" />
+        <el-form-item label="叶子编号" prop="workshopCode">
+          <el-input
+            v-model="form.workshopCode"
+            placeholder="如 5501、4200；全局唯一"
+            maxlength="50"
+            :disabled="!!form.id"
+          />
+          <div v-if="form.id" class="form-tip">编号创建后不可改；需调整请新建叶子并迁移人员/角色</div>
         </el-form-item>
-        <el-form-item label="车间名称" prop="workshopName">
-          <el-input v-model="form.workshopName" placeholder="车间名称" />
+        <el-form-item label="叶子名称" prop="workshopName">
+          <el-input v-model="form.workshopName" placeholder="展示名称" maxlength="100" />
         </el-form-item>
-        <el-form-item label="说明" prop="description">
-          <el-input v-model="form.description" type="textarea" placeholder="可选备注" :rows="3" />
+        <el-form-item label="产品线" prop="productLine">
+          <el-input v-model="form.productLine" placeholder="可选，如 环控 / 液冷" maxlength="50" />
+        </el-form-item>
+        <el-form-item label="排序" prop="sort">
+          <el-input-number v-model="form.sort" :min="0" :max="9999" controls-position="right" />
+        </el-form-item>
+        <el-form-item label="状态" prop="status">
+          <el-radio-group v-model="form.status">
+            <el-radio v-for="dict in statusDictDatas" :key="parseInt(dict.value)" :label="parseInt(dict.value)">
+              {{ dict.label }}
+            </el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="备注" prop="remark">
+          <el-input v-model="form.remark" type="textarea" :rows="2" placeholder="可选" maxlength="500" />
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitForm">确 定</el-button>
+        <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>
         <el-button @click="cancel">取 消</el-button>
+      </div>
+    </el-dialog>
+
+    <el-dialog
+      :title="bindingTitle"
+      :visible.sync="bindingOpen"
+      width="980px"
+      append-to-body
+      :close-on-click-modal="false"
+    >
+      <el-alert
+        title="供开发或运维在新上业务系统时配置。选定接口系统后，本叶子的各次页面调用会接到该系统里用途相同的接口。保存后，使用者注册、分配角色、同步账号时直接调用，不再选择接口。"
+        type="info"
+        :closable="false"
+        show-icon
+        class="mb8"
+      />
+      <el-form label-width="110px" size="small" class="mb8">
+        <el-form-item label="统一接口系统" style="margin-bottom: 0">
+          <el-select
+            v-model="bindingBulkSystemId"
+            placeholder="选择后填入下方全部调用"
+            filterable
+            clearable
+            style="width: 360px"
+          >
+            <el-option
+              v-for="item in apiOptions"
+              :key="item.subSystemId"
+              :label="item.systemName"
+              :value="item.subSystemId"
+            />
+          </el-select>
+          <el-button type="primary" plain style="margin-left: 8px" @click="applyBulkApiSystem">填入全部调用</el-button>
+        </el-form-item>
+      </el-form>
+      <el-table v-loading="bindingLoading" :data="bindingRows" border>
+        <el-table-column label="页面调用" min-width="180">
+          <template v-slot="scope">
+            <div>{{ scope.row.label }}</div>
+            <div class="form-tip">对应接口用途：{{ scope.row.purposeLabel }}</div>
+          </template>
+        </el-table-column>
+        <el-table-column label="接口系统" min-width="220">
+          <template v-slot="scope">
+            <el-select
+              v-model="scope.row.apiSubSystemId"
+              placeholder="请选择接口系统"
+              filterable
+              clearable
+              style="width: 100%"
+              @change="onBindingSystemChange(scope.row)"
+            >
+              <el-option
+                v-for="item in apiOptions"
+                :key="item.subSystemId"
+                :label="item.systemName"
+                :value="item.subSystemId"
+              />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="具体接口" min-width="320">
+          <template v-slot="scope">
+            <el-select
+              v-model="scope.row.endpointId"
+              placeholder="请选择具体接口"
+              filterable
+              clearable
+              :disabled="!scope.row.apiSubSystemId"
+              style="width: 100%"
+            >
+              <el-option
+                v-for="item in endpointsOf(scope.row)"
+                :key="item.id"
+                :label="endpointLabel(item)"
+                :value="item.id"
+                :disabled="item.enabled === false"
+              />
+            </el-select>
+            <div v-if="scope.row.apiSubSystemId && !endpointsOf(scope.row).length" class="form-tip" style="color:#f56c6c">
+              该系统没有「{{ scope.row.purposeLabel }}」接口
+            </div>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div slot="footer" class="dialog-footer">
+        <el-button type="primary" :loading="bindingSaving" @click="saveApiBinding">保 存</el-button>
+        <el-button @click="bindingOpen = false">取 消</el-button>
       </div>
     </el-dialog>
   </div>
@@ -112,70 +260,128 @@ import {
   getSubSystemWorkshopPage,
   updateSubSystemWorkshop
 } from '@/api/system/subSystemWorkshop'
-import { listSimpleDepts } from '@/api/system/dept'
+import { getLeafApiBindings, getLeafApiOptions, saveLeafApiBindings } from '@/api/system/subSystemApiBinding'
+import { CommonStatusEnum } from '@/utils/constants'
+import { DICT_TYPE, ensureDictDatas, getDictDatas } from '@/utils/dict'
+import subSystemImportGate from '@/utils/subSystemImportGate'
 
 export default {
   name: 'SubSystemWorkshop',
+  mixins: [subSystemImportGate],
   data() {
     return {
       loading: false,
+      submitting: false,
       showSearch: true,
       total: 0,
       workshopList: [],
-      deptOptions: [],
-      /** 库表仍要 subSystemId：后台静默绑定默认业务系统，页面不展示 */
-      defaultSubSystemId: undefined,
+      clientList: [],
+      clientKeyword: '',
+      selectedClient: null,
       title: '',
       open: false,
       checkedIds: [],
+      bindingOpen: false,
+      bindingLoading: false,
+      bindingSaving: false,
+      bindingLeaf: null,
+      bindingRows: [],
+      bindingBulkSystemId: undefined,
+      apiOptions: [],
       queryParams: {
         pageNo: 1,
         pageSize: 10,
-        deptId: undefined,
         workshopCode: undefined,
-        workshopName: undefined
+        workshopName: undefined,
+        status: undefined
       },
       form: {},
       rules: {
-        deptId: [{ required: true, message: '请选择 JUMP 部门', trigger: 'change' }],
-        workshopCode: [{ required: true, message: '车间编码不能为空', trigger: 'blur' }],
-        workshopName: [{ required: true, message: '车间名称不能为空', trigger: 'blur' }]
+        workshopCode: [{ required: true, message: '叶子编号不能为空', trigger: 'blur' }],
+        workshopName: [{ required: true, message: '叶子名称不能为空', trigger: 'blur' }],
+        status: [{ required: true, message: '状态不能为空', trigger: 'change' }]
       }
     }
   },
+  computed: {
+    DICT_TYPE() {
+      return DICT_TYPE
+    },
+    statusDictDatas() {
+      return getDictDatas(DICT_TYPE.COMMON_STATUS)
+    },
+    filteredClientList() {
+      const keyword = (this.clientKeyword || '').trim().toLowerCase()
+      if (!keyword) {
+        return this.clientList
+      }
+      return this.clientList.filter(item =>
+        (item.name && item.name.toLowerCase().includes(keyword)) ||
+        (item.clientId && item.clientId.toLowerCase().includes(keyword))
+      )
+    },
+    bindingTitle() {
+      const leaf = this.bindingLeaf
+      if (!leaf) {
+        return '接口绑定'
+      }
+      return '接口绑定 - ' + (leaf.workshopName || leaf.workshopCode) + '（' + leaf.workshopCode + '）'
+    }
+  },
   created() {
-    this.loadDefaultSubSystem().then(() => {
-      this.getList()
+    ensureDictDatas(DICT_TYPE.COMMON_STATUS).finally(() => {
+      this.loadClientList()
     })
-    this.loadDeptOptions()
   },
   methods: {
-    /** 优先 mes4200（Camstar人员管理门户客户端），否则取第一个已登记系统；仅用于落库，不在页面展示 */
-    loadDefaultSubSystem() {
-      return getSubSystemClientSimpleList(true).then(res => {
-        const list = res.data || []
-        const preferred = list.find(item => item.clientId === 'mes4200') || list[0]
-        this.defaultSubSystemId = preferred ? preferred.id : undefined
-      }).catch(() => {
-        this.defaultSubSystemId = undefined
+    loadClientList() {
+      return this.withClientsLoading(() => {
+        return getSubSystemClientSimpleList(true).then(res => {
+          this.clientList = res.data || []
+          if (this.syncSelectedClientFromList()) {
+            return
+          }
+          if (!this.selectedClient && this.clientList.length > 0) {
+            this.handleClientClick(this.clientList[0])
+          }
+        })
       })
     },
-    loadDeptOptions() {
-      listSimpleDepts().then(res => {
-        this.deptOptions = res.data || []
-      })
+    handleClientClick(item) {
+      this.selectedClient = item
+      this.queryParams.workshopCode = undefined
+      this.queryParams.workshopName = undefined
+      this.queryParams.status = undefined
+      this.queryParams.pageNo = 1
+      this.getList()
     },
     getList() {
+      if (!this.selectedClient) {
+        this.workshopList = []
+        this.total = 0
+        return
+      }
+      const seq = (this._listSeq = (this._listSeq || 0) + 1)
       this.loading = true
-      getSubSystemWorkshopPage({ ...this.queryParams }).then(res => {
+      getSubSystemWorkshopPage({
+        ...this.queryParams,
+        subSystemId: this.selectedClient.id
+      }).then(res => {
+        if (seq !== this._listSeq) {
+          return
+        }
         this.workshopList = res.data.list || []
         this.total = res.data.total || 0
       }).catch(() => {
-        this.workshopList = []
-        this.total = 0
-        this.$modal.msgError('加载车间对照列表失败，请重试')
+        if (seq === this._listSeq) {
+          this.workshopList = []
+          this.total = 0
+        }
+        // 加载失败（含切页主动取消）由请求拦截器统一处理，不再弹通用 toast
       }).finally(() => {
-        this.loading = false
+        if (seq === this._listSeq) {
+          this.loading = false
+        }
       })
     },
     handleQuery() {
@@ -190,11 +396,13 @@ export default {
     resetFormData() {
       this.form = {
         id: undefined,
-        subSystemId: this.defaultSubSystemId,
+        subSystemId: this.selectedClient ? this.selectedClient.id : undefined,
         workshopCode: undefined,
         workshopName: undefined,
-        deptId: undefined,
-        description: undefined
+        productLine: undefined,
+        sort: 0,
+        status: CommonStatusEnum.ENABLE,
+        remark: undefined
       }
       this.resetForm('form')
     },
@@ -203,77 +411,203 @@ export default {
       this.resetFormData()
     },
     handleAdd() {
-      if (!this.defaultSubSystemId) {
-        this.$modal.msgWarning('请先在业务系统登记中至少登记一个系统（页面不展示，仅落库需要）')
-        return
-      }
-      this.resetFormData()
-      this.open = true
-      this.title = '新增车间对照'
+      this.ensureSubSystemBoundBeforeAction('新增叶子', { requireConfirm: false }).then(() => {
+        this.resetFormData()
+        this.open = true
+        this.title = '新增业务系统叶子'
+      }).catch(() => {})
     },
     handleUpdate(row) {
       this.resetFormData()
       getSubSystemWorkshop(row.id).then(res => {
         this.form = {
           id: res.data.id,
-          subSystemId: res.data.subSystemId || this.defaultSubSystemId,
+          subSystemId: res.data.subSystemId,
           workshopCode: res.data.workshopCode,
           workshopName: res.data.workshopName,
-          deptId: res.data.deptId,
-          description: res.data.description
+          productLine: res.data.productLine,
+          sort: res.data.sort == null ? 0 : res.data.sort,
+          status: res.data.status,
+          remark: res.data.remark
         }
         this.open = true
-        this.title = '修改车间对照'
+        this.title = '修改业务系统叶子'
+      }).catch(() => {
+        this.$modal.msgError('加载叶子信息失败')
       })
     },
     submitForm() {
+      if (this.submitting) {
+        return
+      }
       this.$refs.form.validate(valid => {
         if (!valid) {
           return
         }
-        if (!this.form.subSystemId) {
-          this.form.subSystemId = this.defaultSubSystemId
+        this.submitting = true
+        const req = this.form.id ? updateSubSystemWorkshop : createSubSystemWorkshop
+        const payload = {
+          ...this.form,
+          subSystemId: this.selectedClient.id
         }
-        if (!this.form.subSystemId) {
-          this.$modal.msgWarning('缺少默认业务系统，无法保存')
-          return
-        }
-        const request = this.form.id ? updateSubSystemWorkshop : createSubSystemWorkshop
-        request(this.form).then(() => {
+        req(payload).then(() => {
           this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
           this.open = false
           this.getList()
+        }).catch(() => {
+          // 具体原因由请求拦截器提示（叶子编号重复、仍在使用等）
+        }).finally(() => {
+          this.submitting = false
         })
       })
     },
     handleDelete(row) {
-      this.$modal.confirm('是否确认删除车间对照【' + row.workshopName + '】？').then(() => {
+      this.$modal.confirm('是否确认删除叶子「' + row.workshopCode + '」？').then(() => {
         return deleteSubSystemWorkshop(row.id)
       }).then(() => {
-        this.getList()
+        if (this.workshopList && this.workshopList.length === 1 && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.$modal.msgSuccess('删除成功')
+        this.getList()
       }).catch(() => {})
     },
     handleDeleteBatch() {
-      const names = this.workshopList.filter(w => this.checkedIds.includes(w.id)).map(w => w.workshopName)
-      this.$modal.confirm('是否确认删除选中的对照【' + names.join('、') + '】？').then(() => {
+      this.$modal.confirm('是否确认删除选中的 ' + this.checkedIds.length + ' 条叶子？').then(() => {
         return deleteSubSystemWorkshopList(this.checkedIds)
       }).then(() => {
-        this.getList()
+        const removing = (this.checkedIds || []).length
+        if (this.workshopList && this.workshopList.length <= removing && this.queryParams.pageNo > 1) {
+          this.queryParams.pageNo -= 1
+        }
         this.$modal.msgSuccess('删除成功')
+        this.getList()
       }).catch(() => {})
     },
     handleRowCheckboxChange(selection) {
       this.checkedIds = selection.map(item => item.id)
+    },
+    openApiBinding(row) {
+      this.bindingLeaf = row
+      this.bindingRows = []
+      this.bindingBulkSystemId = undefined
+      this.bindingOpen = true
+      this.bindingLoading = true
+      Promise.all([
+        getLeafApiOptions(),
+        getLeafApiBindings(row.subSystemId, row.workshopCode)
+      ]).then(([optionRes, listRes]) => {
+        this.apiOptions = optionRes.data || []
+        const saved = (listRes.data && listRes.data.bindings) || []
+        this.bindingRows = ((listRes.data && listRes.data.scenes) || []).map(scene => {
+          const hit = saved.find(item => item.scene === scene.scene) || {}
+          return {
+            ...scene,
+            apiSubSystemId: hit.apiSubSystemId,
+            endpointId: hit.endpointId
+          }
+        })
+        this.bindingRows.forEach(row => {
+          if (row.apiSubSystemId && !this.endpointsOf(row).some(item => item.id === row.endpointId)) {
+            row.endpointId = undefined
+            this.onBindingSystemChange(row)
+          }
+        })
+      }).catch(() => {
+        this.bindingRows = []
+      }).finally(() => {
+        this.bindingLoading = false
+      })
+    },
+    endpointsOf(row) {
+      const system = (this.apiOptions || []).find(item => item.subSystemId === row.apiSubSystemId)
+      const endpoints = system && system.endpoints ? system.endpoints : []
+      return endpoints.filter(item => item.purpose === row.purpose)
+    },
+    endpointLabel(item) {
+      return item.url || item.name || item.purposeLabel || '接口'
+    },
+    onBindingSystemChange(row) {
+      const endpoints = this.endpointsOf(row)
+      if (endpoints.some(item => item.id === row.endpointId)) {
+        return
+      }
+      const enabled = endpoints.filter(item => item.enabled !== false)
+      row.endpointId = enabled.length === 1 ? enabled[0].id : undefined
+    },
+    applyBulkApiSystem() {
+      if (!this.bindingBulkSystemId) {
+        this.$modal.msgWarning('请先选择接口系统')
+        return
+      }
+      ;(this.bindingRows || []).forEach(row => {
+        row.apiSubSystemId = this.bindingBulkSystemId
+        row.endpointId = undefined
+        this.onBindingSystemChange(row)
+      })
+    },
+    saveApiBinding() {
+      if (!this.bindingLeaf || this.bindingSaving) {
+        return
+      }
+      const incomplete = (this.bindingRows || []).find(row =>
+        (row.apiSubSystemId && !row.endpointId) || (!row.apiSubSystemId && row.endpointId)
+      )
+      if (incomplete) {
+        this.$modal.msgWarning('「' + incomplete.label + '」需要同时选择接口系统和具体接口')
+        return
+      }
+      this.bindingSaving = true
+      saveLeafApiBindings({
+        bizSubSystemId: this.bindingLeaf.subSystemId,
+        workshopCode: this.bindingLeaf.workshopCode,
+        items: (this.bindingRows || []).map(row => ({
+          scene: row.scene,
+          apiSubSystemId: row.apiSubSystemId || null,
+          endpointId: row.endpointId || null
+        }))
+      }).then(() => {
+        this.$modal.msgSuccess('接口绑定已保存')
+        this.bindingOpen = false
+      }).finally(() => {
+        this.bindingSaving = false
+      })
     }
   }
 }
 </script>
 
-<style scoped>
-.el-form-item__tip {
-  font-size: 12px;
+<style lang="scss" scoped>
+.sub-system-list {
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+}
+.sub-system-item {
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  cursor: pointer;
+  &.is-active {
+    border-color: #409eff;
+    background: #ecf5ff;
+  }
+  &__name {
+    font-weight: 600;
+    margin-bottom: 4px;
+  }
+  &__meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #909399;
+  }
+}
+.form-tip {
   color: #909399;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 4px;
 }
 </style>

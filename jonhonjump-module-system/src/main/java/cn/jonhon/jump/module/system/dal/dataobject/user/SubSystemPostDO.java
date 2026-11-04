@@ -22,5 +22,7 @@ public class SubSystemPostDO extends BaseDO {
     private String code;
     private Integer sort;
     private Integer status;
+    /** 车间编号（可空；写在岗位自身，不依赖系统车间对照） */
+    private String workshopCode;
 
 }

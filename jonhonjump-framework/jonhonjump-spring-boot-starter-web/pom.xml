@@ -52,6 +52,11 @@
             <artifactId>spring-security-core</artifactId>
             <scope>provided</scope> <!-- 设置为 provided，主要是 GlobalExceptionHandler 使用 -->
         </dependency>
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+            <scope>provided</scope> <!-- 设置为 provided，主要是 GlobalExceptionHandler 翻译数据库异常使用；运行时由 mybatis 相关 starter 提供 -->
+        </dependency>
 
         <!-- 工具类相关 -->
         <dependency>

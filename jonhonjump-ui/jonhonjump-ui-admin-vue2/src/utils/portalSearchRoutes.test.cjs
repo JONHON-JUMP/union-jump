@@ -1,5 +1,5 @@
 const assert = require('assert')
-const { resolveCurrentSystemSearchRoutes, resolveCurrentSystemLabel } = require('./portalSearchRoutes')
+const { resolveCurrentSystemSearchRoutes } = require('./portalSearchRoutes')
 
 const mainRoutes = [
   { path: '/login', hidden: true },
@@ -40,10 +40,5 @@ assert.deepEqual(
   resolveCurrentSystemSearchRoutes(state).map(route => route.path),
   ['/portal/mes/plan']
 )
-
-assert.equal(resolveCurrentSystemLabel(state), 'MES车间')
-
-state.portal.currentSystem = 'main'
-assert.equal(resolveCurrentSystemLabel(state), 'JUMP 主系统')
 
 console.log('portalSearchRoutes tests passed')

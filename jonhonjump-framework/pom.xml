@@ -23,6 +23,7 @@
         <module>jonhonjump-spring-boot-starter-mq</module>
         <module>jonhonjump-spring-boot-starter-minio</module>
         <module>jonhonjump-spring-boot-starter-recipe-change-consumer</module>
+        <module>jonhonjump-biz-mpm</module>
 
         <module>jonhonjump-spring-boot-starter-excel</module>
         <module>jonhonjump-spring-boot-starter-test</module>

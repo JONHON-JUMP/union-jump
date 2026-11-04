@@ -116,12 +116,12 @@ public interface RedisKeyConstants {
     String USER_QUICK_NAV = "user_quick_nav:%s";
 
     /**
-     * 用户外部子系统快捷导航的缓存
+     * 用户外部子系统快捷导航（按叶子车间隔离）
      * <p>
-     * KEY 格式：sub_system_user_quick_nav:{userId}:{subSystemId}
-     * VALUE 数据格式：String {@link cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.SubSystemUserQuickNavRespVO}
+     * KEY：sub_system_user_quick_nav_v3:{userId}:{subSystemId}:{workshopCode|-}
+     * VALUE：{@link cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.SubSystemUserQuickNavRespVO}
      */
-    String SUB_SYSTEM_USER_QUICK_NAV = "sub_system_user_quick_nav_v2:%s:%s";
+    String SUB_SYSTEM_USER_QUICK_NAV = "sub_system_user_quick_nav_v3:%s:%s:%s";
 
     /**
      * 登录用户权限信息缓存

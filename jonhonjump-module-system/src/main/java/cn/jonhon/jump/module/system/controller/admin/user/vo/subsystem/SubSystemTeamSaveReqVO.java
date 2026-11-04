@@ -18,9 +18,12 @@ public class SubSystemTeamSaveReqVO {
     @NotNull(message = "业务系统不能为空")
     private Long subSystemId;
 
-    @Schema(description = "JUMP 部门 ID（车间对照中的部门）", requiredMode = Schema.RequiredMode.REQUIRED, example = "100")
-    @NotNull(message = "所属部门不能为空")
+    @Schema(description = "JUMP 部门 ID（可选）", example = "100")
     private Long deptId;
+
+    @Schema(description = "车间编号（可空）", example = "4200")
+    @Size(max = 50, message = "车间编号长度不能超过 50 个字符")
+    private String workshopCode;
 
     @Schema(description = "班组编码", requiredMode = Schema.RequiredMode.REQUIRED, example = "WS01-T01")
     @NotBlank(message = "班组编码不能为空")

@@ -3,43 +3,63 @@ import { getSubSystemClientSimpleList } from '@/api/system/subSystemUsers'
 
 export { getSubSystemClientSimpleList }
 
-// 外部系统车间分页
-export function getSubSystemWorkshopPage(query) {
-  return request({ url: '/system/sub-system-workshop/page', method: 'get', params: query })
-}
-// 外部系统车间详情
-export function getSubSystemWorkshop(id) {
-  return request({ url: '/system/sub-system-workshop/get?id=' + id, method: 'get' })
-}
-// 新增外部系统车间
-export function createSubSystemWorkshop(data) {
-  return request({ url: '/system/sub-system-workshop/create', method: 'post', data })
-}
-// 修改外部系统车间
-export function updateSubSystemWorkshop(data) {
-  return request({ url: '/system/sub-system-workshop/update', method: 'put', data })
-}
-// 删除外部系统车间
-export function deleteSubSystemWorkshop(id) {
-  return request({ url: '/system/sub-system-workshop/delete?id=' + id, method: 'delete' })
-}
-// 批量删除外部系统车间
-export function deleteSubSystemWorkshopList(ids) {
-  return request({ url: '/system/sub-system-workshop/delete-list?ids=' + ids.join(','), method: 'delete' })
-}
-// 车间精简列表（人员/用户表单下拉，可按部门过滤）
-export function getSubSystemWorkshopSimpleList(subSystemId, deptId) {
+/** 业务系统子表叶子列表（启用态字典/辅助筛选） */
+export function getSubSystemWorkshopList() {
   return request({
-    url: '/system/sub-system-workshop/simple-list',
-    method: 'get',
-    params: { subSystemId, deptId }
+    url: '/system/sub-system-workshop/list',
+    method: 'get'
   })
 }
-// 按部门查映射车间（用户创建联动）
-export function getSubSystemWorkshopByDept(subSystemId, deptId) {
+
+/** 人员可挂外部树：仅子表叶子可选 */
+export function getHangableExternalTree() {
   return request({
-    url: '/system/sub-system-workshop/by-dept',
+    url: '/system/sub-system-workshop/hangable-tree',
+    method: 'get'
+  })
+}
+
+export function getSubSystemWorkshopPage(query) {
+  return request({
+    url: '/system/sub-system-workshop/page',
     method: 'get',
-    params: { subSystemId, deptId }
+    params: query
+  })
+}
+
+export function getSubSystemWorkshop(id) {
+  return request({
+    url: '/system/sub-system-workshop/get?id=' + id,
+    method: 'get'
+  })
+}
+
+export function createSubSystemWorkshop(data) {
+  return request({
+    url: '/system/sub-system-workshop/create',
+    method: 'post',
+    data: data
+  })
+}
+
+export function updateSubSystemWorkshop(data) {
+  return request({
+    url: '/system/sub-system-workshop/update',
+    method: 'put',
+    data: data
+  })
+}
+
+export function deleteSubSystemWorkshop(id) {
+  return request({
+    url: '/system/sub-system-workshop/delete?id=' + id,
+    method: 'delete'
+  })
+}
+
+export function deleteSubSystemWorkshopList(ids) {
+  return request({
+    url: '/system/sub-system-workshop/delete-list?ids=' + ids.join(','),
+    method: 'delete'
   })
 }

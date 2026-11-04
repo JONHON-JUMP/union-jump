@@ -21,12 +21,27 @@ const state = {
   dictDatas: {}
 }
 
+/** 该类型已有响应式占位数组时原地填充（保引用），否则 Vue.set 新建 */
+function fillDictTypeInPlace(state, dictType, list) {
+  const target = state.dictDatas[dictType]
+  if (Array.isArray(target)) {
+    target.splice(0, target.length, ...(list || []))
+  } else {
+    Vue.set(state.dictDatas, dictType, list || [])
+  }
+}
+
 const mutations = {
   SET_DICT_DATAS: (state, dictDatas) => {
-    state.dictDatas = dictDatas
+    // 按 key 合并并原地填充，不整体替换 map：组件 data() 持有的是各类型数组的引用，
+    // 整体替换会让引用失效，已渲染的表单选项（如部门状态）会突然变回空白
+    const next = dictDatas || {}
+    Object.keys(next).forEach(dictType => {
+      fillDictTypeInPlace(state, dictType, next[dictType])
+    })
   },
   MERGE_DICT_TYPE: (state, { dictType, list }) => {
-    Vue.set(state.dictDatas, dictType, list)
+    fillDictTypeInPlace(state, dictType, list)
   }
 }
 

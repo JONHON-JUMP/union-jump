@@ -18,6 +18,11 @@ public interface SubSystemRoleQuickNavService {
      */
     List<Long> getUserDefaultMenuIds(Long userId, Long subSystemId);
 
+    /**
+     * 仅合并指定车间叶子挂接行上的角色默认快捷导航（多叶子互不串）
+     */
+    List<Long> getUserDefaultMenuIds(Long userId, Long subSystemId, String workshopCode);
+
     void deleteByRoleId(Long roleId);
 
     void deleteByRoleIds(List<Long> roleIds);

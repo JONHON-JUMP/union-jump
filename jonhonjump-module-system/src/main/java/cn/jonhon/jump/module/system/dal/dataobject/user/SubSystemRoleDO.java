@@ -39,5 +39,13 @@ public class SubSystemRoleDO extends BaseDO {
      * 角色接口注册状态（0未注册 1已注册；调「角色新增」接口成功自动置1，页面可改）
      */
     private String roleRegistered;
+    /**
+     * 外部系统角色 ID（Camstar ROLEDEF.roleId）；同步分配角色按 ID 上挂，未绑定的角色不参与外部同步
+     */
+    private String externalRoleId;
+    /**
+     * 车间编号（可空；同步/关联外部优先用本字段，不依赖业务系统车间对照）
+     */
+    private String workshopCode;
 
 }

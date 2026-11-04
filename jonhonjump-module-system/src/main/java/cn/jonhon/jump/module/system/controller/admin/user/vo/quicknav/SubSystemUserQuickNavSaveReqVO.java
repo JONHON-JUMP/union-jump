@@ -14,6 +14,9 @@ public class SubSystemUserQuickNavSaveReqVO {
     @NotNull(message = "外部子系统编号不能为空")
     private Long subSystemId;
 
+    @Schema(description = "叶子车间编号（多车间入口时必传，互不覆盖）", example = "5501")
+    private String workshopCode;
+
     @Schema(description = "子系统菜单编号列表（按显示顺序）", requiredMode = Schema.RequiredMode.REQUIRED)
     @NotNull(message = "菜单编号列表不能为空")
     private List<Long> menuIds;

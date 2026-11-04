@@ -37,6 +37,8 @@ public class SubSystemMenuController {
     private SubSystemMetaImportService subSystemMetaImportService;
     @Resource
     private SubSystemPermissionContextService subSystemPermissionContextService;
+    @Resource
+    private cn.jonhon.jump.module.system.service.user.SubSystemAccessService subSystemAccessService;
 
     @GetMapping("/list")
     @Operation(summary = "获得外部系统菜单列表")
@@ -108,6 +110,8 @@ public class SubSystemMenuController {
     @Parameter(name = "subSystemId", description = "外部系统编号", required = true)
     @PreAuthorize("@ss.hasPermission('sub-system:menu:update')")
     public CommonResult<Boolean> clearPortalMenuCache(@RequestParam("subSystemId") Long subSystemId) {
+        // 可管系统范围校验：受限角色只能清授权系统的缓存
+        subSystemAccessService.checkAccessible(subSystemId);
         subSystemPermissionContextService.evictBySubSystemId(subSystemId);
         return success(true);
     }

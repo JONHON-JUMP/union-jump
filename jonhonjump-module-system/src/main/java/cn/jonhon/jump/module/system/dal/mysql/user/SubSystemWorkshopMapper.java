@@ -7,57 +7,47 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemWorkshopDO;
 import org.apache.ibatis.annotations.Mapper;
 
+import java.util.Collection;
 import java.util.List;
 
 @Mapper
 public interface SubSystemWorkshopMapper extends BaseMapperX<SubSystemWorkshopDO> {
 
-    default PageResult<SubSystemWorkshopDO> selectPage(SubSystemWorkshopPageReqVO reqVO) {
+    default PageResult<SubSystemWorkshopDO> selectPage(SubSystemWorkshopPageReqVO reqVO,
+                                                       Collection<Long> allowedSubSystemIds) {
         return selectPage(reqVO, new LambdaQueryWrapperX<SubSystemWorkshopDO>()
                 .eqIfPresent(SubSystemWorkshopDO::getSubSystemId, reqVO.getSubSystemId())
-                .eqIfPresent(SubSystemWorkshopDO::getDeptId, reqVO.getDeptId())
+                .inIfPresent(SubSystemWorkshopDO::getSubSystemId, allowedSubSystemIds)
                 .likeIfPresent(SubSystemWorkshopDO::getWorkshopCode, reqVO.getWorkshopCode())
                 .likeIfPresent(SubSystemWorkshopDO::getWorkshopName, reqVO.getWorkshopName())
-                .betweenIfPresent(SubSystemWorkshopDO::getCreateTime, reqVO.getCreateTime())
+                .eqIfPresent(SubSystemWorkshopDO::getStatus, reqVO.getStatus())
+                .orderByAsc(SubSystemWorkshopDO::getSort)
                 .orderByAsc(SubSystemWorkshopDO::getWorkshopCode)
                 .orderByDesc(SubSystemWorkshopDO::getId));
     }
 
-    default List<SubSystemWorkshopDO> selectListBySubSystemId(Long subSystemId) {
+    default List<SubSystemWorkshopDO> selectEnabledBySubSystemId(Long subSystemId) {
         return selectList(new LambdaQueryWrapperX<SubSystemWorkshopDO>()
                 .eq(SubSystemWorkshopDO::getSubSystemId, subSystemId)
+                .eq(SubSystemWorkshopDO::getStatus, 0)
+                .orderByAsc(SubSystemWorkshopDO::getSort)
                 .orderByAsc(SubSystemWorkshopDO::getWorkshopCode));
     }
 
-    default List<SubSystemWorkshopDO> selectListByDeptId(Long deptId) {
+    default List<SubSystemWorkshopDO> selectEnabledList() {
         return selectList(new LambdaQueryWrapperX<SubSystemWorkshopDO>()
-                .eq(SubSystemWorkshopDO::getDeptId, deptId)
+                .eq(SubSystemWorkshopDO::getStatus, 0)
+                .orderByAsc(SubSystemWorkshopDO::getSort)
                 .orderByAsc(SubSystemWorkshopDO::getWorkshopCode));
     }
 
-    default List<SubSystemWorkshopDO> selectListBySubSystemIdAndDeptId(Long subSystemId, Long deptId) {
-        return selectList(new LambdaQueryWrapperX<SubSystemWorkshopDO>()
-                .eq(SubSystemWorkshopDO::getSubSystemId, subSystemId)
-                .eq(SubSystemWorkshopDO::getDeptId, deptId)
-                .orderByAsc(SubSystemWorkshopDO::getWorkshopCode));
-    }
-
-    default SubSystemWorkshopDO selectBySubSystemIdAndWorkshopCode(Long subSystemId, String workshopCode) {
+    default SubSystemWorkshopDO selectByWorkshopCode(String workshopCode) {
         return selectOne(new LambdaQueryWrapperX<SubSystemWorkshopDO>()
-                .eq(SubSystemWorkshopDO::getSubSystemId, subSystemId)
                 .eq(SubSystemWorkshopDO::getWorkshopCode, workshopCode));
     }
 
-    default SubSystemWorkshopDO selectBySubSystemIdAndWorkshopName(Long subSystemId, String workshopName) {
-        return selectOne(new LambdaQueryWrapperX<SubSystemWorkshopDO>()
-                .eq(SubSystemWorkshopDO::getSubSystemId, subSystemId)
-                .eq(SubSystemWorkshopDO::getWorkshopName, workshopName));
-    }
-
-    default Long selectCountByWorkshopCode(Long subSystemId, String workshopCode) {
-        return selectCount(new LambdaQueryWrapperX<SubSystemWorkshopDO>()
-                .eq(SubSystemWorkshopDO::getSubSystemId, subSystemId)
-                .eq(SubSystemWorkshopDO::getWorkshopCode, workshopCode));
+    default Long selectCountBySubSystemId(Long subSystemId) {
+        return selectCount(SubSystemWorkshopDO::getSubSystemId, subSystemId);
     }
 
 }
