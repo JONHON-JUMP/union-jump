@@ -13,12 +13,12 @@ import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
@@ -27,7 +27,7 @@ import org.springframework.web.client.RestTemplate;
  * 当 MES 应用通过配置显式启用 Starter 后，本类负责创建专用 RabbitMQ 连接工厂、JSON 消息转换器、手动确认监听容器、JUMP HTTP 客户端和消费监听器
  * Starter 只使用 jonhonjump.recipe-change.consumer.rabbitmq 创建的专用连接，不读取或修改 MES 项目的 spring.rabbitmq 连接配置
  */
-@AutoConfiguration
+@Configuration
 @ConditionalOnClass(SimpleRabbitListenerContainerFactory.class)
 @ConditionalOnProperty(prefix = "jonhonjump.recipe-change.consumer", name = "enabled", havingValue = "true")
 @EnableConfigurationProperties(RecipeChangeConsumerProperties.class)

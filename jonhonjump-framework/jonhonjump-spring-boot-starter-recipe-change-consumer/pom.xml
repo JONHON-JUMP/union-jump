@@ -11,7 +11,7 @@
 
     <artifactId>jonhonjump-spring-boot-starter-recipe-change-consumer</artifactId>
     <!-- Starter 独立发布版本，修改此处即可生成供 MES 项目引用的新版本 -->
-    <version>2026.11.3.4</version>
+    <version>2026.11.4.1</version>
     <packaging>jar</packaging>
 
     <name>${project.artifactId}</name>
