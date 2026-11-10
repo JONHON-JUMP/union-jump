@@ -363,7 +363,7 @@ jonhonjump:
       # 每天北京时间0点及应用启动时刷新；mpm-access-token仅作为首次刷新前的兜底
       temporary-process-url: http://192.168.240.10:10011/api/jonhon/erpdata/mesdatainterface/sono/rest/SonoRest/GetPrtRoutInfo/v1 # MES 临时工艺信息查询接口地址
       temporary-process-token: Basic YXZpY2l0MjAxNTphdmljaXQyMDE1 # MES 临时工艺信息查询接口请求头 Authorization 的值，向 MES 平台管理员申请后填入，暂默认为空
-      formal-process-url: http://mpm.caoe.com/plm-service/api/gate/object/v1/queryObjectInfo # MES 正式工艺版本查询接口地址
+      formal-process-url: http://mpm.caoe.com/mpm-service/api/gate/object/v1/queryObjectInfo # MES 正式工艺版本查询接口地址
       process-file-url: http://mpm.caoe.com/mpm-service/api/gate/release/v1/processReleaseForMes # MES 工艺文件地址查询接口地址
       mpm-access-token: eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJnbGF3YXkiLCJleHAiOjE3ODkxMDUzMTcsImp0aSI6IjA3MGZkMTNjLTVjMTQtNDg4MC1iMzdlLTRiZjJiODkxNjU5ZCIsInVzZXJuYW1lIjoiTVBNSkNVU0VSIn0.JhJTMceT4EJFyq1bsWlO_NPq3czStbMcit4JtNN_fik # MPM 平台接口请求头 X-Access-Token 的值，向 MPM 平台管理员申请后填入
 
