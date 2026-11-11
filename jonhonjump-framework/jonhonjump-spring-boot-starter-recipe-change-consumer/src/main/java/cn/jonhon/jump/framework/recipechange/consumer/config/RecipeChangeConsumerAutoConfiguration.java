@@ -6,25 +6,19 @@ import cn.jonhon.jump.framework.recipechange.consumer.core.RecipeChangeDingTalkA
 import cn.jonhon.jump.framework.recipechange.consumer.core.RecipeChangeMessageProcessor;
 import cn.jonhon.jump.framework.recipechange.consumer.listener.RecipeChangeMessageListener;
 import org.springframework.amqp.core.AcknowledgeMode;
-import org.springframework.amqp.core.BindingBuilder;
-import org.springframework.amqp.core.DirectExchange;
-import org.springframework.amqp.core.Queue;
-import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.rabbit.config.SimpleRabbitListenerContainerFactory;
 import org.springframework.amqp.rabbit.connection.CachingConnectionFactory;
 import org.springframework.amqp.rabbit.connection.ConnectionFactory;
-import org.springframework.amqp.rabbit.core.RabbitAdmin;
 import org.springframework.amqp.support.converter.Jackson2JsonMessageConverter;
 import org.springframework.amqp.support.converter.MessageConverter;
-import org.springframework.beans.factory.InitializingBean;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 
@@ -33,7 +27,7 @@ import org.springframework.web.client.RestTemplate;
  * 当 MES 应用通过配置显式启用 Starter 后，本类负责创建专用 RabbitMQ 连接工厂、JSON 消息转换器、手动确认监听容器、JUMP HTTP 客户端和消费监听器
  * Starter 只使用 jonhonjump.recipe-change.consumer.rabbitmq 创建的专用连接，不读取或修改 MES 项目的 spring.rabbitmq 连接配置
  */
-@AutoConfiguration
+@Configuration
 @ConditionalOnClass(SimpleRabbitListenerContainerFactory.class)
 @ConditionalOnProperty(prefix = "jonhonjump.recipe-change.consumer", name = "enabled", havingValue = "true")
 @EnableConfigurationProperties(RecipeChangeConsumerProperties.class)
@@ -47,8 +41,8 @@ public class RecipeChangeConsumerAutoConfiguration {
      */
     @Bean("recipeChangeConsumerQueueNames")
     public String[] recipeChangeConsumerQueueNames(RecipeChangeConsumerProperties recipeChangeConsumerProperties) {
-        // 校验车间列表及拓扑参数，避免监听到错误队列或遗漏某个配置车间。
-        recipeChangeConsumerProperties.validateRabbitInfrastructureProperties();
+        // Starter 只校验 MES 要监听的车间；队列、交换机和绑定全部由 JUMP 注册。
+        recipeChangeConsumerProperties.validateWorkshopCodes();
         // 通过显式命名 Bean 向 @RabbitListener 提供所有队列名；列表中每个车间均会被同一个 MES 实例消费。
         return recipeChangeConsumerProperties.getWorkshopCodes().stream()
                 .map(recipeChangeConsumerProperties::getQueueName)
@@ -63,96 +57,22 @@ public class RecipeChangeConsumerAutoConfiguration {
      */
     @Bean("recipeChangeConnectionFactory")
     @ConditionalOnMissingBean(name = "recipeChangeConnectionFactory")
-    public ConnectionFactory recipeChangeConnectionFactory(RecipeChangeConsumerProperties recipeChangeConsumerProperties) {
-        // 启动前显式校验全部专用连接参数，避免遗漏配置时连接到错误的 RabbitMQ Broker
-        recipeChangeConsumerProperties.validateRabbitMQProperties();
-        // 读取 jonhonjump 下的专用连接配置，不使用 MES 全局 spring.rabbitmq 配置
-        RecipeChangeConsumerProperties.RabbitMQProperties rabbitmqProperties = recipeChangeConsumerProperties.getRabbitmq();
+    public ConnectionFactory recipeChangeConnectionFactory() {
+        // 连接参数由 Starter 内置；基础设施变更时通过重新发布 Starter 统一更新 MES。
         // 创建带连接复用能力的连接工厂，减少同一车间持续消费时重复建立 TCP 连接的开销
         CachingConnectionFactory connectionFactory = new CachingConnectionFactory();
         // 设置专用 RabbitMQ 服务地址
-        connectionFactory.setHost(rabbitmqProperties.getHost());
+        connectionFactory.setHost(RecipeChangeConsumerConstants.RABBITMQ_HOST);
         // 设置专用 RabbitMQ 服务端口
-        connectionFactory.setPort(rabbitmqProperties.getPort());
+        connectionFactory.setPort(RecipeChangeConsumerConstants.RABBITMQ_PORT);
         // 设置专用 RabbitMQ 登录用户名
-        connectionFactory.setUsername(rabbitmqProperties.getUsername());
+        connectionFactory.setUsername(RecipeChangeConsumerConstants.RABBITMQ_USERNAME);
         // 设置专用 RabbitMQ 登录密码
-        connectionFactory.setPassword(rabbitmqProperties.getPassword());
+        connectionFactory.setPassword(RecipeChangeConsumerConstants.RABBITMQ_PASSWORD);
         // 设置专用 RabbitMQ 虚拟主机
-        connectionFactory.setVirtualHost(rabbitmqProperties.getVirtualHost());
+        connectionFactory.setVirtualHost(RecipeChangeConsumerConstants.RABBITMQ_VIRTUAL_HOST);
         // 返回命名连接工厂，供工艺变更监听容器通过限定名称注入
         return connectionFactory;
-    }
-
-    /**
-     * 创建仅用于工艺变更 Exchange、队列和绑定声明的 RabbitAdmin
-     *
-     * @param recipeChangeConnectionFactory 工艺变更消费者专用 RabbitMQ 连接工厂
-     * @return 工艺变更专用 RabbitMQ 管理对象
-     */
-    @Bean("recipeChangeAmqpAdmin")
-    public RabbitAdmin recipeChangeAmqpAdmin(@Qualifier("recipeChangeConnectionFactory") ConnectionFactory recipeChangeConnectionFactory) {
-        // 使用工艺变更专用连接声明消息基础设施，不会在 MES 其他业务 RabbitMQ Broker 上创建资源
-        return new RabbitAdmin(recipeChangeConnectionFactory);
-    }
-
-    /**
-     * 在 MES 启动阶段显式声明工艺变更主队列、延迟重试队列、交换机及绑定
-     *
-     * @param recipeChangeAmqpAdmin 工艺变更专用 RabbitMQ 管理对象
-     * @param recipeChangeConsumerProperties Starter 配置，提供车间和消息拓扑参数
-     * @return Spring 初始化回调，确保监听容器启动前 RabbitMQ 基础设施已存在
-     */
-    @Bean
-    public InitializingBean recipeChangeRabbitInfrastructureInitializer(@Qualifier("recipeChangeAmqpAdmin") RabbitAdmin recipeChangeAmqpAdmin, RecipeChangeConsumerProperties recipeChangeConsumerProperties) {
-        return () -> declareRabbitInfrastructure(recipeChangeAmqpAdmin, recipeChangeConsumerProperties);
-    }
-
-    /**
-     * 按全部配置车间声明与 JUMP 完全一致的 RabbitMQ 主消费和延迟重试拓扑
-     *
-     * @param recipeChangeAmqpAdmin 工艺变更专用 RabbitMQ 管理对象
-     * @param recipeChangeConsumerProperties Starter 配置，提供交换机、队列和延迟参数
-     */
-    private void declareRabbitInfrastructure(RabbitAdmin recipeChangeAmqpAdmin, RecipeChangeConsumerProperties recipeChangeConsumerProperties) {
-        // 声明前校验所有基础设施参数，遗漏配置时阻止监听器在错误拓扑上启动
-        recipeChangeConsumerProperties.validateRabbitInfrastructureProperties();
-        // 按配置创建持久化主交换机，JUMP 向该交换机发布工艺变更消息
-        DirectExchange recipeChangeExchange = new DirectExchange(recipeChangeConsumerProperties.getExchange(), true, false);
-        // 按配置创建持久化延迟重试交换机，主队列失败消息通过死信投递到该交换机
-        DirectExchange recipeChangeRetryExchange = new DirectExchange(recipeChangeConsumerProperties.getRetryExchange(), true, false);
-        // 先声明两个共用交换机，使 MES 可在 JUMP 首次分发前安全启动。
-        recipeChangeAmqpAdmin.declareExchange(recipeChangeExchange);
-        recipeChangeAmqpAdmin.declareExchange(recipeChangeRetryExchange);
-        // 每个车间拥有独立主队列、延迟队列及路由键，消息失败后只会回流本车间主队列。
-        for (String workshopCode : recipeChangeConsumerProperties.getWorkshopCodes()) {
-            // 拼接当前车间主消费队列名称。
-            String queueName = recipeChangeConsumerProperties.getQueueName(workshopCode);
-            // 按车间覆盖配置取得当前生效的版本化延迟重试队列名称。
-            String retryQueueName = recipeChangeConsumerProperties.getRetryQueueName(workshopCode);
-            // 拼接主交换机投递至当前车间主队列的路由键。
-            String routingKey = recipeChangeConsumerProperties.getRoutingKeyPrefix() + workshopCode;
-            // 拼接主队列死信投递至当前车间延迟重试队列的路由键。
-            String retryRoutingKey = recipeChangeConsumerProperties.getRetryRoutingKeyPrefix() + workshopCode;
-            // 主队列拒绝消息时，Broker 将消息转入本车间延迟重试交换机而非立即重新投递。
-            Queue queue = QueueBuilder.durable(queueName)
-                    .withArgument("x-dead-letter-exchange", recipeChangeRetryExchange.getName())
-                    .withArgument("x-dead-letter-routing-key", retryRoutingKey)
-                    .build();
-            // 将本车间生效 TTL 写入延迟队列；JUMP 与 Starter 对同一车间的名称和 TTL 必须一致。
-            Queue retryQueue = QueueBuilder.durable(retryQueueName)
-                    .withArgument("x-dead-letter-exchange", recipeChangeExchange.getName())
-                    .withArgument("x-dead-letter-routing-key", routingKey)
-                    .withArgument("x-message-ttl", recipeChangeConsumerProperties.getRetryDelayMillis(workshopCode))
-                    .build();
-            // 显式声明本车间主队列和延迟重试队列，重复声明且属性一致时是幂等操作。
-            recipeChangeAmqpAdmin.declareQueue(queue);
-            recipeChangeAmqpAdmin.declareQueue(retryQueue);
-            // 绑定主队列，确保 JUMP 主交换机的本车间消息可以路由到 MES 监听队列。
-            recipeChangeAmqpAdmin.declareBinding(BindingBuilder.bind(queue).to(recipeChangeExchange).with(routingKey));
-            // 每个重试路由键只绑定当前生效的一个版本化延迟队列，避免同一失败消息被重复延迟。
-            recipeChangeAmqpAdmin.declareBinding(BindingBuilder.bind(retryQueue).to(recipeChangeRetryExchange).with(retryRoutingKey));
-        }
     }
 
     /**
@@ -185,6 +105,8 @@ public class RecipeChangeConsumerAutoConfiguration {
         factory.setConnectionFactory(recipeChangeConnectionFactory);
         // 强制手动确认，只有监听器明确 basicAck 才会从队列移除消息
         factory.setAcknowledgeMode(AcknowledgeMode.MANUAL);
+        // 队列仅由 JUMP 在首次分发对应车间消息前注册；MES 先启动时等待监听容器自动恢复，不能因此启动失败。
+        factory.setMissingQueuesFatal(false);
         // 未捕获异常时默认重新入队，作为监听器显式 nack 逻辑之外的最后保护
         factory.setDefaultRequeueRejected(true);
         // 注入专用 JSON 转换器，确保消息体稳定转换为 RecipeChangeMessageDTO
@@ -202,9 +124,9 @@ public class RecipeChangeConsumerAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean
-    public RecipeChangeJUMPClient recipeChangeJUMPClient(RecipeChangeConsumerProperties recipeChangeConsumerProperties, RestTemplate recipeChangeRestTemplate) {
+    public RecipeChangeJUMPClient recipeChangeJUMPClient(RestTemplate recipeChangeRestTemplate) {
         // 组合 HTTP 调用模板与 Starter 配置，创建用于查询状态和上报回调的默认客户端
-        return new RecipeChangeJUMPHttpClient(recipeChangeRestTemplate, recipeChangeConsumerProperties);
+        return new RecipeChangeJUMPHttpClient(recipeChangeRestTemplate);
     }
 
     /**
@@ -215,13 +137,13 @@ public class RecipeChangeConsumerAutoConfiguration {
      */
     @Bean
     @ConditionalOnMissingBean(name = "recipeChangeRestTemplate")
-    public RestTemplate recipeChangeRestTemplate(RecipeChangeConsumerProperties recipeChangeConsumerProperties) {
+    public RestTemplate recipeChangeRestTemplate() {
         // 创建底层 HTTP 请求工厂，以便分别配置连接和读取超时
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
         // 设置建立到 JUMP 服务 TCP 连接的最长等待时间
-        requestFactory.setConnectTimeout(recipeChangeConsumerProperties.getConnectTimeoutMillis());
+        requestFactory.setConnectTimeout(RecipeChangeConsumerConstants.CONNECT_TIMEOUT_MILLIS);
         // 设置连接建立后等待 JUMP 响应数据的最长时间
-        requestFactory.setReadTimeout(recipeChangeConsumerProperties.getReadTimeoutMillis());
+        requestFactory.setReadTimeout(RecipeChangeConsumerConstants.READ_TIMEOUT_MILLIS);
         // 使用上述请求工厂创建 RestTemplate，避免影响 MES 应用已有的 RestTemplate Bean
         return new RestTemplate(requestFactory);
     }

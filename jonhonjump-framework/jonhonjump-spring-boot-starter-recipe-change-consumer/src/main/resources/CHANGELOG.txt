@@ -1,5 +1,13 @@
 # 变更记录
 
+## [1.0.0-SNAPSHOT] - 2026-11-04
+
+### Changed
+
+- Starter YAML 仅保留 `enabled` 和 `workshop-codes`；JUMP 通信参数、HTTP 超时、RabbitMQ 连接及主队列命名规则调整为 Starter 内置参数。
+- Starter 不再声明交换机、主队列、延迟重试队列和绑定；工艺变更 RabbitMQ 拓扑统一由 JUMP 注册和管理。
+- JUMP 延迟重试默认时长保持 3 分钟，Starter 不再感知或配置延迟重试队列及 TTL。
+
 ## [1.0.0-SNAPSHOT] - 2026-08-31
 
 ### Changed

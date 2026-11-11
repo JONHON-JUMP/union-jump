@@ -19,14 +19,15 @@ export function subSystemRoleOptionLabel(item, options = {}) {
   return label
 }
 
-export function isSubSystemRoleOptionDisabled(item, workshopId) {
+export function isSubSystemRoleOptionDisabled(item, workshopId, crossWorkshop) {
   if (!item) {
     return false
   }
   if (Number(item.status) === 1) {
     return true
   }
-  if (!workshopId || !item.workshopCode) {
+  // 跨车间模式下其它车间角色同样可选（同一套 MES 管多车间，角色可跨车间分配）
+  if (crossWorkshop || !workshopId || !item.workshopCode) {
     return false
   }
   return String(item.workshopCode) !== String(workshopId)
@@ -36,10 +37,11 @@ export function isSubSystemRoleOptionDisabled(item, workshopId) {
  * 角色下拉只展示当前车间可选的角色：保留 未打车间（如超管）/ 当前车间 的角色，
  * 其它车间的角色直接隐藏（比置灰占位清爽）。
  * 已被用户选中的其它车间角色保留展示：既能回显名称，也让提交前的车间校验能找到它。
+ * crossWorkshop 为 true 时不按车间过滤，展示该业务系统全部角色。
  */
-export function filterSubSystemRoleOptions(roles, workshopId, selectedRoleIds) {
+export function filterSubSystemRoleOptions(roles, workshopId, selectedRoleIds, crossWorkshop) {
   const list = roles || []
-  if (!workshopId) {
+  if (!workshopId || crossWorkshop) {
     return list
   }
   const selected = new Set((selectedRoleIds || []).map(id => Number(id)))

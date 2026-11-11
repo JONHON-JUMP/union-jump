@@ -1,5 +1,7 @@
 package cn.jonhon.jump.framework.recipechange.consumer.core;
 
+import cn.jonhon.jump.framework.recipechange.consumer.dto.RecipeChangeContentDTO;
+
 /**
  * JUMP 投递至 MES 的工艺变更消息体
  */
@@ -14,9 +16,9 @@ public class RecipeChangeMessageDTO {
      */
     private String workshopCode;
     /**
-     * MPM 传入的工艺变更 JSON 内容，由消息转换器反序列化为通用对象
+     * MPM 传入的工艺变更内容。消息转换器会按接口文档反序列化为强类型对象。
      */
-    private Object changeContent;
+    private RecipeChangeContentDTO changeContent;
 
     public String getNotifyId() {
         return notifyId;
@@ -34,11 +36,11 @@ public class RecipeChangeMessageDTO {
         this.workshopCode = workshopCode;
     }
 
-    public Object getChangeContent() {
+    public RecipeChangeContentDTO getChangeContent() {
         return changeContent;
     }
 
-    public void setChangeContent(Object changeContent) {
+    public void setChangeContent(RecipeChangeContentDTO changeContent) {
         this.changeContent = changeContent;
     }
 

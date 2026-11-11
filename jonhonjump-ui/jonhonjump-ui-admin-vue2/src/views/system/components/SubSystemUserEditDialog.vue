@@ -253,7 +253,8 @@ export default {
         teamId: undefined,
         homeMenuId: undefined,
         status: '0',
-        usernameWithWorkshop: '0',
+        // 新用户默认按 JUMP 规则「车间编号_工号」注册/种 Cookie；横线多账号仅存量兼容
+        usernameWithWorkshop: '1',
         remark: undefined,
         roleIds: [],
         postIds: []

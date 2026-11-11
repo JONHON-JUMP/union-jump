@@ -98,7 +98,7 @@ public class RecipeChangeRabbitMQProperties {
     /**
      * 延迟重试队列中的消息存活时间，超时后自动死信回主交换机，单位毫秒
      */
-    private long retryDelayMillis;
+    private long retryDelayMillis = 180000L;
 
     /**
      * 指定车间的版本化重试队列覆盖配置。

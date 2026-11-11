@@ -11,13 +11,19 @@
 
     <artifactId>jonhonjump-spring-boot-starter-recipe-change-consumer</artifactId>
     <!-- Starter 独立发布版本，修改此处即可生成供 MES 项目引用的新版本 -->
-    <version>1.0.0-SNAPSHOT</version>
+    <version>2026.11.4.1</version>
     <packaging>jar</packaging>
 
     <name>${project.artifactId}</name>
     <description>工艺变更消息消费者 Spring Boot Starter</description>
 
     <dependencies>
+        <!-- DTO 使用 Lombok 生成标准访问器，避免手写大量重复 getter/setter。 -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <scope>provided</scope>
+        </dependency>
         <!-- RabbitMQ 消费监听、手动确认和消息转换能力 -->
         <dependency>
             <groupId>org.springframework.amqp</groupId>
