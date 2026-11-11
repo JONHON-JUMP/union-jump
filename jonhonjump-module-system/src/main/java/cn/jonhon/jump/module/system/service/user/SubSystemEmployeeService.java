@@ -9,6 +9,7 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystem
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserAccountSyncRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.subsystem.SubSystemUserRegisterRespVO;
+import cn.jonhon.jump.module.system.dal.dataobject.user.SubSystemUsersDO;
 import cn.jonhon.jump.module.system.framework.subsystemapi.dto.SubSystemTeamComboDTO;
 
 import java.util.List;
@@ -68,5 +69,17 @@ public interface SubSystemEmployeeService {
      * @param jumpRoleIds      本次分配生效的 JUMP 角色编号集合（须已关联外部角色）
      */
     void syncUserRoles(Long apiSubSystemId, Long rosterSubSystemId, String userCode, List<Long> jumpRoleIds);
+
+    /**
+     * 按业务账号上的刷卡号、ERP 号，以及主用户域账号，更新对方系统。
+     * 域账号为空则不传 OA；刷卡号、ERP 号为空则不传。三项都空则不调用接口。
+     */
+    void syncImportedAccount(Long rosterId);
+
+    /**
+     * 对方系统用户名：花名册标记了拼接车间时用 车间编号_工号，否则用业务用户名原样。
+     * 注册、更新、授权各环节统一用它，避免同一账号两种叫法。
+     */
+    String externalUserCode(SubSystemUsersDO roster);
 
 }

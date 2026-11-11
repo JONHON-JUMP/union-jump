@@ -12,7 +12,7 @@
             </div>
             <ul class="list-group list-group-striped">
               <li class="list-group-item">
-                <svg-icon icon-class="user" />用户名称
+                <svg-icon icon-class="user" />用户名
                 <div class="pull-right">{{ user.username }}</div>
               </li>
               <li class="list-group-item">
@@ -22,10 +22,6 @@
               <li class="list-group-item">
                 <svg-icon icon-class="post" />工号
                 <div class="pull-right">{{ user.employeeNo || '-' }}</div>
-              </li>
-              <li class="list-group-item">
-                <svg-icon icon-class="validCode" />刷卡卡号
-                <div class="pull-right">{{ user.cardNo || '-' }}</div>
               </li>
               <li class="list-group-item">
                 <svg-icon icon-class="tree" />所属部门

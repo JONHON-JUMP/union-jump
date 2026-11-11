@@ -200,10 +200,8 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
 
     @Override
     public List<SubSystemUserRegisterRespVO> registerEmployees(SubSystemUserRegisterReqVO reqVO) {
-        // 用户名拼接车间编号为可选项，对任意类型接口（camstar/http）均可用：
-        // 对接系统要求用户名全局唯一时，以 车间编号_工号 注册，同一工号可登录不同车间系统。
-        // 未显式传值时按新用户规则默认拼接（花名册挂了车间叶子即 车间编号_工号）；
-        // 存量横线多账号（123-1 等）由页面按行上标记显式传 false 兼容
+        // 用户名拼接车间编号只留给尚未迁移的旧数据：请求显式传入时以请求为准；
+        // 未传时只认花名册 username_with_workshop=1。新用户名就是业务系统真实账号，不再默认拼接。
         Boolean reqWithWorkshop = reqVO.getUsernameWithWorkshop();
         List<SubSystemUsersDO> rosters = subSystemUsersMapper.selectBatchIds(reqVO.getIds());
         Map<Long, SubSystemUsersDO> rosterMap = rosters.stream()
@@ -241,9 +239,9 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                 result.setSuccess(true).setMessage("已注册，跳过推送");
                 continue;
             }
-            // 未显式传值：挂了车间叶子的新用户默认按 车间编号_工号 注册
+            // 用户名即业务系统真实账号。未传时只认花名册上尚未迁移的旧标记，不再因为挂了车间就默认拼 车间_工号
             boolean usernameWithWorkshop = reqWithWorkshop != null
-                    ? reqWithWorkshop : StrUtil.isNotBlank(roster.getWorkshopId());
+                    ? reqWithWorkshop : "1".equals(roster.getUsernameWithWorkshop());
             try {
                 Long apiSubSystemId = resolveRegisterApi(reqVO, roster);
                 SubSystemEmployeeDTO dto = buildEmployeeDTO(roster, apiSubSystemId, reqVO.getWorkshopCode(),
@@ -289,21 +287,20 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         if (roster == null) {
             throw exception0(BAD_REQUEST.getCode(), "挂接记录不存在");
         }
-        if (roster.getMainUserId() == null) {
-            throw exception0(BAD_REQUEST.getCode(), "该挂接未关联主系统用户，无法同步域账号/卡号");
-        }
         // 可管系统范围校验：受限角色只能同步授权系统的挂接
         subSystemAccessService.checkAccessible(roster.getSubSystemId());
-        AdminUserDO mainUser = adminUserMapper.selectById(roster.getMainUserId());
-        if (mainUser == null) {
-            throw exception0(BAD_REQUEST.getCode(), "关联的主系统用户不存在");
+        String domainNo = null;
+        if (roster.getMainUserId() != null) {
+            AdminUserDO mainUser = adminUserMapper.selectById(roster.getMainUserId());
+            if (mainUser != null) {
+                domainNo = StrUtil.trimToNull(mainUser.getDomainNo());
+            }
         }
         Long apiSubSystemId = reqVO.getApiSubSystemId() != null
                 ? reqVO.getApiSubSystemId()
                 : leafApiBindingService.requireApiSubSystemId(
                         roster.getSubSystemId(), roster.getWorkshopId(),
                         cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum.ACCOUNT_SYNC);
-        // 域账号、刷卡卡号只读自主用户资料，不接受弹窗改写；ERP 仅在请求显式传入时同步
         String workshopCode = StrUtil.trimToNull(roster.getWorkshopId());
         if (workshopCode == null) {
             throw exception0(BAD_REQUEST.getCode(),
@@ -311,16 +308,15 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         }
         SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
         dto.setWorkshopCode(workshopCode);
-        dto.setDomainName(StrUtil.trimToNull(mainUser.getDomainNo()));
-        dto.setCardNo(StrUtil.trimToNull(mainUser.getCardNo()));
-        dto.setErpNo(StrUtil.trimToNull(reqVO.getErpNo()));
+        // 域账号来自 JUMP 用户；刷卡卡号、ERP 号来自这条业务用户
+        dto.setDomainName(domainNo);
+        dto.setCardNo(StrUtil.trimToNull(roster.getCardNo()));
+        dto.setErpNo(StrUtil.trimToNull(roster.getErpNo()));
         if (dto.getDomainName() == null && dto.getCardNo() == null && dto.getErpNo() == null) {
             throw exception0(BAD_REQUEST.getCode(),
-                    "域账号和刷卡卡号均未维护，且未选择 ERP 账号。请先在用户编辑中维护后再同步");
+                    "没有可同步的域账号、刷卡卡号或 ERP 号");
         }
-        // 对方系统用户名：注册时标记拼接车间则为 车间编号_工号，否则为登录工号
-        dto.setUserCode("1".equals(roster.getUsernameWithWorkshop())
-                ? workshopCode + "_" + roster.getUsername() : roster.getUsername());
+        dto.setUserCode(externalUserCode(roster));
         List<String> syncedFields = new ArrayList<>();
         if (dto.getDomainName() != null) {
             syncedFields.add("域账号");
@@ -342,6 +338,58 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                 .setUserCode(dto.getUserCode())
                 .setSyncedFields(syncedFields)
                 .setMessage("已将" + String.join("、", syncedFields) + "同步到业务账号 " + dto.getUserCode());
+    }
+
+    @Override
+    public void syncImportedAccount(Long rosterId) {
+        SubSystemUsersDO roster = subSystemUsersMapper.selectById(rosterId);
+        if (roster == null) {
+            throw exception0(BAD_REQUEST.getCode(), "业务账号不存在");
+        }
+        String cardNo = StrUtil.trimToNull(roster.getCardNo());
+        String erpNo = StrUtil.trimToNull(roster.getErpNo());
+        String domainNo = null;
+        if (roster.getMainUserId() != null) {
+            AdminUserDO mainUser = adminUserMapper.selectById(roster.getMainUserId());
+            if (mainUser != null) {
+                domainNo = StrUtil.trimToNull(mainUser.getDomainNo());
+            }
+        }
+        if (domainNo == null && cardNo == null && erpNo == null) {
+            return;
+        }
+        String workshopCode = StrUtil.trimToNull(roster.getWorkshopId());
+        if (workshopCode == null) {
+            throw exception0(BAD_REQUEST.getCode(), "业务账号未填写车间编号");
+        }
+        Long apiSubSystemId = leafApiBindingService.requireApiSubSystemId(
+                roster.getSubSystemId(), workshopCode,
+                cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum.ACCOUNT_SYNC);
+        SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
+        dto.setWorkshopCode(workshopCode);
+        dto.setUserCode(externalUserCode(roster));
+        dto.setDomainName(domainNo);
+        dto.setCardNo(cardNo);
+        dto.setErpNo(erpNo);
+        try {
+            getApi(apiSubSystemId).updateUserAccount(dto);
+        } catch (ExternalApiException | UnsupportedOperationException e) {
+            log.warn("[syncImportedAccount] rosterId={} apiSubSystemId={} userCode={} 更新账号失败",
+                    rosterId, apiSubSystemId, dto.getUserCode(), e);
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
+    }
+
+    @Override
+    public String externalUserCode(SubSystemUsersDO roster) {
+        // 对方系统用户名：标记了拼接车间时用车间编号_工号，否则用业务用户名原样
+        String bare = StrUtil.blankToDefault(roster.getUsername(), "").trim();
+        String workshop = StrUtil.trim(roster.getWorkshopId());
+        if ("1".equals(roster.getUsernameWithWorkshop()) && StrUtil.isNotBlank(workshop)
+                && !bare.startsWith(workshop + "_")) {
+            return workshop + "_" + bare;
+        }
+        return bare;
     }
 
     @Override
@@ -393,21 +441,23 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
         String workshopCode = resolveWorkshopCode(roster, apiSubSystemId, mainUser, overrideWorkshopCode);
         dto.setWorkshopCode(workshopCode);
-        // Camstar 用户名全局唯一：勾选拼接时以 车间编号_工号 注册，同一工号可登录不同车间 MES
-        dto.setUserCode(usernameWithWorkshop && StrUtil.isNotBlank(workshopCode)
-                ? workshopCode.trim() + "_" + roster.getUsername() : roster.getUsername());
+        String userCode = StrUtil.trim(roster.getUsername());
+        if (usernameWithWorkshop && StrUtil.isNotBlank(workshopCode) && StrUtil.isNotBlank(userCode)
+                && !userCode.startsWith(workshopCode.trim() + "_")) {
+            userCode = workshopCode.trim() + "_" + userCode;
+        }
+        dto.setUserCode(userCode);
         // Camstar 的 userName 是姓名，校验文案写成「用户名」。花名册没填姓名时用登录用户名，避免对方报【用户名】不允许为空
         String userName = StrUtil.blankToDefault(StrUtil.trim(roster.getNickname()),
                 mainUser != null ? StrUtil.trim(mainUser.getNickname()) : null);
         dto.setUserName(StrUtil.blankToDefault(userName, StrUtil.trim(roster.getUsername())));
+        // 班组随注册一并同步；Excel 导入来源没填班组即为空，不影响页面手工登记的班组
         dto.setTeamCode(roster.getTeamId());
         if (mainUser != null) {
             dto.setDomainName(mainUser.getDomainNo());
-            if (CollUtil.isNotEmpty(mainUser.getErpNos())) {
-                dto.setErpNo(mainUser.getErpNos().iterator().next());
-            }
-            dto.setCardNo(mainUser.getCardNo());
         }
+        dto.setCardNo(StrUtil.trimToNull(roster.getCardNo()));
+        dto.setErpNo(StrUtil.trimToNull(roster.getErpNo()));
         return dto;
     }
 

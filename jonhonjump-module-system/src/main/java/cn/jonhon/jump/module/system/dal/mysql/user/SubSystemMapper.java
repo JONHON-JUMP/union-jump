@@ -33,6 +33,10 @@ public interface SubSystemMapper extends BaseMapperX<SubSystemDO> {
         return selectOne(SubSystemDO::getClientId, clientId);
     }
 
+    default List<SubSystemDO> selectListBySystemName(String systemName) {
+        return selectList(SubSystemDO::getSystemName, systemName);
+    }
+
     default SubSystemDO selectByOauth2ClientId(Long oauth2ClientId) {
         return selectOne(SubSystemDO::getOauth2ClientId, oauth2ClientId);
     }

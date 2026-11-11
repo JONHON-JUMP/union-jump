@@ -138,19 +138,10 @@
                 {{ scope.row.workshopId || '-' }}
               </template>
             </el-table-column>
-            <el-table-column label="关联车间编号" align="center" width="120">
-              <template v-slot="scope">
-                <el-tag
-                  v-if="scope.row.usernameWithWorkshop === '1'"
-                  type="success"
-                  size="mini"
-                >车间_工号</el-tag>
-                <el-tag v-else type="info" size="mini">工号</el-tag>
-              </template>
-            </el-table-column>
+            <el-table-column label="刷卡卡号" prop="cardNo" width="120" :show-overflow-tooltip="true" />
+            <el-table-column label="ERP号" prop="erpNo" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="班组编码" prop="teamId" width="110" />
             <el-table-column label="班组名称" prop="teamName" width="120" :show-overflow-tooltip="true" />
-            <el-table-column label="岗位" prop="postNames" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="角色" prop="roleNames" width="120" :show-overflow-tooltip="true" />
             <el-table-column label="JUMP用户" align="center" width="110">
               <template v-slot="scope">
@@ -205,17 +196,15 @@
             :props="hangCascaderProps"
             filterable
             clearable
-            placeholder="请选择业务系统/车间叶子（与人员管理挂接同源）"
             style="width: 100%"
             @change="handleHangLeafChange"
           />
-          <div class="form-tip">与用户管理「挂接业务系统」同源：选叶子后带出系统与车间编号，车间编号仍可改</div>
         </el-form-item>
         <el-form-item v-else label="业务系统">
           <el-input :value="editClientLabel" disabled />
         </el-form-item>
         <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" placeholder="请输入业务系统用户名" maxlength="64" />
+          <el-input v-model="form.username" placeholder="请输入业务系统真实用户名" maxlength="64" />
         </el-form-item>
         <el-form-item label="用户姓名" prop="nickname">
           <el-input v-model="form.nickname" placeholder="请输入用户姓名" maxlength="64" />
@@ -260,15 +249,18 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="form.id" label="岗位">
-          <el-select v-model="form.postIds" multiple placeholder="请选择岗位" style="width: 100%">
-            <el-option
-              v-for="item in postOptions"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-            />
-          </el-select>
+        <el-divider content-position="left">可同步到业务系统</el-divider>
+        <el-form-item label="域账号">
+          <el-input :value="form.domainNo || ''" disabled />
+        </el-form-item>
+        <el-form-item label="刷卡卡号">
+          <el-input v-model="form.cardNo" maxlength="64" clearable />
+        </el-form-item>
+        <el-form-item label="ERP号">
+          <el-input v-model="form.erpNo" maxlength="64" clearable />
+        </el-form-item>
+        <el-form-item label="同步业务系统">
+          <el-checkbox v-model="form.syncAccount">是否更新数据至业务系统</el-checkbox>
         </el-form-item>
         <el-form-item label="状态" prop="status">
           <el-radio-group v-model="form.status">
@@ -283,15 +275,6 @@
             <div class="form-tip">新建后同时在业务系统建人，成功后标记为已关联外部</div>
           </el-form-item>
         </template>
-        <el-form-item label="关联车间编号" prop="usernameWithWorkshop">
-          <el-radio-group v-model="form.usernameWithWorkshop" size="mini">
-            <el-radio label="0" border>工号</el-radio>
-            <el-radio label="1" border>车间编号_工号</el-radio>
-          </el-radio-group>
-          <div class="form-tip">
-            同步注册外部时选「车间编号_工号」即以该形态建账号；切换系统 Cookie 也认此字段（车间编号为空时仍用工号）
-          </div>
-        </el-form-item>
         <el-form-item v-if="form.id" label="外部关联">
           <el-radio-group v-model="form.employeeRegistered">
             <el-radio label="0">未关联</el-radio>
@@ -412,7 +395,6 @@
                        :disabled="!bindForm.workshopCode"
                        @click="pushRegisterFromBind">新增外部人员</el-button>
           </div>
-          <el-checkbox v-model="bindForm.usernameWithWorkshop" style="margin-bottom: 6px">关联车间编号：注册为 车间编号_工号</el-checkbox>
           <el-select
             v-model="bindForm.userCode"
             filterable
@@ -455,7 +437,8 @@ import {
   getSubSystemUserRoleIds,
   importSubSystemUserTemplate,
   updateSubSystemUser,
-  bindExternalEmployee
+  bindExternalEmployee,
+  syncSubSystemUserAccount
 } from '@/api/system/subSystemUsers'
 import {
   getSubSystemRegisterableApis,
@@ -924,10 +907,12 @@ export default {
         syncToExternal: false,
         apiSubSystemId: undefined,
         apiLabel: '',
-        // 新用户默认按 JUMP 规则「车间编号_工号」注册/种 Cookie；横线多账号仅存量兼容
-        usernameWithWorkshop: '1',
-        remark: undefined,
-        postIds: []
+        usernameWithWorkshop: '0',
+        cardNo: undefined,
+        erpNo: undefined,
+        domainNo: undefined,
+        syncAccount: false,
+        remark: undefined
       }
       this.hangPath = []
       // 弹窗未打开时不要 resetFields：ElementUI 会对 undefined 调 indexOf 直接炸
@@ -1025,16 +1010,22 @@ export default {
           id: res.data.id,
           subSystemId: res.data.subSystemId,
           mainUserId: res.data.mainUserId,
-          username: res.data.username,
+          username: (res.data.usernameWithWorkshop === '1' && res.data.workshopId
+            && res.data.username && String(res.data.username).indexOf(String(res.data.workshopId) + '_') !== 0)
+            ? (String(res.data.workshopId).trim() + '_' + String(res.data.username).trim())
+            : res.data.username,
           nickname: res.data.nickname,
           workshopId: res.data.workshopId,
           teamId: res.data.teamId,
           status: res.data.status || '0',
           employeeRegistered: res.data.employeeRegistered || '0',
-          usernameWithWorkshop: res.data.usernameWithWorkshop || '0',
+          usernameWithWorkshop: '0',
+          cardNo: res.data.cardNo,
+          erpNo: res.data.erpNo,
+          domainNo: res.data.domainNo,
+          syncAccount: false,
           registeredApiType: res.data.registeredApiType,
           remark: res.data.remark,
-          postIds: res.data.postIds || [],
           apiSubSystemId: undefined
         }
         this.open = true
@@ -1071,10 +1062,13 @@ export default {
         }
         const payload = Object.assign({}, this.form)
         delete payload.hangLeafKey
-        const apiSubSystemId = payload.apiSubSystemId
         const syncToExternal = !!payload.syncToExternal
+        const syncAccount = !!payload.syncAccount
         delete payload.apiSubSystemId
         delete payload.syncToExternal
+        delete payload.syncAccount
+        delete payload.domainNo
+        delete payload.postIds
         // 角色入库唯一入口是「分配角色」，本表单不携带任何角色数据
         delete payload.roleIds
         // 新增不再写班组/岗位，这些只在修改弹窗里维护
@@ -1082,9 +1076,8 @@ export default {
           delete payload.teamId
           delete payload.postIds
         }
-        // 关联车间编号：统一落库为 0/1；同步注册时勾选「车间编号_工号」即 usernameWithWorkshop=1
-        const usernameWithWorkshop = payload.usernameWithWorkshop === '1' || payload.usernameWithWorkshop === true
-        payload.usernameWithWorkshop = usernameWithWorkshop ? '1' : '0'
+        // 用户名即业务系统真实账号，不再按车间编号拼接
+        payload.usernameWithWorkshop = '0'
         if (isAdd) {
           // 新增时外部关联状态由注册结果回写，不随表单提交
           delete payload.employeeRegistered
@@ -1118,15 +1111,26 @@ export default {
           }
         }
         request(payload).then(res => {
+          const savedId = this.form.id || res.data
+          const pushAccount = () => {
+            if (!syncAccount) {
+              return Promise.resolve(null)
+            }
+            return syncSubSystemUserAccount({ id: savedId })
+          }
           if (!shouldRegister) {
-            afterSaved(isAdd ? '新增成功' : '修改成功')
-            return
+            return pushAccount().then(syncRes => {
+              const synced = syncRes && syncRes.data && syncRes.data.message
+              afterSaved(synced || (isAdd ? '新增成功' : '修改成功'))
+            }).catch(() => {
+              this.$modal.msgError('已保存在 JUMP。域账号、刷卡卡号、ERP号同步到业务系统失败')
+              this.open = false
+              this.getList()
+            })
           }
           return registerSubSystemEmployee({
-            apiSubSystemId: apiSubSystemId || undefined,
             workshopCode: payload.workshopId,
-            usernameWithWorkshop,
-            ids: [res.data]
+            ids: [savedId]
           }).then(regRes => {
             const results = regRes.data || []
             const fail = results.filter(r => !r.success)
@@ -1137,7 +1141,14 @@ export default {
               this.loadClientList()
               return
             }
-            afterSaved('新增成功，已同步注册并关联外部人员')
+            return pushAccount().then(syncRes => {
+              const synced = syncRes && syncRes.data && syncRes.data.message
+              afterSaved(synced || '新增成功，已同步注册并关联外部人员')
+            }).catch(() => {
+              this.$modal.msgError('人员已注册。域账号、刷卡卡号、ERP号同步失败')
+              this.open = false
+              this.getList()
+            })
           })
         }).catch(() => {
           // 具体原因由请求拦截器提示（如「用户名已存在」「角色车间不一致」），不再叠加通用提示
@@ -1256,8 +1267,7 @@ export default {
       assignSubSystemUserRole({
         id: this.roleForm.id,
         roleIds: this.roleForm.roleIds || [],
-        syncToExternal: !!this.roleForm.syncToExternal,
-        apiSubSystemId: this.roleForm.syncToExternal ? this.roleForm.apiSubSystemId : undefined
+        syncToExternal: !!this.roleForm.syncToExternal
       }).then(res => {
         const data = res.data || {}
         if (data.externalSynced && data.externalSuccess === false) {
@@ -1414,7 +1424,6 @@ export default {
       this.bindRegistering = true
       registerSubSystemEmployee({
         workshopCode: this.bindForm.workshopCode,
-        usernameWithWorkshop: !!this.bindForm.usernameWithWorkshop,
         ids: [this.bindForm.id]
       }).then(res => {
         const results = res.data || []

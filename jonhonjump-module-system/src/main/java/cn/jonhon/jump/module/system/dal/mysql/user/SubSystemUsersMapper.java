@@ -96,6 +96,25 @@ public interface SubSystemUsersMapper extends BaseMapperX<SubSystemUsersDO> {
     }
 
     /**
+     * 上挂匹配：JUMP 登录名=工号时，挂业务花名册
+     * <ul>
+     *   <li>用户名全等（正常账号）</li>
+     *   <li>或业务用户名为「工号-后缀」（如 JUMP=11909 挂 11909-1）</li>
+     * </ul>
+     */
+    default List<SubSystemUsersDO> selectListByUsernameOrDashSuffix(String empNo) {
+        String bare = empNo == null ? "" : empNo.trim();
+        if (bare.isEmpty()) {
+            return java.util.Collections.emptyList();
+        }
+        String dashPrefix = bare + "-";
+        return selectList(new LambdaQueryWrapperX<SubSystemUsersDO>()
+                .and(w -> w.eq(SubSystemUsersDO::getUsername, bare)
+                        .or()
+                        .likeRight(SubSystemUsersDO::getUsername, dashPrefix)));
+    }
+
+    /**
      * 同工号可挂多车间：优先车间空的行，否则最新一条。按叶子精确查请用
      * {@link #selectBySubSystemIdAndUsernameAndWorkshopId}。
      */

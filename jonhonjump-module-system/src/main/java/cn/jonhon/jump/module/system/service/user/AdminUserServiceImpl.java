@@ -11,15 +11,12 @@ import cn.jonhon.jump.framework.common.biz.system.permission.dto.DeptDataPermiss
 import cn.jonhon.jump.framework.common.pojo.PageResult;
 import cn.jonhon.jump.framework.common.util.collection.CollectionUtils;
 import cn.jonhon.jump.framework.common.util.object.BeanUtils;
-import cn.jonhon.jump.framework.common.util.validation.ValidationUtils;
 import cn.jonhon.jump.framework.datapermission.core.util.DataPermissionUtils;
 import cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils;
 import cn.jonhon.jump.module.infra.api.config.ConfigApi;
 import cn.jonhon.jump.module.system.controller.admin.auth.vo.AuthRegisterReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.profile.UserProfileUpdatePasswordReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.profile.UserProfileUpdateReqVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserImportExcelVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserImportRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserPageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSaveReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSubSystemRosterReqVO;
@@ -47,10 +44,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.annotation.Resource;
-import javax.validation.ConstraintViolationException;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static cn.jonhon.jump.framework.common.exception.util.ServiceExceptionUtil.exception;
 import static cn.jonhon.jump.framework.common.util.collection.CollectionUtils.*;
@@ -119,12 +114,12 @@ public class AdminUserServiceImpl implements AdminUserService {
                 throw exception(USER_COUNT_MAX, tenant.getAccountCount());
             }
         });
-        // 1.2 校验正确性。用户名称先去掉首尾空格，避免和花名册对不上
+        // 1.2 校验正确性。用户名先去掉首尾空格，避免和花名册对不上
         createReqVO.setUsername(StrUtil.trim(createReqVO.getUsername()));
         validateUserForCreateOrUpdate(null, createReqVO.getUsername(),
                 createReqVO.getMobile(), createReqVO.getEmail(), createReqVO.getDeptId(), createReqVO.getPostIds());
         // 1.2.1 域账号/刷卡卡号唯一（JUMP 为唯一维护源，业务系统靠同步获取）
-        validateDomainNoAndCardNoUnique(null, createReqVO.getDomainNo(), createReqVO.getCardNo());
+        validateDomainNoUnique(null, createReqVO.getDomainNo());
         // 1.3 只能把用户建在自己数据权限范围内的部门
         validateDeptDataScope(createReqVO.getDeptId(), null);
         // 2.1 插入用户（user_uid 由生成器保证全局唯一，禁止外部指定）
@@ -219,7 +214,7 @@ public class AdminUserServiceImpl implements AdminUserService {
         AdminUserDO oldUser = validateUserForCreateOrUpdate(updateReqVO.getId(), updateReqVO.getUsername(),
                 updateReqVO.getMobile(), updateReqVO.getEmail(), updateReqVO.getDeptId(), updateReqVO.getPostIds());
         // 1.0.1 域账号/刷卡卡号唯一（JUMP 为唯一维护源，业务系统靠同步获取）
-        validateDomainNoAndCardNoUnique(updateReqVO.getId(), updateReqVO.getDomainNo(), updateReqVO.getCardNo());
+        validateDomainNoUnique(updateReqVO.getId(), updateReqVO.getDomainNo());
         // 1.1 原用户 / 目标部门都必须在当前数据权限范围内
         validateDeptDataScope(updateReqVO.getDeptId(), updateReqVO.getId());
 
@@ -636,22 +631,17 @@ public class AdminUserServiceImpl implements AdminUserService {
     }
 
     /**
-     * 域账号/刷卡卡号唯一性校验：一个域账号、一个卡号只能属于一个人（JUMP 为唯一维护源，
-     * 同步到业务系统前先在这里保证不重复）。空值跳过，id 非空时排除自身。
+     * 域账号唯一。刷卡卡号、ERP 号挂在业务账号上，允许多条业务账号相同，这里不校验。
+     * 空值跳过，id 非空时排除自身。
      */
     @VisibleForTesting
-    void validateDomainNoAndCardNoUnique(Long id, String domainNo, String cardNo) {
-        if (StrUtil.isNotBlank(domainNo)) {
-            AdminUserDO user = userMapper.selectByDomainNo(domainNo.trim());
-            if (user != null && !user.getId().equals(id)) {
-                throw exception(USER_DOMAIN_NO_DUPLICATE, domainNo, user.getUsername());
-            }
+    void validateDomainNoUnique(Long id, String domainNo) {
+        if (StrUtil.isBlank(domainNo)) {
+            return;
         }
-        if (StrUtil.isNotBlank(cardNo)) {
-            AdminUserDO user = userMapper.selectByCardNo(cardNo.trim());
-            if (user != null && !user.getId().equals(id)) {
-                throw exception(USER_CARD_NO_DUPLICATE, cardNo, user.getUsername());
-            }
+        AdminUserDO user = userMapper.selectByDomainNo(domainNo.trim());
+        if (user != null && !user.getId().equals(id)) {
+            throw exception(USER_DOMAIN_NO_DUPLICATE, domainNo, user.getUsername());
         }
     }
 
@@ -669,130 +659,6 @@ public class AdminUserServiceImpl implements AdminUserService {
         if (!isPasswordMatch(oldPassword, user.getPassword())) {
             throw exception(USER_PASSWORD_FAILED);
         }
-    }
-
-    @Override
-    @Transactional(rollbackFor = Exception.class) // 添加事务，异常则回滚所有导入
-    public UserImportRespVO importUserList(List<UserImportExcelVO> importUsers, boolean isUpdateSupport) {
-        // 1.1 参数校验
-        if (CollUtil.isEmpty(importUsers)) {
-            throw exception(USER_IMPORT_LIST_IS_EMPTY);
-        }
-        // 1.2 初始化密码不能为空
-        String initPassword = configApi.getConfigValueByKey(USER_INIT_PASSWORD_KEY);
-        if (StrUtil.isEmpty(initPassword)) {
-            throw exception(USER_IMPORT_INIT_PASSWORD);
-        }
-
-        // 2. 遍历，逐个创建 or 更新
-        UserImportRespVO respVO = UserImportRespVO.builder().createUsernames(new ArrayList<>())
-                .updateUsernames(new ArrayList<>()).failureUsernames(new LinkedHashMap<>()).build();
-        AtomicInteger index = new AtomicInteger(1);
-        importUsers.forEach(importUser -> {
-            int currentIndex = index.getAndIncrement();
-            importUser.setUsername(StrUtil.trim(importUser.getUsername()));
-            // 2.1.1 校验字段是否符合要求
-            try {
-                UserSaveReqVO saveReqVO = BeanUtils.toBean(importUser, UserSaveReqVO.class);
-                saveReqVO.setPassword(initPassword);
-                saveReqVO.setErpNos(parseImportErpNos(importUser.getErpNos()));
-                ValidationUtils.validate(saveReqVO);
-            } catch (ConstraintViolationException ex) {
-                String key = StrUtil.blankToDefault(importUser.getUsername(), "第 " + currentIndex + " 行");
-                respVO.getFailureUsernames().put(key, ex.getMessage());
-                return;
-            }
-            // 2.1.2 校验，判断是否有不符合的原因
-            AdminUserDO existUser = userMapper.selectByUsername(importUser.getUsername());
-            try {
-                validateUserForCreateOrUpdate(null, null, importUser.getMobile(), importUser.getEmail(),
-                        importUser.getDeptId(), null);
-                // 域账号/刷卡卡号唯一：导入同样受约束（更新行排除自身）
-                validateDomainNoAndCardNoUnique(existUser == null ? null : existUser.getId(),
-                        importUser.getDomainNo(), importUser.getCardNo());
-                // 导入同样受部门数据权限约束，不能借 Excel 绕过
-                validateDeptDataScope(importUser.getDeptId(), null);
-            } catch (ServiceException ex) {
-                respVO.getFailureUsernames().put(importUser.getUsername(), ex.getMessage());
-                return;
-            }
-
-            // 2.2.1 判断如果不存在，在进行插入
-            if (existUser == null) {
-                AdminUserDO newUser = BeanUtils.toBean(importUser, AdminUserDO.class)
-                        .setPassword(encodePassword(initPassword))
-                        .setPostIds(new HashSet<>());
-                fillImportExtendedFields(newUser, importUser);
-                newUser.setUserUid(null); // 禁止外部指定，统一由生成器分配唯一号
-                try {
-                    userUidGenerator.insertWithUniqueUid(newUser, () -> userMapper.insert(newUser));
-                } catch (Exception ex) {
-                    respVO.getFailureUsernames().put(importUser.getUsername(),
-                            StrUtil.blankToDefault(ex.getMessage(), "分配用户唯一标识失败"));
-                    return;
-                }
-                respVO.getCreateUsernames().add(importUser.getUsername());
-                subSystemUsersService.bindMatchingRosters(newUser.getId(), newUser.getUsername());
-                // 导入新建的用户同样分配默认角色（普通角色）；失败不阻断导入，可事后在【分配角色】手动补
-                try {
-                    assignDefaultRole(newUser);
-                } catch (Exception ex) {
-                    log.warn("[importUserList][导入用户({})分配默认角色失败，请手动分配]", newUser.getId(), ex);
-                }
-                return;
-            }
-            // 2.2.2 如果存在，判断是否允许更新
-            if (!isUpdateSupport) {
-                respVO.getFailureUsernames().put(importUser.getUsername(), USER_USERNAME_EXISTS.getMsg());
-                return;
-            }
-            // 更新已有用户时，原用户部门也必须在当前数据权限内
-            try {
-                validateDeptDataScope(importUser.getDeptId(), existUser.getId());
-            } catch (ServiceException ex) {
-                respVO.getFailureUsernames().put(importUser.getUsername(), ex.getMessage());
-                return;
-            }
-            AdminUserDO updateUser = BeanUtils.toBean(importUser, AdminUserDO.class);
-            fillImportExtendedFields(updateUser, importUser);
-            updateUser.setId(existUser.getId());
-            // 已有 UID 永不覆盖；历史空值则补发唯一号
-            if (StrUtil.isBlank(existUser.getUserUid())) {
-                updateUser.setUserUid(userUidGenerator.allocate());
-            } else {
-                updateUser.setUserUid(null);
-            }
-            userMapper.updateById(updateUser);
-            respVO.getUpdateUsernames().add(importUser.getUsername());
-        });
-        return respVO;
-    }
-
-    /**
-     * Excel 中 ERP账号为字符串，需转成 Set；工号/域账号/卡号随 Bean 拷贝，这里再兜底一次。
-     */
-    private void fillImportExtendedFields(AdminUserDO user, UserImportExcelVO importUser) {
-        if (user == null || importUser == null) {
-            return;
-        }
-        user.setEmployeeNo(StrUtil.blankToDefault(importUser.getEmployeeNo(), null));
-        user.setDomainNo(StrUtil.blankToDefault(importUser.getDomainNo(), null));
-        user.setCardNo(StrUtil.blankToDefault(importUser.getCardNo(), null));
-        user.setErpNos(parseImportErpNos(importUser.getErpNos()));
-    }
-
-    private Set<String> parseImportErpNos(String erpNos) {
-        if (StrUtil.isBlank(erpNos)) {
-            return null;
-        }
-        String normalized = erpNos.replace('、', ',').replace('，', ',');
-        LinkedHashSet<String> result = new LinkedHashSet<>();
-        for (String item : StrUtil.splitTrim(normalized, ',')) {
-            if (StrUtil.isNotBlank(item)) {
-                result.add(item);
-            }
-        }
-        return result.isEmpty() ? null : result;
     }
 
     @Override

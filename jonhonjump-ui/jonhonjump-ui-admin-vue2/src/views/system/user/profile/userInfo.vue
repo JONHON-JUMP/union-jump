@@ -9,9 +9,6 @@
     <el-form-item label="工号">
       <el-input :value="user.employeeNo || '-'" disabled />
     </el-form-item>
-    <el-form-item label="刷卡卡号">
-      <el-input :value="user.cardNo || '-'" disabled />
-    </el-form-item>
     <el-form-item label="性别">
       <el-radio-group v-model="form.sex">
         <el-radio :label="1">男</el-radio>

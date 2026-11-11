@@ -23,4 +23,6 @@ public interface DictTypeConstants {
     String SMS_SEND_STATUS = "system_sms_send_status"; // 短信发送状态
     String SMS_RECEIVE_STATUS = "system_sms_receive_status"; // 短信接收状态
 
+    String SUB_SYSTEM_BIZ_USERNAME_PATTERN = "sub_system_biz_username_pattern"; // 挂接业务用户名生成方式
+
 }

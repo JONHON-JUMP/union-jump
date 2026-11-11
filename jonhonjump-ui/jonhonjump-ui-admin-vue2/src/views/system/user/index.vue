@@ -18,8 +18,8 @@
       <!--用户数据-->
       <el-col :span="20" :xs="24">
         <el-form :model="queryParams" ref="queryForm" size="small" :inline="true" v-show="showSearch" label-width="68px">
-          <el-form-item label="用户名称" prop="username">
-            <el-input v-model="queryParams.username" placeholder="请输入用户名称" clearable style="width: 240px"
+          <el-form-item label="用户名" prop="username">
+            <el-input v-model="queryParams.username" placeholder="请输入用户名" clearable style="width: 240px"
                       @keyup.enter.native="handleQuery"/>
           </el-form-item>
           <el-form-item label="用户姓名" prop="nickname">
@@ -58,6 +58,10 @@
             <el-button type="info" icon="el-icon-upload2" size="mini" @click="handleImport"
                        v-hasPermi="['system:user:import']">导入</el-button>
           </el-col>
+          <el-col :span="1.5" v-if="importFailureCount > 0">
+            <el-button type="text" size="mini" icon="el-icon-document" @click="downloadImportFailures">
+              下载上次导入失败明细</el-button>
+          </el-col>
           <el-col :span="1.5">
             <el-button type="warning" icon="el-icon-download" size="mini" @click="handleExport" :loading="exportLoading"
                        v-hasPermi="['system:user:export']">导出</el-button>
@@ -86,27 +90,21 @@
           @selection-change="handleRowCheckboxChange"
         >
           <el-table-column type="selection" width="55"/>
-          <el-table-column label="用户名称" align="center" key="username" prop="username" v-if="columns[0].visible" :show-overflow-tooltip="true" />
+          <el-table-column label="用户名" align="center" key="username" prop="username" v-if="columns[0].visible" :show-overflow-tooltip="true" />
           <el-table-column label="用户姓名" align="center" key="nickname" prop="nickname" v-if="columns[1].visible" :show-overflow-tooltip="true" />
           <el-table-column label="工号" align="center" key="employeeNo" prop="employeeNo" v-if="columns[2].visible" width="100" :show-overflow-tooltip="true" />
           <el-table-column label="域账号" align="center" key="domainNo" prop="domainNo" v-if="columns[3].visible" width="120" :show-overflow-tooltip="true" />
-          <el-table-column label="刷卡卡号" align="center" key="cardNo" prop="cardNo" v-if="columns[4].visible" width="120" :show-overflow-tooltip="true" />
-          <el-table-column label="ERP账号" align="center" key="erpNos" v-if="columns[5].visible" width="120" :show-overflow-tooltip="true">
-            <template v-slot="scope">
-              <span>{{ formatErpNos(scope.row.erpNos) }}</span>
-            </template>
-          </el-table-column>
-          <el-table-column label="部门" align="center" key="deptName" v-if="columns[6].visible" :show-overflow-tooltip="true">
+          <el-table-column label="部门" align="center" key="deptName" v-if="columns[4].visible" :show-overflow-tooltip="true">
             <template v-slot="scope">
               <span>{{ scope.row.deptName || (scope.row.dept && scope.row.dept.name) || '-' }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="状态" key="status" v-if="columns[7].visible" align="center" width="80">
+          <el-table-column label="状态" key="status" v-if="columns[5].visible" align="center" width="80">
             <template v-slot="scope">
               <el-switch v-model="scope.row.status" :active-value="0" :inactive-value="1" @click.native.stop @change="handleStatusChange(scope.row)" />
             </template>
           </el-table-column>
-          <el-table-column label="创建时间" align="center" prop="createTime" v-if="columns[8].visible" width="160">
+          <el-table-column label="创建时间" align="center" prop="createTime" v-if="columns[6].visible" width="160">
             <template v-slot="scope">
               <span>{{ parseTime(scope.row.createTime) }}</span>
             </template>
@@ -165,8 +163,8 @@
         </el-row>
         <el-row>
           <el-col :span="12">
-            <el-form-item v-if="form.id === undefined" label="用户名称" prop="username">
-              <el-input v-model="form.username" placeholder="请输入用户名称" />
+            <el-form-item v-if="form.id === undefined" label="用户名" prop="username">
+              <el-input v-model="form.username" placeholder="请输入用户名" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -184,20 +182,6 @@
           <el-col :span="12">
             <el-form-item label="域账号" prop="domainNo">
               <el-input v-model="form.domainNo" placeholder="请输入域账号" maxlength="32" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        <el-row>
-          <el-col :span="12">
-            <el-form-item label="刷卡卡号" prop="cardNo">
-              <el-input v-model="form.cardNo" placeholder="请输入刷卡卡号" maxlength="20" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="ERP账号" prop="erpNos">
-              <el-select v-model="form.erpNos" multiple filterable allow-create default-first-option
-                         placeholder="输入后回车添加，可多个" style="width: 100%">
-              </el-select>
             </el-form-item>
           </el-col>
         </el-row>
@@ -275,15 +259,22 @@
     </el-dialog>
 
     <!-- 用户导入对话框 -->
-    <el-dialog :title="upload.title" :visible.sync="upload.open" width="400px" append-to-body>
-      <el-upload ref="upload" :limit="1" accept=".xlsx, .xls" :headers="upload.headers"
-        :action="upload.url + '?updateSupport=' + upload.updateSupport" :disabled="upload.isUploading"
-        :on-progress="handleFileUploadProgress" :on-success="handleFileSuccess" :auto-upload="false" drag>
+    <el-dialog :title="upload.title" :visible.sync="upload.open" width="520px" append-to-body>
+      <el-form label-width="90px">
+        <el-form-item label="归属部门" required>
+          <treeselect v-model="upload.deptId" :options="deptOptions" :show-count="true" :clearable="true"
+                      placeholder="请按部门层级选择" :normalizer="normalizer" />
+        </el-form-item>
+      </el-form>
+      <el-upload ref="upload" class="user-import-upload" :limit="1" accept=".xlsx, .xls" :headers="upload.headers"
+        :action="importAction" :disabled="upload.isUploading"
+        :on-progress="handleFileUploadProgress" :on-success="handleFileSuccess" :on-error="handleFileError"
+        :auto-upload="false" drag>
         <i class="el-icon-upload"></i>
         <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
         <div class="el-upload__tip text-center" slot="tip">
           <div class="el-upload__tip" slot="tip">
-            <el-checkbox v-model="upload.updateSupport" /> 是否更新已经存在的用户数据
+            <el-checkbox v-model="upload.syncToExternal" /> 是否同步数据至业务系统
           </div>
           <span>仅允许导入xls、xlsx格式文件。</span>
           <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
@@ -298,7 +289,7 @@
     <!-- 分配角色 -->
     <el-dialog title="分配角色" :visible.sync="openRole" width="500px" append-to-body>
       <el-form :model="form" label-width="80px">
-        <el-form-item label="用户名称">
+        <el-form-item label="用户名">
           <el-input v-model="form.username" :disabled="true" />
         </el-form-item>
         <el-form-item label="用户姓名">
@@ -350,7 +341,6 @@ import {DICT_TYPE, getDictDatas} from "@/utils/dict";
 import {assignUserRole, listUserRoles} from "@/api/system/permission";
 import {listSimpleRoles} from "@/api/system/role";
 import {getBaseHeader} from "@/utils/request";
-import { formatErpNos } from "@/utils/userFieldDisplay";
 import dialogDirtyGuard from '@/mixins/dialogDirtyGuard'
 
 export default {
@@ -363,6 +353,8 @@ export default {
       loading: true,
       // 导出遮罩层
       exportLoading: false,
+      // 最近一次导入的失败明细（行标识 -> 原因），用于「下载上次导入失败明细」
+      importFailures: {},
       // 显示搜索条件
       showSearch: true,
       // 总条数
@@ -417,8 +409,10 @@ export default {
         title: "",
         // 是否禁用上传
         isUploading: false,
-        // 是否更新已经存在的用户数据
-        updateSupport: 0,
+        // 新建主用户使用的部门
+        deptId: undefined,
+        // 是否把人员和角色推送到业务系统
+        syncToExternal: false,
         // 设置上传的请求头部
         headers: getBaseHeader(),
         // 上传的地址
@@ -438,20 +432,18 @@ export default {
       },
       // 列信息
       columns: [
-        { key: 0, label: `用户名称`, visible: true },
+        { key: 0, label: `用户名`, visible: true },
         { key: 1, label: `用户姓名`, visible: true },
         { key: 2, label: `工号`, visible: true },
         { key: 3, label: `域账号`, visible: true },
-        { key: 4, label: `刷卡卡号`, visible: true },
-        { key: 5, label: `ERP账号`, visible: true },
-        { key: 6, label: `部门`, visible: true },
-        { key: 7, label: `状态`, visible: true },
-        { key: 8, label: `创建时间`, visible: true }
+        { key: 4, label: `部门`, visible: true },
+        { key: 5, label: `状态`, visible: true },
+        { key: 6, label: `创建时间`, visible: true }
       ],
       // 表单校验
       rules: {
         username: [
-          { required: true, message: "用户名称不能为空", trigger: "blur" }
+          { required: true, message: "用户名不能为空", trigger: "blur" }
         ],
         nickname: [
           { required: true, message: "用户姓名不能为空", trigger: "blur" }
@@ -480,6 +472,14 @@ export default {
     };
   },
   computed: {
+    importAction() {
+      const deptId = this.upload.deptId || ''
+      const sync = this.upload.syncToExternal ? 'true' : 'false'
+      return this.upload.url + '?deptId=' + encodeURIComponent(deptId) + '&syncToExternal=' + sync
+    },
+    importFailureCount() {
+      return Object.keys(this.importFailures || {}).length
+    },
     // 数据字典走 computed：字典是异步加载的，data 快照会拿到空列表导致下拉空白
     statusDictDatas() {
       return getDictDatas(DICT_TYPE.COMMON_STATUS)
@@ -526,7 +526,6 @@ export default {
     }).catch(() => {});
   },
   methods: {
-    formatErpNos,
     handleDetail(row) {
       if (!row || !row.id) {
         return
@@ -787,8 +786,11 @@ export default {
           return;
         }
         this.submitting = true
+        const payload = Object.assign({}, this.form)
+        delete payload.cardNo
+        delete payload.erpNos
         if (this.form.id !== undefined) {
-          updateUser(this.form).then(() => {
+          updateUser(payload).then(() => {
             this.$modal.msgSuccess("修改成功");
             this.open = false;
             this.getList();
@@ -800,6 +802,8 @@ export default {
           const payload = Object.assign({}, this.form, {
             subSystemTargets: this.syncSubSystem ? this.syncTargets : []
           });
+          delete payload.cardNo
+          delete payload.erpNos
           // 旧字段只给旧调用用，这里不再发送，避免多车间系统被当成"未选叶子"
           delete payload.subSystemIds;
           addUser(payload).then(() => {
@@ -923,7 +927,11 @@ export default {
     /** 导入按钮操作 */
     handleImport() {
       this.upload.title = "用户导入";
+      this.upload.deptId = undefined;
+      this.upload.syncToExternal = false;
+      this.upload.isUploading = false;
       this.upload.open = true;
+      this.getTreeselect();
     },
     /** 下载模板操作 */
     importTemplate() {
@@ -937,32 +945,82 @@ export default {
     },
     // 文件上传成功处理
     handleFileSuccess(response, file, fileList) {
+      this.upload.isUploading = false;
+      this.$refs.upload.clearFiles();
       if (response.code !== 0) {
         this.$modal.msgError(response.msg)
         return;
       }
       this.upload.open = false;
-      this.upload.isUploading = false;
-      this.$refs.upload.clearFiles();
-      // 拼接提示语
-      let data = response.data;
-      let text = '创建成功数量：' + data.createUsernames.length;
-      for (const username of data.createUsernames) {
-        text += '<br />&nbsp;&nbsp;&nbsp;&nbsp;' + username;
+      const data = response.data || {};
+      const failed = data.failureUsernames || {};
+      const successCount = data.successCount != null ? data.successCount : 0;
+      const failureCount = data.failureCount != null ? data.failureCount : Object.keys(failed).length;
+      this.importFailures = failed;
+      const created = data.createUsernames || [];
+      const business = data.businessCreated || [];
+      const linked = data.businessLinked || [];
+      const updated = data.businessUpdated || [];
+      let text = '成功 ' + successCount + ' 条，失败 ' + failureCount + ' 条';
+      if (failureCount > 0) {
+        text += '<br />失败原因（完整清单可点列表上方「下载上次导入失败明细」）：';
+        text += this.buildImportListText(Object.keys(failed).map(key => key + '：' + failed[key]));
       }
-      text += '<br />更新成功数量：' + data.updateUsernames.length;
-      for (const username of data.updateUsernames) {
-        text += '<br />&nbsp;&nbsp;&nbsp;&nbsp;' + username;
+      text += '<br />新建主用户：' + created.length;
+      text += this.buildImportListText(created);
+      text += '<br />新建业务账号：' + business.length;
+      text += this.buildImportListText(business);
+      if (linked.length) {
+        text += '<br />挂接已有业务账号（原本未挂人）：' + linked.length;
+        text += this.buildImportListText(linked);
       }
-      text += '<br />更新失败数量：' + Object.keys(data.failureUsernames).length;
-      for (const username in data.failureUsernames) {
-        text += '<br />&nbsp;&nbsp;&nbsp;&nbsp;' + username + '：' + data.failureUsernames[username];
+      if (updated.length) {
+        text += '<br />更新已有业务账号（已按表内数据对齐）：' + updated.length;
+        text += this.buildImportListText(updated);
       }
-      this.$alert(text, "导入结果", { dangerouslyUseHTMLString: true });
+      this.$alert(text, "导入结果", { dangerouslyUseHTMLString: true, customClass: 'import-result-box' });
       this.getList();
+    },
+    // 明细每类最多展示 50 条，超出折叠，避免结果弹窗被撑爆
+    buildImportListText(items) {
+      const cap = 50;
+      let text = '';
+      for (const item of items.slice(0, cap)) {
+        text += '<br />&nbsp;&nbsp;&nbsp;&nbsp;' + item;
+      }
+      if (items.length > cap) {
+        text += '<br />&nbsp;&nbsp;&nbsp;&nbsp;……其余 ' + (items.length - cap) + ' 条略';
+      }
+      return text;
+    },
+    downloadImportFailures() {
+      const rows = Object.keys(this.importFailures || {});
+      if (!rows.length) {
+        return;
+      }
+      const lines = ['行,失败原因'];
+      for (const key of rows) {
+        const reason = String(this.importFailures[key] || '').replace(/"/g, '""');
+        lines.push('"' + key.replace(/"/g, '""') + '","' + reason + '"');
+      }
+      const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = '用户导入失败明细_' + Date.now() + '.csv';
+      link.click();
+      // 立即 revoke 在个别浏览器会中断下载，延迟释放
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    },
+    handleFileError() {
+      this.upload.isUploading = false;
+      this.$modal.msgError('导入请求失败');
     },
     // 提交上传文件
     submitFileForm() {
+      if (!this.upload.deptId) {
+        this.$modal.msgError('请先选择部门');
+        return;
+      }
       this.$refs.upload.submit();
     },
     // 格式化部门的下拉框
@@ -1004,5 +1062,21 @@ export default {
   font-size: 12px;
   line-height: 1.4;
   margin-top: 4px;
+}
+.user-import-upload {
+  display: block;
+  text-align: center;
+}
+.user-import-upload ::v-deep .el-upload,
+.user-import-upload ::v-deep .el-upload-dragger {
+  width: 100%;
+}
+</style>
+
+<style>
+/* 导入结果弹窗：明细超长时限高滚动。MessageBox 挂在 body 上，须用全局样式 */
+.import-result-box .el-message-box__message {
+  max-height: 55vh;
+  overflow-y: auto;
 }
 </style>

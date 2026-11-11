@@ -131,7 +131,9 @@ public interface SubSystemUsersService {
     SubSystemUsersRespVO getBySubSystemIdAndUsername(Long subSystemId, String username, String workshopId);
 
     /**
-     * 新建 JUMP 用户时：花名册用户名完全相同、且该行还没挂到仍存在的 JUMP 用户（空、0、已删除）则写入 mainUserId。
+     * 新建 JUMP 用户时自动上挂花名册：
+     * 用户名全等；或业务用户名为「工号-后缀」（JUMP 取工号，业务侧保留带 '-'，如 11909 ↔ 11909-1）。
+     * 该行还没挂到仍存在的 JUMP 用户（空、0、已删除）才写入 mainUserId。
      * 同一业务系统里该主用户已挂过别的行则跳过。打开列表或详情不会调用。
      */
     void bindMatchingRosters(Long mainUserId, String username);

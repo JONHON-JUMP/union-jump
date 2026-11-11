@@ -235,6 +235,9 @@ export default {
 <style lang="scss">
 .system-dropdown {
   min-width: 280px;
+  max-height: 70vh;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 8px;
   border: 0;
   border-radius: 14px;

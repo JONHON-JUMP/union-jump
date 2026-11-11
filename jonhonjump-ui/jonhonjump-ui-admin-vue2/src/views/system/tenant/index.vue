@@ -125,8 +125,8 @@
         <el-form-item label="联系手机" prop="contactMobile">
           <el-input v-model="form.contactMobile" placeholder="请输入联系手机" />
         </el-form-item>
-        <el-form-item v-if="form.id === undefined" label="用户名称" prop="username">
-          <el-input v-model="form.username" placeholder="请输入用户名称" />
+        <el-form-item v-if="form.id === undefined" label="用户名" prop="username">
+          <el-input v-model="form.username" placeholder="请输入用户名" />
         </el-form-item>
         <el-form-item v-if="form.id === undefined" label="用户密码" prop="password">
           <el-input v-model="form.password" placeholder="请输入用户密码" type="password" show-password />
@@ -205,7 +205,7 @@ export default {
         status: [{ required: true, message: "租户状态不能为空", trigger: "blur" }],
         accountCount: [{ required: true, message: "账号额度不能为空", trigger: "blur" }],
         expireTime: [{ required: true, message: "过期时间不能为空", trigger: "blur" }],
-        username: [{ required: true, message: "用户名称不能为空", trigger: "blur" }],
+        username: [{ required: true, message: "用户名不能为空", trigger: "blur" }],
         password: [{ required: true, message: "用户密码不能为空", trigger: "blur" }],
       }
     };

@@ -30,7 +30,7 @@ public class OperateLogRespDTO implements VO {
             fields = "nickname", ref = "userName")
     private Long userId;
     /**
-     * 用户名称
+     * 用户名
      */
     private String userName;
     /**

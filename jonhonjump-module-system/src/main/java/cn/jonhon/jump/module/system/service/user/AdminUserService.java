@@ -6,8 +6,6 @@ import cn.jonhon.jump.framework.common.util.collection.CollectionUtils;
 import cn.jonhon.jump.module.system.controller.admin.auth.vo.AuthRegisterReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.profile.UserProfileUpdatePasswordReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.profile.UserProfileUpdateReqVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserImportExcelVO;
-import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserImportRespVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserPageReqVO;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.UserSaveReqVO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
@@ -218,15 +216,6 @@ public interface AdminUserService {
      * @return 用户列表
      */
     List<AdminUserDO> getUserListByNickname(String nickname);
-
-    /**
-     * 批量导入用户
-     *
-     * @param importUsers     导入用户列表
-     * @param isUpdateSupport 是否支持更新
-     * @return 导入结果
-     */
-    UserImportRespVO importUserList(List<UserImportExcelVO> importUsers, boolean isUpdateSupport);
 
     /**
      * 获得指定状态的用户们

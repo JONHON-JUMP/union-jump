@@ -226,13 +226,11 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (StrUtil.isEmpty(user.getEmployeeRegistered())) {
             user.setEmployeeRegistered("0");
         }
-        // 关联车间编号：1=对接用车间_工号。新用户默认按 JUMP 规则「车间编号_工号」：
-        // 挂在车间叶子下（多车间系统）且未显式传值时默认 1，无车间系统默认 0。
-        // 带横线的多账号（如 123-1）仅存量数据兼容，新建不再产生
+        // 用户名即业务系统真实账号。未传时记 0，不再因为挂了车间就默认拼 车间_工号
         String reqWithWorkshop = StrUtil.trimToNull(createReqVO.getUsernameWithWorkshop());
         user.setUsernameWithWorkshop(reqWithWorkshop != null
                 ? ("1".equals(reqWithWorkshop) ? "1" : "0")
-                : (StrUtil.isNotBlank(createReqVO.getWorkshopId()) ? "1" : "0"));
+                : "0");
         try {
             subSystemUsersMapper.insert(user);
         } catch (DuplicateKeyException ex) {
@@ -332,7 +330,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         if (mainUserId == null || StrUtil.isBlank(username)) {
             return;
         }
-        List<SubSystemUsersDO> rows = subSystemUsersMapper.selectListByUsername(username.trim());
+        // 正常：JUMP用户名=业务用户名；带 '-'：JUMP 取工号，业务侧仍为 工号-后缀（如 11909 ↔ 11909-1）
+        List<SubSystemUsersDO> rows = subSystemUsersMapper.selectListByUsernameOrDashSuffix(username.trim());
         if (CollUtil.isEmpty(rows)) {
             return;
         }
@@ -611,9 +610,8 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         subUser.setNickname(mainUser.getNickname());
         subUser.setWorkshopId(workshopCode);
         subUser.setStatus("0");
-        // 新登记默认按 JUMP 规则：挂在车间叶子下即「车间编号_工号」，无车间系统用工号；
-        // 横线多账号（123-1 等）仅存量兼容，新用户不再产生
-        subUser.setUsernameWithWorkshop(StrUtil.isNotBlank(workshopCode) ? "1" : "0");
+        // 用户名即业务系统真实账号，Cookie 直接使用，不再默认拼 车间_工号
+        subUser.setUsernameWithWorkshop("0");
         // 新登记默认未注册（是否已调「新增人员」接口，后续手动推送时自动置 1）
         subUser.setEmployeeRegistered("0");
         subUser.setRemark("用户创建登记");
@@ -655,12 +653,14 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         // 关联车间编号（usernameWithWorkshop）由页面单独维护：1=对接用车间_工号，0=工号
         updateObj.setUsernameWithWorkshop(
                 "1".equals(StrUtil.trim(updateReqVO.getUsernameWithWorkshop())) ? "1" : "0");
-        // 外部账号是按“旧用户名/旧车间/旧拼接方式”建的；身份字段一变，本地再显示“已注册”
-        // 会导致注册入口跳过推送、门户身份也对不上。置回未注册，提示管理员重新注册/关联。
+        // 外部账号按「对方真正使用的用户名 + 车间」识别。只把 工号+拼接标记 展开成 车间_工号，
+        // 对方账号没变，不能把已注册清掉。用户名或车间真正变了，才置回未注册。
         String oldWithWorkshop = "1".equals(StrUtil.trim(existUser.getUsernameWithWorkshop())) ? "1" : "0";
-        boolean identityChanged = !Objects.equals(StrUtil.trim(existUser.getUsername()), updateReqVO.getUsername())
-                || !Objects.equals(existingWorkshop, targetWorkshop)
-                || !Objects.equals(oldWithWorkshop, updateObj.getUsernameWithWorkshop());
+        String oldExternal = buildExternalUsername(StrUtil.trim(existUser.getUsername()), oldWithWorkshop, existingWorkshop);
+        String newExternal = buildExternalUsername(updateReqVO.getUsername(),
+                updateObj.getUsernameWithWorkshop(), targetWorkshop);
+        boolean identityChanged = !Objects.equals(StrUtil.trim(oldExternal), StrUtil.trim(newExternal))
+                || !Objects.equals(existingWorkshop, targetWorkshop);
         if (identityChanged && "1".equals(existUser.getEmployeeRegistered())) {
             updateObj.setEmployeeRegistered("0");
             updateObj.setRegisteredApiType("");
@@ -1091,6 +1091,7 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
                 if (StrUtil.isBlank(vo.getNickname())) {
                     vo.setNickname(mainUser.getNickname());
                 }
+                vo.setDomainNo(mainUser.getDomainNo());
             }
             if (StrUtil.isNotEmpty(item.getTeamId())) {
                 vo.setTeamName(teamNameMap.get(item.getSubSystemId() + ":" + item.getTeamId()));
@@ -1199,7 +1200,10 @@ public class SubSystemUsersServiceImpl implements SubSystemUsersService {
         SubSystemUsersDO exist = subSystemUsersMapper.selectBySubSystemIdAndUsernameAndWorkshopId(
                 subSystemId, name, workshop);
         if (exist != null && (id == null || !Objects.equals(exist.getId(), id))) {
-            throw exception(SUB_SYSTEM_USER_USERNAME_EXISTS);
+            // 带上用户名/车间：编辑改名（如旧数据展开成 车间_工号）撞唯一键时，用户能看懂冲突在哪
+            throw exception0(SUB_SYSTEM_USER_USERNAME_EXISTS.getCode(),
+                    SUB_SYSTEM_USER_USERNAME_EXISTS.getMsg() + "：" + name
+                            + (StrUtil.isNotBlank(workshop) ? "（车间 " + workshop + "）" : ""));
         }
     }
 

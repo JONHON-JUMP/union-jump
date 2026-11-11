@@ -8,11 +8,9 @@
           :props="cascaderProps"
           filterable
           clearable
-          placeholder="请选择子表叶子（一对一为系统本身一条，多车间选具体车间）"
           style="width: 100%"
           @change="handleHangLeafChange"
         />
-        <div class="form-tip">人员只挂 sub_system_workshop 子表记录；多叶子共用父系统菜单，每个叶子一套角色</div>
       </el-form-item>
       <el-form-item v-else label="业务系统">
         <el-input :value="displayClientLabel" disabled />
@@ -37,7 +35,23 @@
       <el-row :gutter="16">
         <el-col :span="12">
           <el-form-item label="用户名" prop="username">
-            <el-input v-model="form.username" :disabled="isBindMode" placeholder="与主用户登录名同名" />
+            <el-select
+              v-model="form.username"
+              filterable
+              allow-create
+              default-first-option
+              :disabled="isBindMode && !form.workshopId"
+              placeholder="请选择业务用户名"
+              style="width: 100%"
+              @change="onBizUsernameChange"
+            >
+              <el-option
+                v-for="item in bizUsernameOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
           </el-form-item>
         </el-col>
         <el-col :span="12">
@@ -51,7 +65,7 @@
               v-model="form.workshopId"
               clearable
               maxlength="50"
-              placeholder="可空；人员车间编号可直接填写"
+              placeholder=""
               @change="handleWorkshopChange"
             />
           </el-form-item>
@@ -68,27 +82,27 @@
             </el-select>
           </el-form-item>
         </el-col>
-        <el-col :span="24">
-          <el-form-item label="关联车间编号" prop="usernameWithWorkshop">
-            <el-radio-group v-model="form.usernameWithWorkshop" size="mini">
-              <el-radio label="0" border>工号</el-radio>
-              <el-radio label="1" border>车间编号_工号</el-radio>
-            </el-radio-group>
-            <div class="form-tip">选「车间编号_工号」且车间编号非空时，切换系统 Cookie 用 车间_工号；否则用工号</div>
+      </el-row>
+      <el-divider content-position="left">可同步到业务系统</el-divider>
+      <el-row :gutter="16">
+        <el-col :span="12">
+          <el-form-item label="域账号">
+            <el-input :value="form.domainNo || ''" disabled />
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="刷卡卡号">
+            <el-input v-model="form.cardNo" maxlength="64" clearable />
+          </el-form-item>
+        </el-col>
+        <el-col :span="12">
+          <el-form-item label="ERP号">
+            <el-input v-model="form.erpNo" maxlength="64" clearable />
           </el-form-item>
         </el-col>
       </el-row>
-      <el-divider content-position="left">岗位</el-divider>
-      <el-form-item label="岗位">
-        <el-select v-model="form.postIds" multiple placeholder="请选择岗位" style="width: 100%">
-          <el-option
-            v-for="item in postOptions"
-            :key="item.id"
-            :label="item.name"
-            :value="item.id"
-          />
-        </el-select>
-        <div class="form-tip">角色请在挂接后通过「分配角色」设置（车间叶子下角色须带对应车间）</div>
+      <el-form-item label="同步业务系统">
+        <el-checkbox v-model="form.syncAccount">是否更新数据至业务系统</el-checkbox>
       </el-form-item>
       <el-form-item label="启用状态" prop="status">
         <el-radio-group v-model="form.status">
@@ -119,9 +133,18 @@ import {
   getSubSystemTeamSimpleList,
   getSubSystemUser,
   getSubSystemUserByUsername,
-  updateSubSystemUser
+  updateSubSystemUser,
+  syncSubSystemUserAccount
 } from '@/api/system/subSystemUsers'
+import { registerSubSystemEmployee } from '@/api/system/subSystemEmployee'
 import { getHangableExternalTree } from '@/api/system/subSystemWorkshop'
+import { DICT_TYPE, getDictDatas } from '@/utils/dict'
+
+const DEFAULT_USERNAME_PATTERNS = [
+  { label: 'JUMP用户名', value: '{username}', sort: 1 },
+  { label: '车间编号_工号', value: '{workshop}_{username}', sort: 2 },
+  { label: '工号车间编号', value: '{username}{workshop}', sort: 3 }
+]
 
 export default {
   name: 'SubSystemUserEditDialog',
@@ -131,6 +154,7 @@ export default {
     mainUserId: { type: Number, default: undefined },
     portalUsername: { type: String, default: '' },
     portalNickname: { type: String, default: '' },
+    portalDomainNo: { type: String, default: '' },
     mainUserDeptId: { type: Number, default: undefined },
     /** 已挂接叶子：[{ subSystemId, workshopId }] */
     excludeLeaves: { type: Array, default: () => [] },
@@ -147,6 +171,7 @@ export default {
       matchOk: false,
       matchHint: '',
       createNewAllowed: false,
+      pickedPattern: '{username}',
       cascaderProps: {
         value: 'value',
         label: 'label',
@@ -156,7 +181,7 @@ export default {
       },
       rules: {
         hangLeafKey: [{ required: true, message: '请选择要挂接的系统或车间', trigger: 'change' }],
-        username: [{ required: true, message: '用户名不能为空', trigger: 'blur' }]
+        username: [{ required: true, message: '用户名不能为空', trigger: 'change' }]
       }
     }
   },
@@ -172,6 +197,35 @@ export default {
         return (this.clientName || '') + (this.clientName ? ' / ' : '') + this.form.workshopId
       }
       return this.clientName || '-'
+    },
+    bizUsernameOptions() {
+      const base = (this.portalUsername || '').trim()
+      const workshop = (this.form.workshopId || '').trim()
+      const options = []
+      const seen = {}
+      this.usernamePatterns.forEach(item => {
+        const text = this.renderUsernamePattern(item.value, base, workshop)
+        if (!text || seen[text]) {
+          return
+        }
+        seen[text] = true
+        options.push({
+          value: text,
+          pattern: item.value,
+          label: text
+        })
+      })
+      const current = (this.form.username || '').trim()
+      if (current && !seen[current]) {
+        options.push({ value: current, pattern: '', label: current })
+      }
+      return options
+    },
+    usernamePatterns() {
+      const rows = getDictDatas(DICT_TYPE.SUB_SYSTEM_BIZ_USERNAME_PATTERN) || []
+      const enabled = rows.filter(item => item && (item.status === undefined || item.status === 0 || item.status === '0'))
+      const source = enabled.length ? enabled : DEFAULT_USERNAME_PATTERNS
+      return source.slice().sort((a, b) => (a.sort || 0) - (b.sort || 0))
     },
     hangableCascaderOptions() {
       const exclude = new Set(
@@ -235,7 +289,49 @@ export default {
   methods: {
     handleWorkshopChange() {
       this.form.teamId = undefined
+      this.applyPickedUsername()
       this.loadTeamOptions(this.form.subSystemId)
+      if (this.isBindMode && this.form.subSystemId) {
+        this.matchRosterUser(this.form.subSystemId)
+      }
+    },
+    renderUsernamePattern(pattern, username, workshop) {
+      if (!pattern || !username) {
+        return ''
+      }
+      if (pattern.indexOf('{workshop}') >= 0 && !workshop) {
+        return ''
+      }
+      return pattern.replace(/\{username\}/g, username).replace(/\{workshop\}/g, workshop)
+    },
+    applyPickedUsername() {
+      const base = (this.portalUsername || '').trim()
+      const workshop = (this.form.workshopId || '').trim()
+      if (this.pickedPattern) {
+        const text = this.renderUsernamePattern(this.pickedPattern, base, workshop)
+        if (text) {
+          this.form.username = text
+          return
+        }
+      }
+      if (!workshop && base) {
+        this.form.username = base
+        this.pickedPattern = '{username}'
+      }
+    },
+    onBizUsernameChange(value) {
+      const hit = this.bizUsernameOptions.find(item => item.value === value)
+      this.pickedPattern = hit && hit.pattern ? hit.pattern : ''
+      if (this.isBindMode && this.form.subSystemId) {
+        this.matchRosterUser(this.form.subSystemId)
+      }
+    },
+    syncPickedPattern() {
+      const base = (this.portalUsername || '').trim()
+      const workshop = (this.form.workshopId || '').trim()
+      const current = (this.form.username || '').trim()
+      const hit = this.usernamePatterns.find(item => this.renderUsernamePattern(item.value, base, workshop) === current)
+      this.pickedPattern = hit ? hit.value : ''
     },
     leafKey(subSystemId, workshopId) {
       const w = workshopId == null || workshopId === '' ? '' : String(workshopId)
@@ -253,9 +349,13 @@ export default {
         teamId: undefined,
         homeMenuId: undefined,
         status: '0',
-        // 新用户默认按 JUMP 规则「车间编号_工号」注册/种 Cookie；横线多账号仅存量兼容
-        usernameWithWorkshop: '1',
+        // 用户名即业务系统真实账号，不再按「关联车间编号」拼接
+        usernameWithWorkshop: '0',
         remark: undefined,
+        cardNo: undefined,
+        erpNo: undefined,
+        domainNo: undefined,
+        syncAccount: false,
         roleIds: [],
         postIds: []
       }
@@ -265,6 +365,7 @@ export default {
       this.matchOk = false
       this.matchHint = ''
       this.createNewAllowed = false
+      this.pickedPattern = '{username}'
       if (this.$refs.form) {
         this.$refs.form.clearValidate()
       }
@@ -320,8 +421,11 @@ export default {
       this.matchHint = ''
       this.createNewAllowed = false
       if (!this.form.subSystemId) {
+        this.pickedPattern = '{username}'
+        this.applyPickedUsername()
         return
       }
+      this.applyPickedUsername()
       this.loadSubOptions(this.form.subSystemId).then(() => {
         if (this.isBindMode) {
           return this.matchRosterUser(this.form.subSystemId)
@@ -330,23 +434,35 @@ export default {
       })
     },
     matchRosterUser(subSystemId) {
-      const username = (this.portalUsername || '').trim()
+      const username = (this.form.username || this.portalUsername || '').trim()
       if (!subSystemId || !username) {
         this.matchOk = false
         this.createNewAllowed = false
-        this.matchHint = '缺少主用户登录名'
+        this.matchHint = '请填写业务用户名'
         return Promise.resolve()
       }
       this.form.username = username
-      return getSubSystemUserByUsername(subSystemId, username, this.form.workshopId).then(res => {
+      const workshop = (this.form.workshopId || '').trim()
+      const bare = (this.portalUsername || '').trim()
+      const prefixed = workshop && username === bare ? (workshop + '_' + username) : ''
+      const lookup = (name) => getSubSystemUserByUsername(subSystemId, name, this.form.workshopId)
+      return lookup(username).then(res => {
         const data = res.data
+        if (data && data.id) {
+          return data
+        }
+        if (!prefixed) {
+          return null
+        }
+        return lookup(prefixed).then(second => (second.data && second.data.id) ? second.data : null)
+      }).then(data => {
         if (data && data.id) {
           this.matchOk = true
           this.createNewAllowed = false
-          this.matchHint = `已匹配业务用户「${data.username}」，确认后关联 JUMP 用户`
           const keptWorkshop = this.form.workshopId
           this.applyRosterToForm(data)
           this.form.workshopId = keptWorkshop || data.workshopId
+          this.matchHint = `已匹配业务用户「${this.form.username}」，确认后关联 JUMP 用户`
           return this.loadTeamOptions(subSystemId)
         }
         this.matchOk = false
@@ -363,22 +479,32 @@ export default {
     applyRosterToForm(data) {
       this.form.id = data.id
       this.form.subSystemId = data.subSystemId
-      this.form.username = data.username
+      const workshop = (data.workshopId || '').trim()
+      const name = (data.username || '').trim()
+      // 旧数据只存工号、并用「关联车间编号」拼 车间_工号。打开时展开成完整用户名，保存后 Cookie 直接用它
+      this.form.username = (data.usernameWithWorkshop === '1' && workshop && name && name.indexOf(workshop + '_') !== 0)
+        ? (workshop + '_' + name)
+        : name
       this.form.nickname = data.nickname
       this.form.workshopId = data.workshopId
       this.form.teamId = data.teamId
       this.form.homeMenuId = data.homeMenuId
       this.form.status = data.status || '0'
-      this.form.usernameWithWorkshop = data.usernameWithWorkshop === '1' ? '1' : '0'
+      this.form.usernameWithWorkshop = '0'
+      this.form.cardNo = data.cardNo
+      this.form.erpNo = data.erpNo
+      this.form.domainNo = data.domainNo || this.portalDomainNo
       this.form.remark = data.remark
       this.form.roleIds = data.roleIds || []
       this.form.postIds = data.postIds || []
+      this.syncPickedPattern()
     },
     openBind() {
       this.resetFormData()
       this.form.mainUserId = this.mainUserId
       this.form.username = this.portalUsername
       this.form.nickname = this.portalNickname
+      this.form.domainNo = this.portalDomainNo
       this.loadHangableTree().catch(() => { this.dialogVisible = false })
     },
     openCreate() {
@@ -417,22 +543,70 @@ export default {
           return
         }
         this.submitLoading = true
+        const syncAccount = !!this.form.syncAccount
+        const hasAccount = [this.form.domainNo, this.form.cardNo, this.form.erpNo]
+          .some(value => value != null && String(value).trim() !== '')
         const payload = {
           ...this.form,
           mainUserId: this.isBindMode ? this.mainUserId : this.form.mainUserId,
-          usernameWithWorkshop: this.form.usernameWithWorkshop === '1' ? '1' : '0'
+          usernameWithWorkshop: '0'
         }
         delete payload.hangLeafKey
+        delete payload.domainNo
+        delete payload.syncAccount
+        delete payload.postIds
         const run = this.form.id
           ? updateSubSystemUser({
             ...payload,
             mainUserId: this.isBindMode ? this.mainUserId : payload.mainUserId
           })
           : createSubSystemUser(payload)
-        run.then(() => {
-          this.$modal.msgSuccess(this.isBindMode ? '挂接成功' : (this.form.id ? '修改成功' : '新增成功'))
-          this.dialogVisible = false
-          this.$emit('success')
+        run.then(res => {
+          const savedId = this.form.id || res.data
+          if (!syncAccount) {
+            this.$modal.msgSuccess(this.isBindMode ? '挂接成功' : (this.form.id ? '修改成功' : '新增成功'))
+            this.dialogVisible = false
+            this.$emit('success')
+            return
+          }
+          const done = (syncRes) => {
+            const message = (syncRes.data && syncRes.data.message) || '已同步到业务系统'
+            this.$modal.msgSuccess(message)
+            this.dialogVisible = false
+            this.$emit('success')
+          }
+          const keep = (message) => {
+            this.form.id = savedId
+            this.$modal.msgError(message)
+            this.$emit('success')
+          }
+          // 先按叶子「新增人员」绑定。已注册的会跳过。有域账号、刷卡卡号或 ERP 号时，再按对应绑定更新
+          return registerSubSystemEmployee({
+            workshopCode: payload.workshopId,
+            ids: [savedId]
+          }).then(regRes => {
+            const results = regRes.data || []
+            const fail = results.filter(item => !item.success)
+            if (!results.length || fail.length) {
+              keep('已保存在 JUMP。新增人员失败：' + ((fail[0] && fail[0].message) || '接口调用失败'))
+              return null
+            }
+            if (!hasAccount) {
+              return { data: { message: (results[0] && results[0].message) || '已同步到业务系统' } }
+            }
+            return syncSubSystemUserAccount({ id: savedId }).catch(() => {
+              keep('人员已在业务系统。域账号、刷卡卡号、ERP号同步失败')
+              return null
+            })
+          }).catch(() => {
+            keep('已保存在 JUMP。新增人员失败')
+            return null
+          }).then(syncRes => {
+            if (!syncRes) {
+              return
+            }
+            done(syncRes)
+          })
         }).finally(() => {
           this.submitLoading = false
         })

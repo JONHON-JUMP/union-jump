@@ -52,6 +52,14 @@ public class SubSystemUsersSaveReqVO {
     @Schema(description = "备注")
     private String remark;
 
+    @Schema(description = "刷卡卡号（业务账号）")
+    @Size(max = 64, message = "刷卡卡号长度不能超过 64 个字符")
+    private String cardNo;
+
+    @Schema(description = "ERP号（业务账号）")
+    @Size(max = 64, message = "ERP号长度不能超过 64 个字符")
+    private String erpNo;
+
     @Schema(description = "岗位编号列表")
     private List<Long> postIds;
 

@@ -11,10 +11,10 @@ import cn.jonhon.jump.module.system.controller.admin.user.vo.user.*;
 import cn.jonhon.jump.module.system.convert.user.UserConvert;
 import cn.jonhon.jump.module.system.dal.dataobject.dept.DeptDO;
 import cn.jonhon.jump.module.system.dal.dataobject.user.AdminUserDO;
-import cn.jonhon.jump.module.system.enums.common.SexEnum;
 import cn.jonhon.jump.module.system.service.dept.DeptService;
 import cn.jonhon.jump.module.system.service.user.AdminUserService;
 import cn.jonhon.jump.module.system.service.user.SubSystemUsersService;
+import cn.jonhon.jump.module.system.service.user.UserBizImportService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.Parameters;
@@ -48,6 +48,8 @@ public class UserController {
     private DeptService deptService;
     @Resource
     private SubSystemUsersService subSystemUsersService;
+    @Resource
+    private UserBizImportService userBizImportService;
 
     @PostMapping("/create")
     @Operation(summary = "新增用户")
@@ -160,30 +162,40 @@ public class UserController {
     @GetMapping("/get-import-template")
     @Operation(summary = "获得导入用户模板")
     public void importTemplate(HttpServletResponse response) throws IOException {
-        // 手动创建导出 demo
-        List<UserImportExcelVO> list = Arrays.asList(
-                UserImportExcelVO.builder().username("yunai").deptId(1L).email("yunai@iocoder.cn").mobile("15601691300")
-                        .nickname("芋道").employeeNo("E001").domainNo("yunai").cardNo("10086001").erpNos("erp001,erp002")
-                        .status(CommonStatusEnum.ENABLE.getStatus()).sex(SexEnum.MALE.getSex()).build(),
-                UserImportExcelVO.builder().username("yuanma").deptId(2L).email("yuanma@iocoder.cn").mobile("15601701300")
-                        .nickname("源码").employeeNo("E002").domainNo("yuanma").cardNo("10086002").erpNos("erp003")
-                        .status(CommonStatusEnum.DISABLE.getStatus()).sex(SexEnum.FEMALE.getSex()).build()
+        // 第 1 行：一个人只挂一个车间。第 2、3 行：同一个人挂两个车间，用户名相同，业务用户名不同。
+        List<UserBizImportExcelVO> list = Arrays.asList(
+                UserBizImportExcelVO.builder().username("77176").nickname("张三")
+                        .employeeNo("77176").domainNo("zhangsan")
+                        .workshopId("4303").bizUsername("771764303")
+                        .roleCodes("4303_装配工").cardNo("771764303").erpNo("430300001")
+                        .remark("示例：一个人只挂一个车间。正式导入前删掉示例行。").build(),
+                UserBizImportExcelVO.builder().username("HY122").nickname("李行行-WB")
+                        .employeeNo("HY122").domainNo("lihang")
+                        .workshopId("4306").bizUsername("HY1224306")
+                        .roleCodes("4306_装配工").cardNo("HY1224306").erpNo("430613432")
+                        .remark("示例：同一个人挂多个车间时，用户名和用户姓名保持一致，每个车间一行。").build(),
+                UserBizImportExcelVO.builder().username("HY122").nickname("李行行-WB")
+                        .employeeNo("HY122").domainNo("lihang")
+                        .workshopId("4309").bizUsername("HY1224309")
+                        .roleCodes("4309_装配工").cardNo("HY1224309").erpNo("430913432")
+                        .remark("示例：与上一行是同一个人，车间和业务用户名不同。").build()
         );
-        // 输出
-        ExcelUtils.write(response, "用户导入模板.xls", "用户列表", UserImportExcelVO.class, list);
+        ExcelUtils.write(response, "用户导入模板.xls", "用户列表", UserBizImportExcelVO.class, list);
     }
 
     @PostMapping("/import")
-    @Operation(summary = "导入用户")
+    @Operation(summary = "导入用户和业务账号")
     @Parameters({
             @Parameter(name = "file", description = "Excel 文件", required = true),
-            @Parameter(name = "updateSupport", description = "是否支持更新，默认为 false", example = "true")
+            @Parameter(name = "deptId", description = "新建主用户的部门", required = true),
+            @Parameter(name = "syncToExternal", description = "是否把人员和角色推送到业务系统", example = "false")
     })
     @PreAuthorize("@ss.hasPermission('system:user:import')")
     public CommonResult<UserImportRespVO> importExcel(@RequestParam("file") MultipartFile file,
-                                                      @RequestParam(value = "updateSupport", required = false, defaultValue = "false") Boolean updateSupport) throws Exception {
-        List<UserImportExcelVO> list = ExcelUtils.read(file, UserImportExcelVO.class);
-        return success(userService.importUserList(list, updateSupport));
+                                                      @RequestParam("deptId") Long deptId,
+                                                      @RequestParam(value = "syncToExternal", required = false, defaultValue = "false") Boolean syncToExternal) throws Exception {
+        List<UserBizImportExcelVO> list = ExcelUtils.read(file, UserBizImportExcelVO.class);
+        return success(userBizImportService.importUsers(deptId, Boolean.TRUE.equals(syncToExternal), list));
     }
 
 }

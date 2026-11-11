@@ -29,6 +29,8 @@ export const DICT_TYPE = {
   SYSTEM_MAIL_SEND_STATUS: 'system_mail_send_status',
   SYSTEM_NOTIFY_TEMPLATE_TYPE: 'system_notify_template_type',
   SYSTEM_FAQ_CATEGORY: 'system_faq_category',
+  // 挂接业务用户名。value 用 {username}、{workshop} 占位，后续新增规则只加字典
+  SUB_SYSTEM_BIZ_USERNAME_PATTERN: 'sub_system_biz_username_pattern',
 
   // ========== INFRA 模块 ==========
   INFRA_BOOLEAN_STRING: 'infra_boolean_string',

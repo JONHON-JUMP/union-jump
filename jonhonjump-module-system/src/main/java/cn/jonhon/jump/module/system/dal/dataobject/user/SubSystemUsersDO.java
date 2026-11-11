@@ -71,5 +71,13 @@ public class SubSystemUsersDO extends BaseDO {
      * 备注
      */
     private String remark;
+    /**
+     * 刷卡卡号（挂在这条业务账号上，不写 JUMP 主用户）
+     */
+    private String cardNo;
+    /**
+     * ERP 号（一条业务账号一个）
+     */
+    private String erpNo;
 
 }

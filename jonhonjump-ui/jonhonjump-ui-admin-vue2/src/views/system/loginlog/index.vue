@@ -7,8 +7,8 @@
         <el-input v-model="queryParams.userIp" placeholder="请输入登录地址" clearable style="width: 240px;"
                   @keyup.enter.native="handleQuery"/>
       </el-form-item>
-      <el-form-item label="用户名称" prop="username">
-        <el-input v-model="queryParams.username" placeholder="请输入用户名称" clearable style="width: 240px;"
+      <el-form-item label="用户名" prop="username">
+        <el-input v-model="queryParams.username" placeholder="请输入用户名" clearable style="width: 240px;"
                   @keyup.enter.native="handleQuery"/>
       </el-form-item>
       <el-form-item label="状态" prop="status">
@@ -42,7 +42,7 @@
           <dict-tag :type="DICT_TYPE.SYSTEM_LOGIN_TYPE" :value="scope.row.logType" />
         </template>
       </el-table-column>
-      <el-table-column label="用户名称" align="center" prop="username" />
+      <el-table-column label="用户名" align="center" prop="username" />
       <el-table-column label="登录地址" align="center" prop="userIp" width="130" :show-overflow-tooltip="true" />
       <el-table-column label="userAgent" align="center" prop="userAgent" width="400" :show-overflow-tooltip="true" />
       <el-table-column label="结果" align="center" prop="status">

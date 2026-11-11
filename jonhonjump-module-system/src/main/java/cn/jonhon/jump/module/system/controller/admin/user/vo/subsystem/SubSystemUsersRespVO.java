@@ -34,6 +34,15 @@ public class SubSystemUsersRespVO {
     @Schema(description = "用户姓名")
     private String nickname;
 
+    @Schema(description = "JUMP 用户域账号，只读展示，不写在业务用户上")
+    private String domainNo;
+
+    @Schema(description = "刷卡卡号")
+    private String cardNo;
+
+    @Schema(description = "ERP号")
+    private String erpNo;
+
     @Schema(description = "叶子编号（挂 sub_system_workshop 时有值）")
     private String workshopId;
 
