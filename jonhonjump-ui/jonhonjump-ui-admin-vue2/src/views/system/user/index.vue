@@ -259,30 +259,43 @@
     </el-dialog>
 
     <!-- 用户导入对话框 -->
-    <el-dialog :title="upload.title" :visible.sync="upload.open" width="520px" append-to-body>
+    <el-dialog :title="upload.title" :visible.sync="upload.open" width="520px" append-to-body
+      :close-on-click-modal="false" :before-close="handleImportClose">
       <el-form label-width="90px">
         <el-form-item label="归属部门" required>
           <treeselect v-model="upload.deptId" :options="deptOptions" :show-count="true" :clearable="true"
-                      placeholder="请按部门层级选择" :normalizer="normalizer" />
+                      placeholder="请按部门层级选择" :normalizer="normalizer" :disabled="upload.importing" />
         </el-form-item>
       </el-form>
+      <!-- 隐藏 el-upload 默认文件列表：其进度条只反映字节上传（Excel 秒传即 100%），
+           后端还在逐条同步业务系统，100% 停留过久会误导操作人员 -->
       <el-upload ref="upload" class="user-import-upload" :limit="1" accept=".xlsx, .xls" :headers="upload.headers"
-        :action="importAction" :disabled="upload.isUploading"
+        :action="importAction" :disabled="upload.isUploading || upload.importing" :show-file-list="false"
         :on-progress="handleFileUploadProgress" :on-success="handleFileSuccess" :on-error="handleFileError"
-        :auto-upload="false" drag>
+        :on-change="handleFileChange" :auto-upload="false" drag>
         <i class="el-icon-upload"></i>
         <div class="el-upload__text">将文件拖到此处，或<em>点击上传</em></div>
         <div class="el-upload__tip text-center" slot="tip">
           <div class="el-upload__tip" slot="tip">
-            <el-checkbox v-model="upload.syncToExternal" /> 是否同步数据至业务系统
+            <el-checkbox v-model="upload.syncToExternal" :disabled="upload.importing" /> 是否同步数据至业务系统
           </div>
           <span>仅允许导入xls、xlsx格式文件。</span>
           <el-link type="primary" :underline="false" style="font-size:12px;vertical-align: baseline;" @click="importTemplate">下载模板</el-link>
         </div>
       </el-upload>
+      <div v-if="upload.fileName && !upload.importing" class="import-file-name">
+        <i class="el-icon-document"></i> {{ upload.fileName }}
+      </div>
+      <div v-if="upload.importing" class="import-processing">
+        <i class="el-icon-loading"></i>
+        <template v-if="upload.syncToExternal">正在导入并同步业务系统，同步接口较慢可能需要等待一会儿，请勿关闭窗口…</template>
+        <template v-else>正在导入，请稍候…</template>
+      </div>
       <div slot="footer" class="dialog-footer">
-        <el-button type="primary" @click="submitFileForm">确 定</el-button>
-        <el-button @click="upload.open = false">取 消</el-button>
+        <el-button type="primary" :loading="upload.importing" :disabled="!upload.fileName" @click="submitFileForm">
+          {{ upload.importing ? '正在导入…' : '确 定' }}
+        </el-button>
+        <el-button :disabled="upload.importing" @click="upload.open = false">取 消</el-button>
       </div>
     </el-dialog>
 
@@ -409,6 +422,10 @@ export default {
         title: "",
         // 是否禁用上传
         isUploading: false,
+        // 后端导入/同步业务系统进行中（字节上传完成 ≠ 导入完成）
+        importing: false,
+        // 已选择的文件名（默认文件列表已隐藏，自行展示）
+        fileName: "",
         // 新建主用户使用的部门
         deptId: undefined,
         // 是否把人员和角色推送到业务系统
@@ -930,8 +947,22 @@ export default {
       this.upload.deptId = undefined;
       this.upload.syncToExternal = false;
       this.upload.isUploading = false;
+      this.upload.importing = false;
+      this.upload.fileName = "";
       this.upload.open = true;
+      // 清掉上一次会话残留的已选文件（el-upload 内部列表独立于对话框存活）
+      this.$nextTick(() => {
+        this.$refs.upload && this.$refs.upload.clearFiles();
+      });
       this.getTreeselect();
+    },
+    /** 导入中禁止关闭对话框：关闭并不中断后端导入，但会造成“没结果就没了”的误解 */
+    handleImportClose(done) {
+      if (this.upload.importing) {
+        this.$modal.msgError("正在导入，请等待结果提示后再关闭");
+        return;
+      }
+      done();
     },
     /** 下载模板操作 */
     importTemplate() {
@@ -943,9 +974,16 @@ export default {
     handleFileUploadProgress(event, file, fileList) {
       this.upload.isUploading = true;
     },
+    // 已选文件变化（默认文件列表已隐藏，自行记录文件名）
+    handleFileChange(file, fileList) {
+      const ready = (fileList || []).filter(item => item && item.status === 'ready');
+      this.upload.fileName = ready.length ? ready[ready.length - 1].name : '';
+    },
     // 文件上传成功处理
     handleFileSuccess(response, file, fileList) {
       this.upload.isUploading = false;
+      this.upload.importing = false;
+      this.upload.fileName = "";
       this.$refs.upload.clearFiles();
       if (response.code !== 0) {
         this.$modal.msgError(response.msg)
@@ -1013,6 +1051,9 @@ export default {
     },
     handleFileError() {
       this.upload.isUploading = false;
+      this.upload.importing = false;
+      this.upload.fileName = "";
+      this.$refs.upload.clearFiles();
       this.$modal.msgError('导入请求失败');
     },
     // 提交上传文件
@@ -1021,6 +1062,13 @@ export default {
         this.$modal.msgError('请先选择部门');
         return;
       }
+      if (!this.upload.fileName) {
+        this.$modal.msgError('请先选择导入文件');
+        return;
+      }
+      // importing 覆盖「字节上传 + 后端逐条导入/同步业务系统」全程，
+      // 字节传完后端仍在调外部接口，不能以 100% 上传进度当作导入完成
+      this.upload.importing = true;
       this.$refs.upload.submit();
     },
     // 格式化部门的下拉框
@@ -1070,6 +1118,21 @@ export default {
 .user-import-upload ::v-deep .el-upload,
 .user-import-upload ::v-deep .el-upload-dragger {
   width: 100%;
+}
+.import-file-name {
+  margin-top: 8px;
+  color: #606266;
+  font-size: 13px;
+  text-align: center;
+}
+.import-processing {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: #f4f8ff;
+  color: #087ce5;
+  font-size: 13px;
+  text-align: center;
 }
 </style>
 
