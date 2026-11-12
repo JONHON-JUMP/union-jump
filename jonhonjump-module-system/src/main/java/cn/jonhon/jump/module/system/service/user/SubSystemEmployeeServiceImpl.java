@@ -308,13 +308,15 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         }
         SubSystemEmployeeDTO dto = new SubSystemEmployeeDTO();
         dto.setWorkshopCode(workshopCode);
-        // 域账号来自 JUMP 用户；刷卡卡号、ERP 号来自这条业务用户
+        // 域账号来自 JUMP 用户；刷卡卡号、ERP 号、班组来自这条业务用户
         dto.setDomainName(domainNo);
         dto.setCardNo(StrUtil.trimToNull(roster.getCardNo()));
         dto.setErpNo(StrUtil.trimToNull(roster.getErpNo()));
-        if (dto.getDomainName() == null && dto.getCardNo() == null && dto.getErpNo() == null) {
+        dto.setTeamCode(StrUtil.trimToNull(roster.getTeamId()));
+        if (dto.getDomainName() == null && dto.getCardNo() == null && dto.getErpNo() == null
+                && dto.getTeamCode() == null) {
             throw exception0(BAD_REQUEST.getCode(),
-                    "没有可同步的域账号、刷卡卡号或 ERP 号");
+                    "没有可同步的域账号、刷卡卡号、ERP 号或班组");
         }
         dto.setUserCode(externalUserCode(roster));
         List<String> syncedFields = new ArrayList<>();
@@ -326,6 +328,9 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         }
         if (dto.getErpNo() != null) {
             syncedFields.add("ERP账号");
+        }
+        if (dto.getTeamCode() != null) {
+            syncedFields.add("班组");
         }
         try {
             getApi(apiSubSystemId).updateUserAccount(dto);
@@ -348,6 +353,7 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         }
         String cardNo = StrUtil.trimToNull(roster.getCardNo());
         String erpNo = StrUtil.trimToNull(roster.getErpNo());
+        String teamCode = StrUtil.trimToNull(roster.getTeamId());
         String domainNo = null;
         if (roster.getMainUserId() != null) {
             AdminUserDO mainUser = adminUserMapper.selectById(roster.getMainUserId());
@@ -355,7 +361,7 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
                 domainNo = StrUtil.trimToNull(mainUser.getDomainNo());
             }
         }
-        if (domainNo == null && cardNo == null && erpNo == null) {
+        if (domainNo == null && cardNo == null && erpNo == null && teamCode == null) {
             return;
         }
         String workshopCode = StrUtil.trimToNull(roster.getWorkshopId());
@@ -371,6 +377,7 @@ public class SubSystemEmployeeServiceImpl implements SubSystemEmployeeService {
         dto.setDomainName(domainNo);
         dto.setCardNo(cardNo);
         dto.setErpNo(erpNo);
+        dto.setTeamCode(teamCode);
         try {
             getApi(apiSubSystemId).updateUserAccount(dto);
         } catch (ExternalApiException | UnsupportedOperationException e) {

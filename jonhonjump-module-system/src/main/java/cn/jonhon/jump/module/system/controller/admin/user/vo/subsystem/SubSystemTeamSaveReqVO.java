@@ -21,12 +21,12 @@ public class SubSystemTeamSaveReqVO {
     @Schema(description = "JUMP 部门 ID（可选）", example = "100")
     private Long deptId;
 
-    @Schema(description = "车间编号（可空）", example = "4200")
+    @Schema(description = "车间编号", requiredMode = Schema.RequiredMode.REQUIRED, example = "4200")
+    @NotBlank(message = "车间编号不能为空")
     @Size(max = 50, message = "车间编号长度不能超过 50 个字符")
     private String workshopCode;
 
-    @Schema(description = "班组编码", requiredMode = Schema.RequiredMode.REQUIRED, example = "WS01-T01")
-    @NotBlank(message = "班组编码不能为空")
+    @Schema(description = "班组编码。新增同步时由接口查回，不由页面填写", example = "甲班")
     @Size(max = 100, message = "班组编码长度不能超过 100 个字符")
     private String teamCode;
 
@@ -45,5 +45,8 @@ public class SubSystemTeamSaveReqVO {
     @Schema(description = "班组长姓名", example = "张三")
     @Size(max = 20, message = "班组长姓名长度不能超过 20 个字符")
     private String teamLeaderName;
+
+    @Schema(description = "新增班组时是否同步到业务系统（需已配置班组新增接口）", example = "true")
+    private Boolean syncToExternal;
 
 }

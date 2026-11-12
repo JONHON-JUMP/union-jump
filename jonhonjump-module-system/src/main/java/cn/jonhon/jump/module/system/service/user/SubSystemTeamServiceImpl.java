@@ -19,6 +19,7 @@ import cn.jonhon.jump.module.system.dal.mysql.user.AdminUserMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemTeamMapper;
 import cn.jonhon.jump.module.system.dal.mysql.user.SubSystemUsersMapper;
+import cn.jonhon.jump.module.system.enums.user.LeafApiSceneEnum;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.validation.annotation.Validated;
@@ -50,6 +51,10 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
     private DeptMapper deptMapper;
     @Resource
     private SubSystemAccessService subSystemAccessService;
+    @Resource
+    private LeafApiBindingService leafApiBindingService;
+    @Resource
+    private SubSystemApiConfigService subSystemApiConfigService;
 
     @Override
     public PageResult<SubSystemTeamRespVO> getSubSystemTeamPage(SubSystemTeamPageReqVO pageReqVO) {
@@ -75,10 +80,33 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
     public Long createSubSystemTeam(SubSystemTeamSaveReqVO createReqVO) {
         validateSubSystemExists(createReqVO.getSubSystemId());
         validateDeptIfPresent(createReqVO.getDeptId());
-        createReqVO.setWorkshopCode(StrUtil.trimToNull(createReqVO.getWorkshopCode()));
-        validateTeamDuplicate(createReqVO.getSubSystemId(), createReqVO.getTeamName(),
-                createReqVO.getTeamCode(), null);
+        createReqVO.setWorkshopCode(requireWorkshopCode(createReqVO.getWorkshopCode()));
+        createReqVO.setTeamName(StrUtil.trim(createReqVO.getTeamName()));
+        createReqVO.setTeamCode(null);
         fillTeamLeaderName(createReqVO);
+        if (StrUtil.isBlank(createReqVO.getTeamName())) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, "班组名称不能为空");
+        }
+        // 勾选同步：对方新增后按班组名称查出班组编码，再写入本地。不勾选时本地编码先用班组名称。
+        if (Boolean.TRUE.equals(createReqVO.getSyncToExternal())) {
+            String workshopCode = createReqVO.getWorkshopCode();
+            // 查询、新增各自走该车间叶子上的绑定，不写死接口系统
+            Long queryApiId = leafApiBindingService.requireApiSubSystemId(
+                    createReqVO.getSubSystemId(), workshopCode, LeafApiSceneEnum.TEAM_QUERY);
+            Long createApiId = leafApiBindingService.requireApiSubSystemId(
+                    createReqVO.getSubSystemId(), workshopCode, LeafApiSceneEnum.TEAM_CREATE);
+            // 对方落库的编码就是本次名称。先按这个编码查重，避免新增接口改掉已有班组。
+            String externalCode = createReqVO.getTeamName();
+            validateTeamDuplicate(createReqVO.getSubSystemId(), createReqVO.getTeamName(), externalCode, null);
+            assertExternalTeamCodeFree(queryApiId, workshopCode, externalCode);
+            subSystemApiConfigService.pushExternalTeamCreate(
+                    createApiId, workshopCode, externalCode, createReqVO.getTeamName());
+            createReqVO.setTeamCode(requireExternalTeamCode(queryApiId, workshopCode, externalCode));
+        } else {
+            createReqVO.setTeamCode(createReqVO.getTeamName());
+            validateTeamDuplicate(createReqVO.getSubSystemId(), createReqVO.getTeamName(),
+                    createReqVO.getTeamCode(), null);
+        }
 
         SubSystemTeamDO team = BeanUtils.toBean(createReqVO, SubSystemTeamDO.class);
         subSystemTeamMapper.insert(team);
@@ -90,10 +118,14 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
         SubSystemTeamDO team = validateSubSystemTeamExists(updateReqVO.getId());
         validateSubSystemExists(updateReqVO.getSubSystemId());
         validateDeptIfPresent(updateReqVO.getDeptId());
-        updateReqVO.setWorkshopCode(StrUtil.trimToNull(updateReqVO.getWorkshopCode()));
+        updateReqVO.setWorkshopCode(requireWorkshopCode(updateReqVO.getWorkshopCode()));
+        if (StrUtil.isBlank(updateReqVO.getTeamCode())) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, "班组编码不能为空");
+        }
         validateTeamDuplicate(updateReqVO.getSubSystemId(), updateReqVO.getTeamName(),
                 updateReqVO.getTeamCode(), updateReqVO.getId());
         fillTeamLeaderName(updateReqVO);
+        // 修改只写 JUMP，不推业务系统
 
         SubSystemTeamDO updateObj = BeanUtils.toBean(updateReqVO, SubSystemTeamDO.class);
         // 系统归属不变；部门、车间编号写在班组自身
@@ -223,6 +255,40 @@ public class SubSystemTeamServiceImpl implements SubSystemTeamService {
                 team.getSubSystemId(), team.getTeamCode());
         if (count != null && count > 0) {
             throw exception(SUB_SYSTEM_TEAM_HAS_USERS);
+        }
+    }
+
+    /** 车间编号必填 */
+    private String requireWorkshopCode(String workshopCode) {
+        String code = StrUtil.trimToNull(workshopCode);
+        if (code == null) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, "车间编号不能为空");
+        }
+        return code;
+    }
+
+    /**
+     * 新增成功后按车间 + 班组编码再查一次。编码用的是刚提交的班组名称，因为对方把名称写进了 TEAM.teamId。
+     * 查不到就不写本地。
+     */
+    private String requireExternalTeamCode(Long queryApiSubSystemId, String workshopCode, String teamName) {
+        String code = StrUtil.trim(teamName);
+        Map<String, String> existing = subSystemApiConfigService
+                .queryExternalTeams(queryApiSubSystemId, workshopCode, code);
+        if (!existing.containsKey(code)) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR,
+                    "业务系统已新增班组，但未查到班组编码【" + code + "】，JUMP 未保存。请不要再次新建。");
+        }
+        return code;
+    }
+
+    /** 新增同步前必须查到叶子上绑定的班组查询。对方已有同编码则不再新增，避免 upsert 改掉已有班组。 */
+    private void assertExternalTeamCodeFree(Long queryApiSubSystemId, String workshopCode, String teamCode) {
+        Map<String, String> existing = subSystemApiConfigService
+                .queryExternalTeams(queryApiSubSystemId, workshopCode, teamCode);
+        if (existing.containsKey(StrUtil.trim(teamCode))) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR,
+                    "业务系统已存在班组编码【" + StrUtil.trim(teamCode) + "】，不再同步新增");
         }
     }
 

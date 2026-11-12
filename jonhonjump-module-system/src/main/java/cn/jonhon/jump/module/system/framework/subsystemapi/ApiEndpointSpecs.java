@@ -27,14 +27,26 @@ public final class ApiEndpointSpecs {
     public static final String ASSIGN_ROLE = "assign_role";
     public static final String ROLE_QUERY = "role_query";
     public static final String ROLE_CREATE = "role_create";
-    public static final String ROLE_DELETE = "role_delete";
+    /** 可配置，页面修改角色只改 JUMP，不调用本接口 */
+    public static final String ROLE_UPDATE = "role_update";
+    /** Camstar getTeamInfo：按车间/班组编码过滤查询 */
+    public static final String TEAM_QUERY = "team_query";
+    /** Camstar addOrUpdateTeam。页面新增可同步；页面修改只改 JUMP，不调用修改接口 */
+    public static final String TEAM_CREATE = "team_create";
+    public static final String TEAM_UPDATE = "team_update";
 
-    /** 前端分组：角色类用途 → role，其余非空用途 → person，空用途 → other */
+    /** 前端分组：role_ 前缀 → role；team_ 前缀 / team_combo → team；其余非空 → person；空用途 → other */
     public static String groupOf(String purpose) {
         if (purpose == null || purpose.trim().isEmpty()) {
             return "other";
         }
-        return purpose.startsWith("role_") ? "role" : "person";
+        if (purpose.startsWith("role_")) {
+            return "role";
+        }
+        if (purpose.startsWith("team_")) {
+            return "team";
+        }
+        return "person";
     }
 
     /** 接口行 → EndpointSpec；null 行返回 null（可选接口未配置） */

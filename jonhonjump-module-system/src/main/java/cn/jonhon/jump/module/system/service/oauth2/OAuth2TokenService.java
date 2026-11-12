@@ -81,6 +81,11 @@ public interface OAuth2TokenService {
     void removeAccessToken(Long userId, Integer userType);
 
     /**
+     * 密码变更后重写该用户访问令牌上的用户信息，让初始密码标记立刻生效或取消。
+     */
+    void refreshUserInfo(Long userId, Integer userType);
+
+    /**
      * 获得访问令牌分页
      *
      * @param reqVO 请求

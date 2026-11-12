@@ -74,4 +74,16 @@ public interface SubSystemApiConfigService {
      */
     Map<String, String> queryExternalRoleIds(Long subSystemId, String workshopCode, String roleName);
 
+    /**
+     * 查对方班组：teamCode → teamName（team_query / getTeamInfo）。
+     * workshopCode、teamCode 都可空。
+     */
+    Map<String, String> queryExternalTeams(Long subSystemId, String workshopCode, String teamCode);
+
+    /**
+     * 调对方「班组新增」接口（team_create / addOrUpdateTeam）。
+     * 现有新增把 teamName 写成对方主键，调用方应把班组名称同时放在 teamCode 里，避免命中别的班组后被改掉。
+     */
+    void pushExternalTeamCreate(Long subSystemId, String workshopCode, String teamCode, String teamName);
+
 }

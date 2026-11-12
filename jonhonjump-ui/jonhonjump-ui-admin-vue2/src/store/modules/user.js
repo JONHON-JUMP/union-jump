@@ -47,7 +47,8 @@ const user = {
     roles: [],
     permissions: [],
     /** 登录时权限版本；与服务端比对决定是否提示重登 */
-    permRbacVersion: null
+    permRbacVersion: null,
+    mustChangePassword: false
   },
 
   mutations: {
@@ -74,6 +75,9 @@ const user = {
     },
     SET_PERM_RBAC_VERSION: (state, version) => {
       state.permRbacVersion = version == null ? null : Number(version)
+    },
+    SET_MUST_CHANGE_PASSWORD: (state, value) => {
+      state.mustChangePassword = !!value
     }
   },
 
@@ -158,6 +162,7 @@ const user = {
           commit('SET_ROLES', roles)
           commit('SET_PERMISSIONS', normalizePermissions(res.permissions))
           commit('SET_PERM_RBAC_VERSION', res.rbacVersion != null ? res.rbacVersion : 0)
+          commit('SET_MUST_CHANGE_PASSWORD', res.mustChangePassword === true)
           commit('SET_ID', user.id)
           commit('SET_NAME', user.userName || user.username)
           commit('SET_NICKNAME', user.nickname)

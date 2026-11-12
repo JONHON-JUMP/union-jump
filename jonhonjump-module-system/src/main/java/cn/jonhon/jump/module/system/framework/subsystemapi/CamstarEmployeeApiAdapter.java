@@ -206,17 +206,18 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
     }
 
     /**
-     * 同步域账号/刷卡卡号/ERP号。Camstar 没有单独的账号接口，这三项就在「修改人员」
+     * 同步域账号/刷卡卡号/ERP号/班组。Camstar 没有单独的账号接口，这几项就在「修改人员」
      * addOrUpdateUser 里。该接口是全量覆盖，所以先查出人员原样回写，只替换本次要同步的非空字段，
-     * 不传 password，避免把班组、角色、菜单、工位清掉或重置密码。
+     * 不传 password，避免把角色、菜单、工位清掉或重置密码。班组只同步非空值：
+     * 花名册清空班组不会同步删除人员-班组关系（防误操作，需调组时另在对方系统处理）。
      */
     @Override
     public void updateUserAccount(SubSystemEmployeeDTO employee) {
         requireEnabled(queryEndpoint, "查询");
         requireEnabled(updateEndpoint, "修改人员");
         if (StrUtil.isBlank(employee.getDomainName()) && StrUtil.isBlank(employee.getCardNo())
-                && StrUtil.isBlank(employee.getErpNo())) {
-            throw new ExternalApiException("域账号、刷卡卡号、ERP号至少填写一个");
+                && StrUtil.isBlank(employee.getErpNo()) && StrUtil.isBlank(employee.getTeamCode())) {
+            throw new ExternalApiException("域账号、刷卡卡号、ERP号、班组至少填写一个");
         }
         JsonNode matched = findEmployeeByUserCode(employee.getUserCode());
         if (matched == null) {
@@ -240,6 +241,8 @@ public class CamstarEmployeeApiAdapter implements SubSystemEmployeeApi {
         putIfNotBlank(item, "domainName", employee.getDomainName());
         putIfNotBlank(item, "cardNo", employee.getCardNo());
         putIfNotBlank(item, "erpNo", employee.getErpNo());
+        // 班组编码即 Camstar TEAM 主键，直接按编码调组
+        putIfNotBlank(item, "teamCode", employee.getTeamCode());
         JsonNode resp = executeWithRelogin(updateEndpoint, Collections.singletonList(item));
         checkSuccess(resp);
     }

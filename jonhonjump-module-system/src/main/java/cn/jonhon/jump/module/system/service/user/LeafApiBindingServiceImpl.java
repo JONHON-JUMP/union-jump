@@ -266,11 +266,20 @@ public class LeafApiBindingServiceImpl implements LeafApiBindingService {
         if (ApiEndpointSpecs.DELETE.equals(purpose)) {
             return "删除人员";
         }
-        if (ApiEndpointSpecs.ROLE_DELETE.equals(purpose)) {
-            return "删除角色";
+        if (ApiEndpointSpecs.ROLE_UPDATE.equals(purpose)) {
+            return "修改角色";
         }
         if (ApiEndpointSpecs.TEAM_COMBO.equals(purpose)) {
             return "班组下拉";
+        }
+        if (ApiEndpointSpecs.TEAM_QUERY.equals(purpose)) {
+            return "查询班组";
+        }
+        if (ApiEndpointSpecs.TEAM_CREATE.equals(purpose)) {
+            return "新增班组";
+        }
+        if (ApiEndpointSpecs.TEAM_UPDATE.equals(purpose)) {
+            return "修改班组";
         }
         return StrUtil.blankToDefault(purpose, "接口");
     }

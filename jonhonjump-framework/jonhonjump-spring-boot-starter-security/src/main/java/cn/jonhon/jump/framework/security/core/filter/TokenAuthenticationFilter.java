@@ -56,6 +56,10 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
                 // 2. 设置当前用户
                 if (loginUser != null) {
                     SecurityFrameworkUtils.setLoginUser(loginUser, request);
+                    // 初始密码只放行改密码、取登录信息和退出
+                    if (mustChangePassword(loginUser) && !isPasswordChangeAllowed(request)) {
+                        throw new ServiceException(1002000013, "当前为初始密码，请先修改密码后再使用系统");
+                    }
                 }
             } catch (Throwable ex) {
                 CommonResult<?> result = globalExceptionHandler.allExceptionHandler(request, ex);
@@ -66,6 +70,19 @@ public class TokenAuthenticationFilter extends OncePerRequestFilter {
 
         // 继续过滤链
         chain.doFilter(request, response);
+    }
+
+    private static boolean mustChangePassword(LoginUser loginUser) {
+        return loginUser.getInfo() != null
+                && "true".equals(loginUser.getInfo().get(LoginUser.INFO_KEY_MUST_CHANGE_PASSWORD));
+    }
+
+    private static boolean isPasswordChangeAllowed(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri.contains("/system/auth/logout")
+                || uri.contains("/system/auth/get-permission-info")
+                || uri.contains("/system/auth/refresh-token")
+                || uri.contains("/system/user/profile/update-password");
     }
 
     private LoginUser buildLoginUserByToken(String token, Integer userType) {

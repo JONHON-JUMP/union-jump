@@ -142,20 +142,23 @@
             <el-form-item label="用途">
               <el-select v-model="editApi.purpose" style="width: 240px" placeholder="绑定业务动作">
                 <el-option label="无（仅配置/测试）" value="" />
-                <el-option label="查询人员" value="query" />
-                <el-option label="新增人员（用户同步用）" value="create" />
-                <el-option label="修改人员" value="update" />
-                <el-option label="人员分配角色（分配角色同步用）" value="assign_role" />
-                <el-option label="删除人员" value="delete" />
-                <el-option label="班组下拉" value="team_combo" />
-                <el-option label="角色查询" value="role_query" />
-                <el-option label="角色新增（裸角色，不挂页面）" value="role_create" />
-                <el-option label="角色删除" value="role_delete" />
+                <el-option-group label="人员接口">
+                  <el-option v-for="item in purposeOptions.person" :key="item.value" :label="item.label" :value="item.value" />
+                </el-option-group>
+                <el-option-group label="角色接口">
+                  <el-option v-for="item in purposeOptions.role" :key="item.value" :label="item.label" :value="item.value" />
+                </el-option-group>
+                <el-option-group label="班组接口">
+                  <el-option v-for="item in purposeOptions.team" :key="item.value" :label="item.label" :value="item.value" />
+                </el-option-group>
               </el-select>
               <div class="form-tip">同一用途只能配置一个接口；设置用途后自动归入对应分组</div>
               <div class="form-tip" v-if="editApi.purpose === 'create'">用户管理 → 添加用户 → 同步业务系统，将调用本接口</div>
               <div class="form-tip" v-else-if="editApi.purpose === 'assign_role'">花名册 → 分配角色 → 勾选「同步外部」时调用本接口（自动按 查现状→合并角色→原样回写 构造请求体，只改角色不动其他字段）</div>
               <div class="form-tip" v-else-if="editApi.purpose === 'update'">修改人员，也用于同步域账号、刷卡卡号、ERP号。请求参数与本页「修改」一致，含 domainName、cardNo、erpNo</div>
+              <div class="form-tip" v-else-if="editApi.purpose === 'role_update'">修改角色接口。页面上的修改只改 JUMP，不会调用本接口</div>
+              <div class="form-tip" v-else-if="editApi.purpose === 'team_create'">新增班组并勾选同步时调用（Camstar 为 addOrUpdateTeam）</div>
+              <div class="form-tip" v-else-if="editApi.purpose === 'team_update'">修改班组接口。页面上的修改只改 JUMP，不会调用本接口</div>
             </el-form-item>
             <el-form-item label="启用">
               <el-switch v-model="editApi.enabled" />
@@ -244,32 +247,65 @@ import {
   updateSubSystemApiConfig
 } from '@/api/system/subSystemApiConfig'
 
-const PURPOSES = ['query', 'create', 'update', 'assign_role', 'delete', 'team_combo', 'role_query', 'role_create', 'role_delete']
+const PURPOSES = [
+  'query', 'create', 'update', 'assign_role', 'delete',
+  'role_query', 'role_create', 'role_update',
+  'team_combo', 'team_query', 'team_create', 'team_update'
+]
 
-/** 用途 → 显示名 */
+/** 用途 → 显示名：组内统一叫 查询/新增/修改/删除，类别由分组表达，不再用「角色新增」这类命名 */
 const PURPOSE_LABELS = {
   '': '无',
-  query: '查询人员',
-  create: '新增人员',
-  update: '修改人员',
-  assign_role: '人员分配角色',
-  delete: '删除人员',
+  query: '查询',
+  create: '新增',
+  update: '修改',
+  assign_role: '分配角色',
+  delete: '删除',
+  role_query: '查询',
+  role_create: '新增',
+  role_update: '修改',
   team_combo: '班组下拉',
-  role_query: '角色查询',
-  role_create: '角色新增',
-  role_delete: '角色删除'
+  team_query: '查询',
+  team_create: '新增',
+  team_update: '修改'
+}
+
+/** 用途下拉分组：组内选项按 查询→新增→修改→删除 排列 */
+const PURPOSE_OPTIONS = {
+  person: [
+    { value: 'query', label: '查询' },
+    { value: 'create', label: '新增' },
+    { value: 'update', label: '修改' },
+    { value: 'delete', label: '删除' },
+    { value: 'assign_role', label: '分配角色' }
+  ],
+  role: [
+    { value: 'role_query', label: '查询' },
+    { value: 'role_create', label: '新增' },
+    { value: 'role_update', label: '修改' }
+  ],
+  team: [
+    { value: 'team_query', label: '查询' },
+    { value: 'team_create', label: '新增' },
+    { value: 'team_update', label: '修改' },
+    { value: 'team_combo', label: '班组下拉' }
+  ]
 }
 
 /** 固定分组：按用途自动归组（与后端 ApiEndpointSpecs.groupOf 规则一致） */
 const GROUPS = [
   { code: 'person', label: '人员接口' },
   { code: 'role', label: '角色接口' },
+  { code: 'team', label: '班组接口' },
   { code: 'other', label: '其他接口' }
 ]
 
 function groupOfPurpose(purpose) {
   if (!purpose) return 'other'
-  return String(purpose).indexOf('role_') === 0 ? 'role' : 'person'
+  const p = String(purpose)
+  if (p.indexOf('role_') === 0) return 'role'
+  if (p.indexOf('team_') === 0) return 'team'
+  return 'person'
 }
 
 const CAMSTAR_SAMPLES = {
@@ -295,7 +331,12 @@ const CAMSTAR_SAMPLES = {
   // Camstar 角色（裸角色，不挂页面）：全部 POST；新增/删除要求会话工号挂「管理员/Administrator」角色
   role_query: { workshopCode: '4200' },
   role_create: [{ roleName: 'JUMP测试角色', workshopCode: '4200' }],
-  role_delete: { roleId: '从角色查询结果中复制的 roleId' }
+  // 角色修改：roleId 非空走修改（updateRolePage）；roleId 从角色查询结果获取
+  role_update: [{ roleId: '从角色查询结果中复制的 roleId', roleName: 'JUMP测试角色', workshopCode: '4200' }],
+  // Camstar 班组（TeamController）：查询 getTeamInfo；新增为 addOrUpdateTeam。页面修改不调用
+  team_query: { workshopCode: '4200', teamCode: '', page: 1, rows: 500 },
+  team_create: [{ teamCode: 'T4200-01', teamName: '一车间甲班', workshopCode: '4200' }],
+  team_update: [{ teamCode: 'T4200-01', teamName: '一车间甲班（改名）', workshopCode: '4200' }]
 }
 
 function uid(prefix) {
@@ -375,14 +416,17 @@ function defaultEndpoints(host) {
     sort: null
   })
   return [
-    mk('query', '查询人员', '/BasicData/Employee/getEmployeeInfo'),
-    mk('create', '新增人员', '/BasicData/Employee/addOrUpdateUser'),
-    mk('update', '修改人员', '/BasicData/Employee/addOrUpdateUser'),
-    mk('assign_role', '人员分配角色', '/BasicData/Employee/addOrUpdateUser'),
-    mk('delete', '删除人员', '/BasicData/Employee/deleteEmployeeInfo'),
-    mk('role_query', '角色查询', '/BasicData/Role/getRoleInfo'),
-    mk('role_create', '角色新增', '/BasicData/Role/updateRoleInfo'),
-    mk('role_delete', '角色删除', '/BasicData/Role/deleteRoleInfo')
+    mk('query', '查询', '/BasicData/Employee/getEmployeeInfo'),
+    mk('create', '新增', '/BasicData/Employee/addOrUpdateUser'),
+    mk('update', '修改', '/BasicData/Employee/addOrUpdateUser'),
+    mk('assign_role', '分配角色', '/BasicData/Employee/addOrUpdateUser'),
+    mk('delete', '删除', '/BasicData/Employee/deleteEmployeeInfo'),
+    mk('role_query', '查询', '/BasicData/Role/getRoleInfo'),
+    mk('role_create', '新增', '/BasicData/Role/updateRoleInfo'),
+    mk('role_update', '修改', '/BasicData/Role/updateRoleInfo'),
+    mk('team_query', '查询', '/BasicData/Team/getTeamInfo'),
+    mk('team_create', '新增', '/BasicData/Team/addOrUpdateTeam'),
+    mk('team_update', '修改', '/BasicData/Team/addOrUpdateTeam')
   ]
 }
 
@@ -390,6 +434,8 @@ export default {
   name: 'SubSystemApiConfig',
   data() {
     return {
+      /** 用途下拉分组选项（组内统一 查询/新增/修改/删除） */
+      purposeOptions: PURPOSE_OPTIONS,
       loading: false,
       testing: false,
       clientList: [],
@@ -489,8 +535,7 @@ export default {
     },
     /** 人员/角色接口：Cookie 从系统级会话设置自动带，不在本页重复配置 */
     isWithSessionPurpose() {
-      const purposes = ['query', 'create', 'update', 'assign_role', 'delete', 'team_combo', 'role_query', 'role_create', 'role_delete']
-      return purposes.indexOf(this.editApi && this.editApi.purpose) >= 0
+      return PURPOSES.indexOf(this.editApi && this.editApi.purpose) >= 0
     },
     currentSession() {
       if (!this.currentNode || !this.currentNode.subSystemId) return null

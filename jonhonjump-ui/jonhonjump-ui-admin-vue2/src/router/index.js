@@ -53,6 +53,12 @@ export const constantRoutes = [
     hidden: true
   },
   {
+    path: '/force-change-password',
+    component: (resolve) => require(['@/views/forceChangePassword'], resolve),
+    hidden: true,
+    meta: { title: '修改初始密码' }
+  },
+  {
     path: '/social-login',
     component: (resolve) => require(['@/views/socialLogin'], resolve),
     hidden: true

@@ -217,6 +217,7 @@
             <div v-if="syncRoleNamePreview">将同步角色名：<b>{{ syncRoleNamePreview }}</b></div>
           </div>
         </template>
+        <div v-else class="form-tip" style="margin: 0 0 12px 110px">只修改 JUMP 本地，不同步到业务系统</div>
       </el-form>
       <div slot="footer" class="dialog-footer">
         <el-button type="primary" :loading="submitting" @click="submitForm">确 定</el-button>

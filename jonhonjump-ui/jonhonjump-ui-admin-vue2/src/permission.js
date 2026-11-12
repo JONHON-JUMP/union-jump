@@ -29,6 +29,7 @@ NProgress.configure({ showSpinner: false })
 
 // 增加三方登陆 update by 芋艿
 const whiteList = ['/login', '/social-login',  '/auth-redirect', '/bind', '/register', '/oauthLogin/gitee']
+const FORCE_CHANGE_PASSWORD_PATH = '/force-change-password'
 
 function isLoginPath(path) {
   return path === '/login' || path === '/login/' || path.indexOf('/login/') === 0
@@ -370,6 +371,18 @@ router.beforeEach((to, from, next) => {
         store.dispatch('GetInfo', { includeMenus: false }).then(() => {
           loadMenuStyleDefault()
           isRelogin.show = false
+          if (store.state.user.mustChangePassword) {
+            if (to.path === FORCE_CHANGE_PASSWORD_PATH) {
+              next()
+            } else {
+              next({ path: FORCE_CHANGE_PASSWORD_PATH, replace: true })
+            }
+            return
+          }
+          if (to.path === FORCE_CHANGE_PASSWORD_PATH) {
+            next({ path: '/index', replace: true })
+            return
+          }
           // permWatch 已停用：菜单/权限变更靠后端 cache-aside（改数据删 Redis）+ 用户刷新页面获取
 
           const finishNavigation = () => {
@@ -406,6 +419,16 @@ router.beforeEach((to, from, next) => {
           })
         })
       } else {
+        if (store.state.user.mustChangePassword && to.path !== FORCE_CHANGE_PASSWORD_PATH) {
+          next({ path: FORCE_CHANGE_PASSWORD_PATH, replace: true })
+          NProgress.done()
+          return
+        }
+        if (!store.state.user.mustChangePassword && to.path === FORCE_CHANGE_PASSWORD_PATH) {
+          next({ path: '/index', replace: true })
+          NProgress.done()
+          return
+        }
         continueNavigation(to, from, next)
       }
     }

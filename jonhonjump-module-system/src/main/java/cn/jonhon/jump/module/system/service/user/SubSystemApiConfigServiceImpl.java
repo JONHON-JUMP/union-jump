@@ -350,6 +350,122 @@ public class SubSystemApiConfigServiceImpl implements SubSystemApiConfigService 
         return nameToId;
     }
 
+    @Override
+    public Map<String, String> queryExternalTeams(Long subSystemId, String workshopCode, String teamCode) {
+        SubSystemApiConfigDO config = subSystemApiConfigMapper.selectBySubSystemId(subSystemId);
+        if (config == null) {
+            throw exception(SUB_SYSTEM_API_CONFIG_NOT_EXISTS);
+        }
+        SubSystemApiEndpointDO teamQuery = subSystemApiEndpointMapper
+                .selectBySubSystemIdAndPurpose(subSystemId, ApiEndpointSpecs.TEAM_QUERY);
+        if (teamQuery == null) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, "班组查询接口未配置");
+        }
+        EndpointSpec endpoint = ApiEndpointSpecs.toSpec(teamQuery);
+        if (!endpoint.isEnabled()) {
+            throw exception(SUB_SYSTEM_API_ENDPOINT_DISABLED, "team_query");
+        }
+        // 与角色查询一致：固定 POST + JSON 绑定参数；空条件不传避免滤成 0 条
+        endpoint.setMethod("POST");
+        Map<String, Object> body = new HashMap<>();
+        if (StrUtil.isNotBlank(workshopCode)) {
+            body.put("workshopCode", workshopCode.trim());
+        }
+        if (StrUtil.isNotBlank(teamCode)) {
+            body.put("teamCode", teamCode.trim());
+        }
+        body.put("page", 1);
+        body.put("rows", 500);
+        ExternalApiHttpClient httpClient = new ExternalApiHttpClient(
+                config.getBaseUrl(), config.getConnectTimeoutMs(), config.getReadTimeoutMs());
+        JsonNode resp;
+        try {
+            String raw = httpClient.execute(endpoint, body, buildAuthHeaders(config, endpoint));
+            resp = JsonUtils.parseObject(raw, JsonNode.class);
+        } catch (ExternalApiException e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        } catch (Exception e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, e.getMessage());
+        }
+        if (!isExternalSuccess(resp)) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, resp.path("message").asText("班组查询失败"));
+        }
+        JsonNode rows = firstArray(resp, "rows", "Rows", "data", "Data");
+        if (rows == null && resp.path("data").isObject()) {
+            rows = firstArray(resp.get("data"), "rows", "Rows", "list", "data");
+        }
+        Map<String, String> codeToName = new HashMap<>();
+        if (rows == null) {
+            return codeToName;
+        }
+        for (JsonNode row : rows) {
+            if (row == null || !row.isObject()) {
+                continue;
+            }
+            // getTeamInfo 返回 teamCode/teamName；getTeamComboByFactory 是 TEAMID/TEAMNAME
+            String rowTeamCode = firstText(row, "teamCode", "TeamCode", "TEAMCODE", "teamId", "TEAMID");
+            String rowTeamName = firstText(row, "teamName", "TeamName", "TEAMNAME");
+            if (StrUtil.isNotBlank(rowTeamCode)) {
+                codeToName.put(rowTeamCode.trim(), StrUtil.trimToEmpty(rowTeamName));
+            }
+        }
+        return codeToName;
+    }
+
+    @Override
+    public void pushExternalTeamCreate(Long subSystemId, String workshopCode, String teamCode, String teamName) {
+        if (StrUtil.isBlank(teamCode)) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, "班组编码不能为空");
+        }
+        Map<String, Object> item = new HashMap<>();
+        item.put("teamCode", teamCode.trim());
+        item.put("teamName", teamName);
+        if (StrUtil.isNotBlank(workshopCode)) {
+            item.put("workshopCode", workshopCode.trim());
+        }
+        executeExternalPush(subSystemId, ApiEndpointSpecs.TEAM_CREATE, "team_create",
+                "班组新增", Collections.singletonList(item));
+    }
+
+    /**
+     * 外部推送统一收口：找接口行 → 校验启用 → POST（JSON）→ 校验业务 code。
+     * 请求体为 List 时按 Camstar 批量接口约定传 JSON 数组，其余传对象。
+     */
+    private void executeExternalPush(Long subSystemId, String purpose, String purposeKey,
+                                     String actionLabel, Object body) {
+        SubSystemApiConfigDO config = subSystemApiConfigMapper.selectBySubSystemId(subSystemId);
+        if (config == null) {
+            throw exception(SUB_SYSTEM_API_CONFIG_NOT_EXISTS);
+        }
+        SubSystemApiEndpointDO endpointRow = subSystemApiEndpointMapper
+                .selectBySubSystemIdAndPurpose(subSystemId, purpose);
+        if (endpointRow == null) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, actionLabel + "接口未配置");
+        }
+        EndpointSpec endpoint = ApiEndpointSpecs.toSpec(endpointRow);
+        if (!endpoint.isEnabled()) {
+            throw exception(SUB_SYSTEM_API_ENDPOINT_DISABLED, purposeKey);
+        }
+        ExternalApiHttpClient httpClient = new ExternalApiHttpClient(
+                config.getBaseUrl(), config.getConnectTimeoutMs(), config.getReadTimeoutMs());
+        String raw;
+        try {
+            raw = httpClient.execute(endpoint, body, buildAuthHeaders(config, endpoint));
+        } catch (ExternalApiException e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, actionLabel + "失败：" + e.getMessage());
+        }
+        JsonNode resp;
+        try {
+            resp = JsonUtils.parseObject(raw, JsonNode.class);
+        } catch (Exception e) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR, actionLabel + "响应解析失败：" + StrUtil.brief(raw, 300));
+        }
+        if (!isExternalSuccess(resp)) {
+            throw exception(SUB_SYSTEM_EMPLOYEE_API_ERROR,
+                    actionLabel + "失败：" + resp.path("message").asText("未知错误"));
+        }
+    }
+
     /** Camstar AjaxResult.code 可能是数字 200，也可能是枚举名 success */
     private static boolean isExternalSuccess(JsonNode resp) {
         JsonNode code = resp.get("code");

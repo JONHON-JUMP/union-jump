@@ -103,7 +103,7 @@
       setLoading(true)
       loginRequest(account, password).then(function (token) {
         saveToken(token)
-        window.location.href = portalUrl
+        window.location.href = token.mustChangePassword ? '/force-change-password' : portalUrl
       }).catch(function (error) {
         setLoading(false)
         showError(error.message || '登录失败，请检查账号和密码')

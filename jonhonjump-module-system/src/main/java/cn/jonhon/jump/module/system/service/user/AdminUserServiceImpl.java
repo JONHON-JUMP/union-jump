@@ -296,10 +296,12 @@ public class AdminUserServiceImpl implements AdminUserService {
     public void updateUserPassword(Long id, UserProfileUpdatePasswordReqVO reqVO) {
         // 校验旧密码密码
         validateOldPassword(id, reqVO.getOldPassword());
+        rejectIfInitialPassword(reqVO.getNewPassword());
         // 执行更新
         AdminUserDO updateObj = new AdminUserDO().setId(id);
         updateObj.setPassword(encodePassword(reqVO.getNewPassword())); // 加密密码
         userMapper.updateById(updateObj);
+        oauth2TokenService.refreshUserInfo(id, UserTypeEnum.ADMIN.getValue());
     }
 
     @Override
@@ -309,11 +311,12 @@ public class AdminUserServiceImpl implements AdminUserService {
         // 1. 校验用户存在
         AdminUserDO user = validateUserExists(id);
 
-        // 2. 更新密码
+        // 2. 更新密码。管理员仍可重置为初始密码，用户下次登录必须先改掉
         AdminUserDO updateObj = new AdminUserDO();
         updateObj.setId(id);
         updateObj.setPassword(encodePassword(password)); // 加密密码
         userMapper.updateById(updateObj);
+        oauth2TokenService.refreshUserInfo(id, UserTypeEnum.ADMIN.getValue());
 
         // 3. 记录操作日志上下文
         LogRecordContext.putVariable("user", user);
@@ -669,6 +672,26 @@ public class AdminUserServiceImpl implements AdminUserService {
     @Override
     public boolean isPasswordMatch(String rawPassword, String encodedPassword) {
         return passwordEncoder.matches(rawPassword, encodedPassword);
+    }
+
+    @Override
+    public boolean isInitialPassword(String encodedPassword) {
+        if (StrUtil.isBlank(encodedPassword)) {
+            return false;
+        }
+        String configured = StrUtil.trim(configApi.getConfigValueByKey(USER_INIT_PASSWORD_KEY));
+        if (StrUtil.isNotBlank(configured) && passwordEncoder.matches(configured, encodedPassword)) {
+            return true;
+        }
+        return !"123456".equals(configured) && passwordEncoder.matches("123456", encodedPassword);
+    }
+
+    /** 新密码不能仍是初始密码 */
+    private void rejectIfInitialPassword(String rawPassword) {
+        String configured = StrUtil.trim(configApi.getConfigValueByKey(USER_INIT_PASSWORD_KEY));
+        if ("123456".equals(rawPassword) || (StrUtil.isNotBlank(configured) && configured.equals(rawPassword))) {
+            throw exception(USER_PASSWORD_IS_INITIAL);
+        }
     }
 
     /**

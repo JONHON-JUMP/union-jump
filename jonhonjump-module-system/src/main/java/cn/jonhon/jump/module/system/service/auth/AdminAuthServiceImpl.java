@@ -8,6 +8,7 @@ import cn.jonhon.jump.framework.common.util.object.BeanUtils;
 import cn.jonhon.jump.framework.common.util.servlet.ServletUtils;
 import cn.jonhon.jump.framework.common.util.validation.ValidationUtils;
 import cn.jonhon.jump.framework.datapermission.core.annotation.DataPermission;
+import cn.jonhon.jump.framework.security.core.LoginUser;
 import cn.jonhon.jump.module.system.api.logger.dto.LoginLogCreateReqDTO;
 import cn.jonhon.jump.module.system.api.sms.SmsCodeApi;
 import cn.jonhon.jump.module.system.api.sms.dto.code.SmsCodeUseReqDTO;
@@ -283,13 +284,21 @@ public class AdminAuthServiceImpl implements AdminAuthService {
         OAuth2AccessTokenDO accessTokenDO = oauth2TokenService.createAccessToken(userId, getUserType().getValue(),
                 OAuth2ClientConstants.CLIENT_ID_DEFAULT, null);
         // 构建返回结果
-        return BeanUtils.toBean(accessTokenDO, AuthLoginRespVO.class);
+        AuthLoginRespVO respVO = BeanUtils.toBean(accessTokenDO, AuthLoginRespVO.class);
+        respVO.setMustChangePassword(isMustChangePassword(accessTokenDO.getUserInfo()));
+        return respVO;
+    }
+
+    private static boolean isMustChangePassword(java.util.Map<String, String> userInfo) {
+        return userInfo != null && "true".equals(userInfo.get(LoginUser.INFO_KEY_MUST_CHANGE_PASSWORD));
     }
 
     @Override
     public AuthLoginRespVO refreshToken(String refreshToken) {
         OAuth2AccessTokenDO accessTokenDO = oauth2TokenService.refreshAccessToken(refreshToken, OAuth2ClientConstants.CLIENT_ID_DEFAULT);
-        return BeanUtils.toBean(accessTokenDO, AuthLoginRespVO.class);
+        AuthLoginRespVO respVO = BeanUtils.toBean(accessTokenDO, AuthLoginRespVO.class);
+        respVO.setMustChangePassword(isMustChangePassword(accessTokenDO.getUserInfo()));
+        return respVO;
     }
 
     @Override

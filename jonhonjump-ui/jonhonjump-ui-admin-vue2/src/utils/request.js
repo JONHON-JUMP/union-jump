@@ -193,6 +193,11 @@ service.interceptors.response.use(async res => {
 
   if (ignoreMsgs.indexOf(msg) !== -1) { // 如果是忽略的错误码，直接返回 msg 异常
     return Promise.reject(msg)
+  } else if (code === 1002000013) {
+    if (window.location.pathname.indexOf('/force-change-password') !== 0) {
+      window.location.href = '/force-change-password'
+    }
+    return Promise.reject(msg)
   } else if (code === 401) {
     // 静默探测（如 boot-id）：发版窗口勿触发全局重登弹窗
     if (res.config && res.config.isSilent) {

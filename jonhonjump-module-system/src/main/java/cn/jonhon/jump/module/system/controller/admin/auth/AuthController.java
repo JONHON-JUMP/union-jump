@@ -5,6 +5,7 @@ import cn.jonhon.jump.framework.common.enums.UserTypeEnum;
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.framework.datapermission.core.annotation.DataPermission;
 import cn.jonhon.jump.framework.security.config.SecurityProperties;
+import cn.jonhon.jump.framework.security.core.LoginUser;
 import cn.jonhon.jump.framework.security.core.util.SecurityFrameworkUtils;
 import cn.jonhon.jump.module.system.controller.admin.auth.vo.*;
 import cn.jonhon.jump.module.system.enums.logger.LoginLogTypeEnum;
@@ -83,7 +84,15 @@ public class AuthController {
     public CommonResult<AuthPermissionInfoRespVO> getPermissionInfo(
             @RequestParam(value = "includeMenus", defaultValue = "false") boolean includeMenus,
             @RequestParam(value = "redisOnly", defaultValue = "false") boolean redisOnly) {
-        return success(authPermissionInfoService.getPermissionInfo(getLoginUserId(), includeMenus, redisOnly));
+        AuthPermissionInfoRespVO permissionInfo = authPermissionInfoService
+                .getPermissionInfo(getLoginUserId(), includeMenus, redisOnly);
+        if (permissionInfo != null) {
+            LoginUser loginUser = SecurityFrameworkUtils.getLoginUser();
+            boolean mustChange = loginUser != null && loginUser.getInfo() != null
+                    && "true".equals(loginUser.getInfo().get(LoginUser.INFO_KEY_MUST_CHANGE_PASSWORD));
+            permissionInfo.setMustChangePassword(mustChange);
+        }
+        return success(permissionInfo);
     }
 
     @GetMapping("/check-permission")

@@ -234,4 +234,9 @@ public interface AdminUserService {
      */
     boolean isPasswordMatch(String rawPassword, String encodedPassword);
 
+    /**
+     * 密文是否仍是初始密码。配置项 system.user.init-password 和 123456 都算。
+     */
+    boolean isInitialPassword(String encodedPassword);
+
 }

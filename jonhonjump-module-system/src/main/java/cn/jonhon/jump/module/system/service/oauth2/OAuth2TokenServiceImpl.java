@@ -170,6 +170,20 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
     }
 
     @Override
+    public void refreshUserInfo(Long userId, Integer userType) {
+        List<OAuth2AccessTokenDO> accessTokens = oauth2AccessTokenMapper.selectListByUserIdAndUserType(userId, userType);
+        if (CollUtil.isEmpty(accessTokens)) {
+            return;
+        }
+        Map<String, String> userInfo = buildUserInfo(userId, userType);
+        accessTokens.forEach(accessToken -> {
+            accessToken.setUserInfo(userInfo);
+            oauth2AccessTokenMapper.updateById(accessToken);
+            oauth2AccessTokenRedisDAO.set(accessToken);
+        });
+    }
+
+    @Override
     public PageResult<OAuth2AccessTokenDO> getAccessTokenPage(OAuth2AccessTokenPageReqVO reqVO) {
         return oauth2AccessTokenMapper.selectPage(reqVO);
     }
@@ -227,7 +241,9 @@ public class OAuth2TokenServiceImpl implements OAuth2TokenService {
             return MapUtil.builder(LoginUser.INFO_KEY_NICKNAME, user.getNickname())
                     .put(LoginUser.INFO_KEY_DEPT_ID, StrUtil.toStringOrNull(user.getDeptId()))
                     // 人工处理工艺变更通知时使用账号审计，避免将昵称作为操作人。
-                    .put(LoginUser.INFO_KEY_USERNAME, user.getUsername()).build();
+                    .put(LoginUser.INFO_KEY_USERNAME, user.getUsername())
+                    .put(LoginUser.INFO_KEY_MUST_CHANGE_PASSWORD,
+                            String.valueOf(adminUserService.isInitialPassword(user.getPassword()))).build();
         } else if (userType.equals(UserTypeEnum.MEMBER.getValue())) {
             // 注意：目前 Member 暂时不读取，可以按需实现
             return Collections.emptyMap();

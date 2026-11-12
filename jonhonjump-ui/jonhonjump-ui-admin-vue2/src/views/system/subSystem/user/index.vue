@@ -239,6 +239,7 @@
             修改用户名或车间后，已关联的外部账号会变为“未关联”，需要重新注册或关联
           </div>
         </el-form-item>
+        <el-divider content-position="left">可同步到业务系统</el-divider>
         <el-form-item v-if="form.id" label="班组" prop="teamId">
           <el-select v-model="form.teamId" placeholder="请选择班组" clearable filterable style="width: 100%">
             <el-option
@@ -249,7 +250,6 @@
             />
           </el-select>
         </el-form-item>
-        <el-divider content-position="left">可同步到业务系统</el-divider>
         <el-form-item label="域账号">
           <el-input :value="form.domainNo || ''" disabled />
         </el-form-item>
@@ -261,6 +261,7 @@
         </el-form-item>
         <el-form-item label="同步业务系统">
           <el-checkbox v-model="form.syncAccount">是否更新数据至业务系统</el-checkbox>
+          <div class="form-tip">勾选后同步域账号、刷卡卡号、ERP号和班组（按班组编码调组）。清空班组不会同步删除对方系统的班组关系</div>
         </el-form-item>
         <el-form-item label="状态" prop="status">
           <el-radio-group v-model="form.status">
@@ -1123,7 +1124,7 @@ export default {
               const synced = syncRes && syncRes.data && syncRes.data.message
               afterSaved(synced || (isAdd ? '新增成功' : '修改成功'))
             }).catch(() => {
-              this.$modal.msgError('已保存在 JUMP。域账号、刷卡卡号、ERP号同步到业务系统失败')
+              this.$modal.msgError('已保存在 JUMP。域账号、刷卡卡号、ERP号、班组同步到业务系统失败')
               this.open = false
               this.getList()
             })
@@ -1145,7 +1146,7 @@ export default {
               const synced = syncRes && syncRes.data && syncRes.data.message
               afterSaved(synced || '新增成功，已同步注册并关联外部人员')
             }).catch(() => {
-              this.$modal.msgError('人员已注册。域账号、刷卡卡号、ERP号同步失败')
+              this.$modal.msgError('人员已注册。域账号、刷卡卡号、ERP号、班组同步失败')
               this.open = false
               this.getList()
             })

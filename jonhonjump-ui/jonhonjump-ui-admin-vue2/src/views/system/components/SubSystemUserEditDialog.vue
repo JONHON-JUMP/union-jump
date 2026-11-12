@@ -70,6 +70,9 @@
             />
           </el-form-item>
         </el-col>
+      </el-row>
+      <el-divider content-position="left">可同步到业务系统</el-divider>
+      <el-row :gutter="16">
         <el-col :span="12">
           <el-form-item label="班组">
             <el-select v-model="form.teamId" placeholder="请选择班组" clearable filterable style="width: 100%">
@@ -82,9 +85,6 @@
             </el-select>
           </el-form-item>
         </el-col>
-      </el-row>
-      <el-divider content-position="left">可同步到业务系统</el-divider>
-      <el-row :gutter="16">
         <el-col :span="12">
           <el-form-item label="域账号">
             <el-input :value="form.domainNo || ''" disabled />
@@ -544,7 +544,7 @@ export default {
         }
         this.submitLoading = true
         const syncAccount = !!this.form.syncAccount
-        const hasAccount = [this.form.domainNo, this.form.cardNo, this.form.erpNo]
+        const hasAccount = [this.form.domainNo, this.form.cardNo, this.form.erpNo, this.form.teamId]
           .some(value => value != null && String(value).trim() !== '')
         const payload = {
           ...this.form,
@@ -580,7 +580,7 @@ export default {
             this.$modal.msgError(message)
             this.$emit('success')
           }
-          // 先按叶子「新增人员」绑定。已注册的会跳过。有域账号、刷卡卡号或 ERP 号时，再按对应绑定更新
+          // 先按叶子「新增人员」绑定。已注册的会跳过。有域账号、刷卡卡号、ERP 号或班组时，再按修改人员更新
           return registerSubSystemEmployee({
             workshopCode: payload.workshopId,
             ids: [savedId]
@@ -595,7 +595,7 @@ export default {
               return { data: { message: (results[0] && results[0].message) || '已同步到业务系统' } }
             }
             return syncSubSystemUserAccount({ id: savedId }).catch(() => {
-              keep('人员已在业务系统。域账号、刷卡卡号、ERP号同步失败')
+              keep('人员已在业务系统。域账号、刷卡卡号、ERP号、班组同步失败')
               return null
             })
           }).catch(() => {

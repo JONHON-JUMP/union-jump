@@ -78,20 +78,19 @@
           <right-toolbar :showSearch.sync="showSearch" @queryTable="getList" />
         </el-row>
         <el-table v-loading="loading" :data="teamList" @selection-change="handleRowCheckboxChange">
-          <el-table-column type="selection" width="55"/>
-          <el-table-column label="编号" align="center" prop="id" width="80" />
-          <el-table-column label="班组编码" align="center" prop="teamCode" :show-overflow-tooltip="true" />
-          <el-table-column label="班组名称" align="center" prop="teamName" :show-overflow-tooltip="true" />
+          <el-table-column type="selection" width="55" fixed="left"/>
+          <el-table-column label="编号" align="center" prop="id" width="80" fixed="left" />
+          <el-table-column label="班组编码" align="center" prop="teamCode" width="150" :show-overflow-tooltip="true" />
+          <el-table-column label="班组名称" align="center" prop="teamName" width="150" :show-overflow-tooltip="true" />
           <el-table-column label="车间编号" align="center" prop="workshopCode" width="110" :show-overflow-tooltip="true" />
-          <el-table-column label="所属部门" align="center" prop="deptName" width="140" :show-overflow-tooltip="true" />
-          <el-table-column label="班组描述" align="center" prop="description" :show-overflow-tooltip="true" />
+          <el-table-column label="班组描述" align="center" prop="description" width="200" :show-overflow-tooltip="true" />
           <el-table-column label="班组长" align="center" prop="teamLeaderName" width="120" :show-overflow-tooltip="true" />
           <el-table-column label="创建时间" align="center" prop="createTime" width="180">
             <template v-slot="scope">
               <span>{{ parseTime(scope.row.createTime) }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="操作" align="center" class-name="small-padding fixed-width">
+          <el-table-column label="操作" align="center" width="140" fixed="right" class-name="small-padding fixed-width">
             <template v-slot="scope">
               <el-button size="mini" type="text" icon="el-icon-edit" @click="handleUpdate(scope.row)"
                          v-hasPermi="['sub-system:team:update']">修改</el-button>
@@ -106,30 +105,20 @@
     </el-row>
 
     <el-dialog :title="title" :visible.sync="open" width="520px" append-to-body>
-      <el-form ref="form" :model="form" :rules="rules" label-width="90px">
+      <el-form ref="form" :model="form" :rules="formRules" label-width="90px">
         <el-form-item label="业务系统">
           <el-input :value="selectedClient ? selectedClient.name + ' (' + selectedClient.clientId + ')' : ''" disabled />
-        </el-form-item>
-        <el-form-item label="所属部门" prop="deptId">
-          <el-select v-model="form.deptId" placeholder="可选" clearable filterable style="width: 100%">
-            <el-option
-              v-for="item in deptOptions"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-            />
-          </el-select>
         </el-form-item>
         <el-form-item label="车间编号" prop="workshopCode">
           <el-input
             v-model="form.workshopCode"
-            placeholder="可空；写在班组自身"
+            placeholder="请输入车间编号"
             maxlength="50"
             clearable
           />
         </el-form-item>
-        <el-form-item label="班组编码" prop="teamCode">
-          <el-input v-model="form.teamCode" placeholder="请输入班组编码" />
+        <el-form-item v-if="form.id" label="班组编码">
+          <el-input v-model="form.teamCode" disabled />
         </el-form-item>
         <el-form-item label="班组名称" prop="teamName">
           <el-input v-model="form.teamName" placeholder="请输入班组名称" />
@@ -146,6 +135,13 @@
               :value="item.id"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item v-if="!form.id" label="同步">
+          <el-checkbox v-model="form.syncToExternal">同步新增至业务系统</el-checkbox>
+          <div class="sync-hint">勾选后同步到业务系统，班组编码由接口返回。</div>
+        </el-form-item>
+        <el-form-item v-else label="同步">
+          <div class="sync-hint is-inline">只改 JUMP，不同步到业务系统。</div>
         </el-form-item>
       </el-form>
       <div slot="footer" class="dialog-footer">
@@ -204,7 +200,6 @@ import {
   importSubSystemTeamTemplate,
   updateSubSystemTeam
 } from '@/api/system/subSystemTeam'
-import { listSimpleDepts } from '@/api/system/dept'
 import { getBaseHeader } from '@/utils/request'
 import subSystemImportGate from '@/utils/subSystemImportGate'
 import { escapeHtml } from '@/utils/escapeHtml'
@@ -222,7 +217,6 @@ export default {
       clientKeyword: '',
       selectedClient: null,
       userOptions: [],
-      deptOptions: [],
       title: '',
       open: false,
       // 提交中：防双击重复创建
@@ -243,7 +237,6 @@ export default {
       },
       form: {},
       rules: {
-        teamCode: [{ required: true, message: '班组编码不能为空', trigger: 'blur' }],
         teamName: [{ required: true, message: '班组名称不能为空', trigger: 'blur' }]
       }
     }
@@ -255,6 +248,12 @@ export default {
       return process.env.VUE_APP_BASE_API + '/admin-api/system/sub-system-team/import'
         + '?subSystemId=' + (subSystemId || '')
         + '&updateSupport=' + update
+    },
+    formRules() {
+      return {
+        workshopCode: [{ required: true, message: '车间编号不能为空', trigger: 'blur' }],
+        teamName: [{ required: true, message: '班组名称不能为空', trigger: 'blur' }]
+      }
     },
     filteredClientList() {
       const keyword = (this.clientKeyword || '').trim().toLowerCase()
@@ -269,7 +268,6 @@ export default {
   },
   created() {
     this.loadClientList()
-    this.loadDeptOptions()
   },
   methods: {
     loadClientList() {
@@ -283,13 +281,6 @@ export default {
             this.handleClientClick(this.clientList[0])
           }
         })
-      })
-    },
-    loadDeptOptions() {
-      return listSimpleDepts().then(res => {
-        this.deptOptions = res.data || []
-      }).catch(() => {
-        this.deptOptions = []
       })
     },
     loadUserOptions() {
@@ -352,12 +343,13 @@ export default {
       this.form = {
         id: undefined,
         subSystemId: this.selectedClient ? this.selectedClient.id : undefined,
-        deptId: undefined,
         workshopCode: undefined,
         teamCode: undefined,
         teamName: undefined,
         description: undefined,
-        teamLeaderId: undefined
+        teamLeaderId: undefined,
+        // 新增时默认不同步（与角色新建一致）；勾选后先推外部成功再落本地
+        syncToExternal: false
       }
       this.resetForm('form')
     },
@@ -421,7 +413,6 @@ export default {
         this.form = {
           id: res.data.id,
           subSystemId: res.data.subSystemId,
-          deptId: res.data.deptId,
           workshopCode: res.data.workshopCode,
           teamCode: res.data.teamCode,
           teamName: res.data.teamName,
@@ -443,8 +434,12 @@ export default {
           return
         }
         this.submitting = true
-        const request = this.form.id ? updateSubSystemTeam : createSubSystemTeam
-        request(this.form).then(() => {
+        const payload = { ...this.form }
+        if (!payload.id) {
+          delete payload.teamCode
+        }
+        const request = payload.id ? updateSubSystemTeam : createSubSystemTeam
+        request(payload).then(() => {
           this.$modal.msgSuccess(this.form.id ? '修改成功' : '新增成功')
           this.open = false
           this.getList()
@@ -490,6 +485,18 @@ export default {
 </script>
 
 <style lang="scss" scoped>
+.sync-hint {
+  color: #909399;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-top: 4px;
+  white-space: normal;
+  word-break: break-all;
+}
+.sync-hint.is-inline {
+  margin-top: 0;
+  line-height: 40px;
+}
 .sub-system-list {
   max-height: calc(100vh - 220px);
   overflow-y: auto;
@@ -525,3 +532,4 @@ export default {
   }
 }
 </style>
+

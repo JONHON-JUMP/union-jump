@@ -15,7 +15,9 @@ public enum LeafApiSceneEnum {
     EMPLOYEE_QUERY("employee_query", "查询外部人员", ApiEndpointSpecs.QUERY, "查询人员"),
     ROLE_ASSIGN("role_assign", "分配角色同步", ApiEndpointSpecs.UPDATE, "修改人员"),
     ROLE_CREATE("role_create", "角色注册（新增角色）", ApiEndpointSpecs.ROLE_CREATE, "新增角色"),
-    ROLE_QUERY("role_query", "查询外部系统角色", ApiEndpointSpecs.ROLE_QUERY, "查询角色");
+    ROLE_QUERY("role_query", "查询外部系统角色", ApiEndpointSpecs.ROLE_QUERY, "查询角色"),
+    TEAM_CREATE("team_create", "班组新增（新建班组同步）", ApiEndpointSpecs.TEAM_CREATE, "新增班组"),
+    TEAM_QUERY("team_query", "查询外部系统班组", ApiEndpointSpecs.TEAM_QUERY, "查询班组");
 
     private final String scene;
     private final String label;

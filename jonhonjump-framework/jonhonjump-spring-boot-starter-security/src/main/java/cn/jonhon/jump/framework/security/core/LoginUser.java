@@ -24,6 +24,10 @@ public class LoginUser {
      * 管理员登录账号。需要以账号而非昵称记录人工操作时，从 Token 附加信息中读取。
      */
     public static final String INFO_KEY_USERNAME = "username";
+    /**
+     * 当前密码仍是初始密码。为 true 时只能改密码和退出，不能使用其他功能。
+     */
+    public static final String INFO_KEY_MUST_CHANGE_PASSWORD = "mustChangePassword";
 
     /**
      * 用户编号
