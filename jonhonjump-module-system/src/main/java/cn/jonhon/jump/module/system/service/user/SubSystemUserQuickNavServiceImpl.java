@@ -600,6 +600,7 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
             app.setName(menu.getMenuName());
             app.setIcon(menu.getIcon());
             app.setManualUrl(menu.getManualUrl());
+            app.setLink(resolveQuickNavAppLink(menu));
             app.setPath(buildPortalMenuPath(clientId, menuId, menuMap));
             SubSystemMenuDO firstLevel = findFirstLevelMenu(menu, menuMap);
             MenuColorDO style = MenuStyleHelper.resolveFirstLevelStyle(
@@ -609,6 +610,23 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
             apps.add(app);
         }
         return apps;
+    }
+
+    /**
+     * 快捷导航 app 携带原始业务地址（http / IP:端口 直链，含 SPA #/ 路由）。
+     * 前端菜单树未加载或 path 编码不匹配时，用它直接还原带 __hash__ 的壳 path，
+     * 避免前缀命中的兄弟菜单盖掉本菜单的 SPA 路由。
+     */
+    private static String resolveQuickNavAppLink(SubSystemMenuDO menu) {
+        String raw = StrUtil.removePrefix(StrUtil.blankToDefault(menu.getPath(), ""), "/");
+        if (StrUtil.startWithIgnoreCase(raw, "http://") || StrUtil.startWithIgnoreCase(raw, "https://")) {
+            return raw;
+        }
+        // 无协议的 IP:端口[/路径][#/hash] 登记也补全为 http 直链，与前端 slashIpPortRestToHttp 对齐
+        if (raw.matches("^\\d{1,3}(\\.\\d{1,3}){3}:\\d{2,5}(/.*)?$")) {
+            return "http://" + raw;
+        }
+        return null;
     }
 
     private Map<Long, SubSystemMenuDO> loadMenusWithAncestors(Collection<Long> ids) {
@@ -696,7 +714,9 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
 
     /**
      * 门户壳 path 段：与前端 encodeHttpToMesPath 对齐。
-     * 点分 IP + 端口 → 192.168.240.12794200/...（勿再用点改斜杠，否则快捷导航与侧栏 path 不一致打不开）
+     * 点分 IP + 端口 → 192.168.240.12794200/...（勿再用点改斜杠，否则快捷导航与侧栏 path 不一致打不开）；
+     * SPA hash（#/xxx）→ 尾部 __hash__/xxx，否则 URI 解析会把 # 后内容当 fragment 静默丢掉，
+     * 快捷导航打开时查不到叶子菜单，被同基座兄弟菜单的 link 盖成别的页面。
      */
     private String toMesRoutePathSegment(SubSystemMenuDO item) {
         String raw = StrUtil.removePrefix(StrUtil.blankToDefault(item.getPath(), ""), "/");
@@ -707,17 +727,22 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
         if (StrUtil.isNotBlank(shell)) {
             return shell;
         }
-        if (raw.contains(":")) {
+        // 兜底编码：先摘出 SPA hash 再处理，# 不能落进 Vue Router path
+        int hashAt = raw.indexOf('#');
+        String hashless = hashAt >= 0 ? raw.substring(0, hashAt) : raw;
+        String fragment = hashAt >= 0 ? raw.substring(hashAt + 1) : "";
+        if (hashless.contains(":")) {
             java.util.regex.Matcher dotted = java.util.regex.Pattern
                     .compile("^(\\d{1,3}(?:\\.\\d{1,3}){3}):(\\d{2,5})(/.*)?$")
-                    .matcher(raw);
+                    .matcher(hashless);
             if (dotted.matches()) {
                 String after = dotted.group(3);
-                return dotted.group(1) + "9" + dotted.group(2) + (after != null ? after : "");
+                return dotted.group(1) + "9" + dotted.group(2) + (after != null ? after : "")
+                        + encodeShellHash(fragment);
             }
-            return raw.replace(":", "/");
+            return hashless.replace(":", "/") + encodeShellHash(fragment);
         }
-        return raw.replace('.', '_');
+        return hashless.replace('.', '_') + encodeShellHash(fragment);
     }
 
     /** http://192.168.240.127:4200/a → 192.168.240.12794200/a；与前端 portalRoute.encodeHttpToMesPath 一致 */
@@ -725,13 +750,18 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
         if (StrUtil.isBlank(raw)) {
             return null;
         }
+        // SPA hash 先摘出，编成尾部 __hash__/xxx（同前端 encodePureHttpToShell）；
+        // java.net.URI 不会把 fragment 放进 getPath()，不摘就会丢路由
+        int hashAt = raw.indexOf('#');
+        String fragment = hashAt >= 0 ? raw.substring(hashAt + 1) : "";
+        String body = hashAt >= 0 ? raw.substring(0, hashAt) : raw;
         try {
-            String withProto = raw;
-            if (!StrUtil.startWithIgnoreCase(raw, "http://") && !StrUtil.startWithIgnoreCase(raw, "https://")) {
-                if (!raw.matches("^\\d{1,3}(\\.\\d{1,3}){3}:\\d{2,5}(/.*)?$")) {
+            String withProto = body;
+            if (!StrUtil.startWithIgnoreCase(body, "http://") && !StrUtil.startWithIgnoreCase(body, "https://")) {
+                if (!body.matches("^\\d{1,3}(\\.\\d{1,3}){3}:\\d{2,5}(/.*)?$")) {
                     return null;
                 }
-                withProto = "http://" + raw;
+                withProto = "http://" + body;
             }
             java.net.URI u = java.net.URI.create(withProto);
             String host = u.getHost();
@@ -746,17 +776,27 @@ public class SubSystemUserQuickNavServiceImpl implements SubSystemUserQuickNavSe
                 String q = u.getRawQuery();
                 return host + "9" + port
                         + (StrUtil.isNotBlank(path) ? "/" + path : "")
-                        + (StrUtil.isNotBlank(q) ? "?" + q : "");
+                        + (StrUtil.isNotBlank(q) ? "?" + q : "")
+                        + encodeShellHash(fragment);
             }
             // 非点分 IP 主机：保留旧斜杠编码
-            return raw.replace("https://", "")
+            return body.replace("https://", "")
                     .replace("http://", "")
                     .replace("www.", "")
                     .replace(".", "/")
-                    .replace(":", "/");
+                    .replace(":", "/")
+                    + encodeShellHash(fragment);
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    /** SPA hash → /__hash__/ 段（与前端 encodePureHttpToShell 一致）；无 hash 返回空串 */
+    private static String encodeShellHash(String fragment) {
+        if (StrUtil.isBlank(fragment)) {
+            return "";
+        }
+        return "/__hash__/" + fragment.replaceAll("^/+", "");
     }
 
     private Set<SubSystemQuickNavCacheKey> convertCacheKeys(List<SubSystemUserQuickNavDO> affectedList) {

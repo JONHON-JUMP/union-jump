@@ -100,10 +100,10 @@ public class SubSystemUserQuickNavRedisDAO {
         }
     }
 
-    /** sub_system_user_quick_nav_v3:*:{subSystemId}:* ，前缀来自 RedisKeyConstants */
+    /** sub_system_user_quick_nav_v4:*:{subSystemId}:* ，前缀来自 RedisKeyConstants */
     public static String formatSubSystemPattern(Long subSystemId) {
         int marker = SUB_SYSTEM_USER_QUICK_NAV.indexOf("%s");
-        String prefix = marker > 0 ? SUB_SYSTEM_USER_QUICK_NAV.substring(0, marker) : "sub_system_user_quick_nav_v3:";
+        String prefix = marker > 0 ? SUB_SYSTEM_USER_QUICK_NAV.substring(0, marker) : "sub_system_user_quick_nav_v4:";
         return prefix + "*:" + subSystemId + ":*";
     }
 

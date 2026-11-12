@@ -6,6 +6,7 @@ import cn.jonhon.jump.framework.common.enums.CommonStatusEnum;
 import cn.jonhon.jump.framework.common.pojo.CommonResult;
 import cn.jonhon.jump.framework.common.pojo.PageParam;
 import cn.jonhon.jump.framework.common.pojo.PageResult;
+import cn.jonhon.jump.framework.excel.core.handler.TextColumnSheetWriteHandler;
 import cn.jonhon.jump.framework.excel.core.util.ExcelUtils;
 import cn.jonhon.jump.module.system.controller.admin.user.vo.user.*;
 import cn.jonhon.jump.module.system.convert.user.UserConvert;
@@ -168,7 +169,7 @@ public class UserController {
                         .employeeNo("77176").domainNo("zhangsan")
                         .workshopId("4303").bizUsername("771764303")
                         .roleCodes("4303_装配工").cardNo("771764303").erpNo("430300001")
-                        .remark("示例：一个人只挂一个车间。正式导入前删掉示例行。").build(),
+                        .remark("示例：一个人只挂一个车间。各列都是文本，0开头要保留。正式导入前删掉示例行。").build(),
                 UserBizImportExcelVO.builder().username("HY122").nickname("李行行-WB")
                         .employeeNo("HY122").domainNo("lihang")
                         .workshopId("4306").bizUsername("HY1224306")
@@ -180,7 +181,8 @@ public class UserController {
                         .roleCodes("4309_装配工").cardNo("HY1224309").erpNo("430913432")
                         .remark("示例：与上一行是同一个人，车间和业务用户名不同。").build()
         );
-        ExcelUtils.write(response, "用户导入模板.xls", "用户列表", UserBizImportExcelVO.class, list);
+        ExcelUtils.write(response, "用户导入模板.xlsx", "用户列表", UserBizImportExcelVO.class, list,
+                new TextColumnSheetWriteHandler(UserBizImportExcelVO.class));
     }
 
     @PostMapping("/import")

@@ -1,6 +1,7 @@
 package cn.jonhon.jump.module.system.controller.admin.user.vo.user;
 
 import cn.idev.excel.annotation.ExcelProperty;
+import cn.jonhon.jump.framework.excel.core.convert.ExcelTextStringConverter;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,35 +19,35 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class UserBizImportExcelVO {
 
-    @ExcelProperty("用户名（必填）")
+    @ExcelProperty(value = "用户名（必填）", converter = ExcelTextStringConverter.class)
     private String username;
 
-    @ExcelProperty("用户姓名（必填）")
+    @ExcelProperty(value = "用户姓名（必填）", converter = ExcelTextStringConverter.class)
     private String nickname;
 
-    @ExcelProperty("工号（非必填）")
+    @ExcelProperty(value = "工号（非必填）", converter = ExcelTextStringConverter.class)
     private String employeeNo;
 
-    @ExcelProperty("域账号（非必填）")
+    @ExcelProperty(value = "域账号（非必填）", converter = ExcelTextStringConverter.class)
     private String domainNo;
 
-    @ExcelProperty("车间编号（必填）")
+    @ExcelProperty(value = "车间编号（必填）", converter = ExcelTextStringConverter.class)
     private String workshopId;
 
-    @ExcelProperty("业务用户名（必填）")
+    @ExcelProperty(value = "业务用户名（必填）", converter = ExcelTextStringConverter.class)
     private String bizUsername;
 
-    @ExcelProperty("角色标识（必填）")
+    @ExcelProperty(value = "角色标识（必填）", converter = ExcelTextStringConverter.class)
     private String roleCodes;
 
-    @ExcelProperty("刷卡卡号（非必填）")
+    @ExcelProperty(value = "刷卡卡号（非必填）", converter = ExcelTextStringConverter.class)
     private String cardNo;
 
-    @ExcelProperty("ERP号（非必填）")
+    @ExcelProperty(value = "ERP号（非必填）", converter = ExcelTextStringConverter.class)
     private String erpNo;
 
     /** 模板提示列。导入时不读取、不入库。 */
-    @ExcelProperty("备注（仅提示，不导入）")
+    @ExcelProperty(value = "备注（仅提示，不导入）", converter = ExcelTextStringConverter.class)
     private String remark;
 
 }

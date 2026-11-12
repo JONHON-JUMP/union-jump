@@ -593,18 +593,30 @@ export default {
         const menusReady = !!(this.$store.state.portal.loadedSubSystems || {})[openClientId]
         const activeMap = this.$store.state.portal.pathLinkMap || {}
         const cachedMap = (this.$store.state.portal.subSystemPathLinkCache || {})[openClientId] || {}
-        const entry = activeMap[targetPath] || lookupPathLinkEntry(targetPath, activeMap)
+        // 身份优先：按 menuId 命中 /portal/{client}/m{id} 短键（带 canonicalPath）。
+        // 前缀命中的 entry 可能是同 IP:端口 基座下的兄弟菜单，hash 会被盖错。
+        const menuIdKey = app.menuId != null ? `/portal/${openClientId}/m${app.menuId}` : ''
+        const entryById = menuIdKey ? (activeMap[menuIdKey] || cachedMap[menuIdKey]) : null
+        if (entryById && entryById.canonicalPath) {
+          targetPath = alignPortalPathToCurrentLeaf(entryById.canonicalPath, this.portalSystemList, this.currentSystem)
+        }
+        const entry = entryById || activeMap[targetPath] || lookupPathLinkEntry(targetPath, activeMap)
           || cachedMap[targetPath] || lookupPathLinkEntry(targetPath, cachedMap)
           || activeMap[app.path] || lookupPathLinkEntry(app.path, activeMap)
           || cachedMap[app.path] || lookupPathLinkEntry(app.path, cachedMap)
-        const link = (entry && entry.link) || (app && app.link) || ''
-        // 旧快捷导航可能只有 .../d3/needle；有完整 http(含 #) 时重写成带 __hash__ 的壳 path
-        if (link && /^https?:\/\//i.test(link) && String(link).indexOf('#') >= 0) {
-          const loc = httpUrlToPortalLocation(openClientId, link)
+        // 旧快捷导航 path 可能丢 SPA hash（.../d3/needle 无 __hash__）：
+        // 优先用 app.link（本菜单原始地址）补全；entry 前缀命中可能是兄弟菜单，仅作最后兜底。
+        // targetPath 已带 __hash__ 时禁止重建，防止盖掉正确的 SPA 路由。
+        const plainLink = (app && app.link && /^https?:\/\//i.test(app.link)) ? app.link : ''
+        const rebuildLink = plainLink || (entry && entry.link) || ''
+        if (!/\/__hash__\//.test(targetPath)
+          && rebuildLink && /^https?:\/\//i.test(rebuildLink) && String(rebuildLink).indexOf('#') >= 0) {
+          const loc = httpUrlToPortalLocation(openClientId, rebuildLink)
           if (loc && loc.path) {
             targetPath = alignPortalPathToCurrentLeaf(loc.path, this.portalSystemList, this.currentSystem)
           }
         }
+        const link = (entry && entry.link) || plainLink || ''
         const rest = String(targetPath).replace(new RegExp('^/portal/' + openClientId + '/'), '').replace(/\/index$/, '')
         const restHttp = /^menu\d+/i.test(rest) ? '' : (slashIpPortRestToHttp(rest.replace(/:/g, '/')) || '')
         // 任意完整 http(s)（含 /#/xxx）都直开；禁止用壳 path 回退成丢 hash 的 host 根

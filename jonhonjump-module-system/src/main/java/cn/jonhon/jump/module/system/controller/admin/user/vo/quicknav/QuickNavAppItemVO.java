@@ -15,6 +15,8 @@ public class QuickNavAppItemVO {
     private String name;
     /** 门户路由，如 /portal/scada/xxx */
     private String path;
+    /** 原始业务地址（http / IP:端口 直链，可含 SPA #/ 路由）；前端据此还原 __hash__ 壳 path */
+    private String link;
     private String icon;
     private String color;
     private String shape;

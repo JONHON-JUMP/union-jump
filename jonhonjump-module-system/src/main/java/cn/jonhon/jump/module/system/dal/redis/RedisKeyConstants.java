@@ -118,10 +118,12 @@ public interface RedisKeyConstants {
     /**
      * 用户外部子系统快捷导航（按叶子车间隔离）
      * <p>
-     * KEY：sub_system_user_quick_nav_v3:{userId}:{subSystemId}:{workshopCode|-}
+     * KEY：sub_system_user_quick_nav_v4:{userId}:{subSystemId}:{workshopCode|-}
      * VALUE：{@link cn.jonhon.jump.module.system.controller.admin.user.vo.quicknav.SubSystemUserQuickNavRespVO}
+     * <p>
+     * v4：apps.path 补齐 SPA __hash__ 编码并新增 link 字段；旧 v3 缓存的 path 丢 # 路由，靠换版本整体失效
      */
-    String SUB_SYSTEM_USER_QUICK_NAV = "sub_system_user_quick_nav_v3:%s:%s:%s";
+    String SUB_SYSTEM_USER_QUICK_NAV = "sub_system_user_quick_nav_v4:%s:%s:%s";
 
     /**
      * 登录用户权限信息缓存

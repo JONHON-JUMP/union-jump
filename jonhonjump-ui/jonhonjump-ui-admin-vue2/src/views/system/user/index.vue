@@ -936,7 +936,7 @@ export default {
     /** 下载模板操作 */
     importTemplate() {
       importTemplate().then(response => {
-        this.$download.excel(response, '用户导入模板.xls');
+        this.$download.xlsx(response, '用户导入模板.xlsx');
       });
     },
     // 文件上传中处理

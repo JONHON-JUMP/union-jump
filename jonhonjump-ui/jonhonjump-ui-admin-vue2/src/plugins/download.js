@@ -4,6 +4,10 @@ export default {
     this.download0(data, fileName, 'application/vnd.ms-excel');
   },
 
+  xlsx(data, fileName) {
+    this.download0(data, fileName, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  },
+
   // 下载 Word 方法
   word(data, fileName) {
     this.download0(data, fileName, 'application/msword');
